@@ -88,8 +88,10 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     setState(() => _exibirMapa = !_exibirMapa);
   }
 
-  Widget _buildResultadoHeader() {
-    return Row(
+Widget _buildResultadoHeader() {
+  return Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    child: Row(
       children: [
         Expanded(
           child: TextField(
@@ -98,16 +100,24 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
               hintText: 'Buscar serviços ou profissionais...',
               prefixIcon: const Icon(Icons.search),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              filled: true,
+              fillColor: Colors.white,
             ),
           ),
         ),
+        const SizedBox(width: 8),
         IconButton(
-          icon: Icon(_exibirMapa ? Icons.list : Icons.map),
+          icon: const Icon(Icons.filter_alt_outlined, color: Colors.deepPurple),
+          onPressed: () => setState(() => _filtrosExibidos = true),
+        ),
+        IconButton(
+          icon: Icon(_exibirMapa ? Icons.list : Icons.map, color: Colors.deepPurple),
           onPressed: _alternarVisualizacao,
-        )
+        ),
       ],
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildMapa() {
     return SizedBox(
@@ -123,133 +133,228 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     );
   }
 
-  Widget _buildServicoCard({
-    required String titulo,
-    required String descricao,
-    required String prestador,
-    required String local,
-    required String preco,
-    required double nota,
-    required int avaliacoes,
-  }) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+Widget _buildServicoCard({
+  required String titulo,
+  required String descricao,
+  required String prestador,
+  required String local,
+  required String preco,
+  required double nota,
+  required int avaliacoes,
+}) {
+  return Card(
+    elevation: 2,
+    margin: const EdgeInsets.only(bottom: 16),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Ícone da categoria
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: Colors.deepPurple.shade50,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(Icons.construction, color: Colors.deepPurple),
+          ),
+          const SizedBox(width: 12),
+
+          // Informações do serviço
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const CircleAvatar(radius: 24, child: Icon(Icons.construction)),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(titulo, style: const TextStyle(fontWeight: FontWeight.bold)),
-                      Text(descricao, maxLines: 2, overflow: TextOverflow.ellipsis),
-                      Text('Prestador: $prestador'),
-                      Text(local),
-                      Text(preco, style: const TextStyle(color: Colors.deepPurple)),
-                      Row(
-                        children: [
-                          const Icon(Icons.star, size: 16, color: Colors.amber),
-                          Text('$nota  '),
-                          Text('($avaliacoes avaliações)', style: const TextStyle(fontSize: 12))
-                        ],
-                      )
-                    ],
-                  ),
+                Text(titulo, style: const TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                Text(descricao, maxLines: 2, overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 4),
+                Text('Prestador: $prestador', style: const TextStyle(fontSize: 13)),
+                Text(local, style: const TextStyle(fontSize: 13)),
+                const SizedBox(height: 4),
+                Text(preco, style: const TextStyle(color: Colors.deepPurple)),
+                Row(
+                  children: [
+                    const Icon(Icons.star, size: 16, color: Colors.amber),
+                    Text('$nota', style: const TextStyle(fontWeight: FontWeight.bold)),
+                    Text('  ($avaliacoes avaliações)', style: const TextStyle(fontSize: 12)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+
+               // Botões
+                Row(
+                  children: [
+                    OutlinedButton(
+                      onPressed: () {},
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.deepPurple,
+                      ),
+                      child: const Text('Perfil Prestador'),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: () {},
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.deepPurple,
+                      ),
+                      child: const Text('Solicitar'),
+                    ),
+                  ],
                 )
               ],
             ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
+          )
+        ],
+      ),
+    ),
+  );
+}
+
+Widget _buildResultado() {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Text('3 serviços encontrados', style: TextStyle(fontWeight: FontWeight.bold)),
+      const SizedBox(height: 16),
+      _exibirMapa
+          ? _buildMapa()
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                TextButton(onPressed: () {}, child: const Text('Perfil Prestador')),
-                ElevatedButton(onPressed: () {}, child: const Text('Solicitar Orçamento')),
+                _buildServicoCard(
+                  titulo: 'Assentamento de pisos cerâmicos',
+                  descricao: 'Instalação de pisos cerâmicos em áreas internas ou externas.',
+                  prestador: 'Jorge Antônio',
+                  local: 'Rio Verde, GO',
+                  preco: 'R\$25,00 - R\$50,00 por m²',
+                  nota: 5.0,
+                  avaliacoes: 60,
+                ),
+                _buildServicoCard(
+                  titulo: 'Assentamento de Porcelanato',
+                  descricao: 'Aplicação com técnicas para evitar desnivelamentos.',
+                  prestador: 'Tiago Mendes',
+                  local: 'Rio Verde, GO',
+                  preco: 'R\$35,00 - R\$60,00 por m²',
+                  nota: 4.7,
+                  avaliacoes: 40,
+                ),
+                _buildServicoCard(
+                  titulo: 'Assentamento de Piso Intertravado',
+                  descricao: 'Instalação para áreas externas com preparo do solo.',
+                  prestador: 'Bruno Vieira',
+                  local: 'Rio Verde, GO',
+                  preco: 'R\$40,00 - R\$75,00 por m²',
+                  nota: 4.5,
+                  avaliacoes: 35,
+                ),
               ],
-            )
-          ],
-        ),
-      ),
-    );
-  }
+            ),
+    ],
+  );
+}
 
-  Widget _buildResultado() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+Widget _buildTopoComBusca() {
+  return Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+    child: Row(
       children: [
-        _buildResultadoHeader(),
-        const SizedBox(height: 16),
-        _exibirMapa
-            ? _buildMapa()
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('3 serviços encontrados', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 16),
-                  _buildServicoCard(
-                    titulo: 'Assentamento de pisos cerâmicos',
-                    descricao: 'Instalação de pisos cerâmicos em áreas internas ou externas.',
-                    prestador: 'Jorge Antônio',
-                    local: 'Rio Verde, GO',
-                    preco: 'R\$25,00 - R\$50,00 por m²',
-                    nota: 5.0,
-                    avaliacoes: 60,
-                  ),
-                  _buildServicoCard(
-                    titulo: 'Assentamento de Porcelanato',
-                    descricao: 'Aplicação com técnicas para evitar desnivelamentos.',
-                    prestador: 'Tiago Mendes',
-                    local: 'Rio Verde, GO',
-                    preco: 'R\$35,00 - R\$60,00 por m²',
-                    nota: 4.7,
-                    avaliacoes: 40,
-                  ),
-                  _buildServicoCard(
-                    titulo: 'Assentamento de Piso Intertravado',
-                    descricao: 'Instalação para áreas externas com preparo do solo.',
-                    prestador: 'Bruno Vieira',
-                    local: 'Rio Verde, GO',
-                    preco: 'R\$40,00 - R\$75,00 por m²',
-                    nota: 4.5,
-                    avaliacoes: 35,
-                  ),
-                ],
-              ),
+        IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            if (!_filtrosExibidos) {
+              // Voltar para os filtros
+              setState(() => _filtrosExibidos = true);
+            } else {
+              // Navegar para tela anterior
+              Navigator.of(context).pop();
+            }
+          },
+        ),
+        Expanded(
+          child: TextField(
+            controller: _buscaController,
+            decoration: InputDecoration(
+              hintText: 'Buscar serviços ou profissionais...',
+              prefixIcon: const Icon(Icons.search),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
+              filled: true,
+              fillColor: Colors.white,
+            ),
+          ),
+        ),
+        if (!_filtrosExibidos) ...[
+          const SizedBox(width: 8),
+          IconButton(
+            icon: const Icon(Icons.filter_alt_outlined, color: Colors.deepPurple),
+            onPressed: () => setState(() => _filtrosExibidos = true),
+          ),
+          IconButton(
+            icon: Icon(
+              _exibirMapa ? Icons.list : Icons.map,
+              color: Colors.deepPurple,
+            ),
+            onPressed: _alternarVisualizacao,
+          ),
+        ]
       ],
-    );
-  }
+    ),
+  );
+}
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.deepPurple,
-        title: const Text('Buscar Serviços'),
+@override
+Widget build(BuildContext context) {
+  return Scaffold(
+    body: SafeArea(
+      child: Column(
+        children: [
+          _buildTopoComBusca(), // Topo com busca e seta
+          const SizedBox(height: 8),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: _filtrosExibidos ? _buildFiltro() : _buildResultado(),
+            ),
+          ),
+        ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: _filtrosExibidos ? _buildFiltro() : _buildResultado(),
-      ),
-    );
-  }
+    ),
+    bottomNavigationBar: _filtrosExibidos
+        ? Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: _buscarServicos,
+                    style: ElevatedButton.styleFrom(backgroundColor: const Color.fromARGB(255, 199, 194, 209)),
+                    child: const Text('Buscar'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _limparFiltros,
+                    child: const Text('Limpar Filtros'),
+                  ),
+                ),
+              ],
+            ),
+          )
+        : null,
+  );
+}
 
   Widget _buildFiltro() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        TextField(
-          controller: _buscaController,
-          decoration: InputDecoration(
-            hintText: 'Buscar serviços ou profissionais...',
-            prefixIcon: const Icon(Icons.search),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-        ),
         const SizedBox(height: 16),
         DropdownButtonFormField<String>(
           value: _categoriaSelecionada,
@@ -331,20 +436,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
           title: const Text('Cartão de crédito/débito'),
           value: _pagamentosAceitos.contains('Cartão de crédito/débito'),
           onChanged: (v) => setState(() => v! ? _pagamentosAceitos.add('Cartão de crédito/débito') : _pagamentosAceitos.remove('Cartão de crédito/débito')),
-        ),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            ElevatedButton(
-              onPressed: _buscarServicos,
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple),
-              child: const Text('Buscar'),
-            ),
-            OutlinedButton(
-              onPressed: _limparFiltros,
-              child: const Text('Limpar Filtros'),
-            ),
-          ],
         ),
       ],
     );
