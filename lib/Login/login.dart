@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'cadastroUsuario.dart';
-import 'home.dart';
+import '../Cliente/home.dart';
+import '../Administrador/perfilAdmin.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -19,18 +20,28 @@ class _LoginScreenState extends State<LoginScreen> {
   void _login() async {
     if (_formKey.currentState!.validate()) {
       try {
-        await _auth.signInWithEmailAndPassword(
+        final userCredential = await _auth.signInWithEmailAndPassword(
           email: emailController.text.trim(),
           password: senhaController.text.trim(),
         );
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
-        );
+
+        final email = userCredential.user?.email;
+
+        if (email == 'jeovannaaraujo78@gmail.com') {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const PerfilAdminScreen()),
+          );
+        } else {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const HomeScreen()),
+          );
+        }
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro: ${e.toString()}')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erro: ${e.toString()}')));
       }
     }
   }
@@ -49,7 +60,8 @@ class _LoginScreenState extends State<LoginScreen> {
               TextFormField(
                 controller: emailController,
                 decoration: const InputDecoration(labelText: 'E-mail'),
-                validator: (value) => value!.isEmpty ? 'Informe o e-mail' : null,
+                validator: (value) =>
+                    value!.isEmpty ? 'Informe o e-mail' : null,
               ),
               TextFormField(
                 controller: senhaController,
@@ -65,7 +77,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   MaterialPageRoute(builder: (_) => CadastroUsuario()),
                 ),
                 child: const Text('Criar conta'),
-              )
+              ),
             ],
           ),
         ),

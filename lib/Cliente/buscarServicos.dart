@@ -27,6 +27,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
   bool _filtrosExibidos = true;
   bool _exibirMapa = false;
 
+  // ignore: unused_field
   late GoogleMapController _mapController;
   final Set<Marker> _marcadores = {
     const Marker(
@@ -88,6 +89,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     setState(() => _exibirMapa = !_exibirMapa);
   }
 
+// ignore: unused_element
 Widget _buildResultadoHeader() {
   return Padding(
     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -357,19 +359,19 @@ Widget build(BuildContext context) {
       children: [
         const SizedBox(height: 16),
         DropdownButtonFormField<String>(
-          value: _categoriaSelecionada,
+          initialValue: _categoriaSelecionada,
           items: ['Todas', 'Hidráulica', 'Elétrica'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
           onChanged: (v) => setState(() => _categoriaSelecionada = v),
           decoration: const InputDecoration(labelText: 'Categoria de serviço'),
         ),
         DropdownButtonFormField<String>(
-          value: _profissionalSelecionado,
+          initialValue: _profissionalSelecionado,
           items: ['Todas', 'Pedreiro', 'Pintor'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
           onChanged: (v) => setState(() => _profissionalSelecionado = v),
           decoration: const InputDecoration(labelText: 'Categoria profissional'),
         ),
         DropdownButtonFormField<String>(
-          value: _unidadeSelecionada,
+          initialValue: _unidadeSelecionada,
           items: ['Todas', 'm²', 'hora'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
           onChanged: (v) => setState(() => _unidadeSelecionada = v),
           decoration: const InputDecoration(labelText: 'Unidade de medida'),
@@ -404,7 +406,7 @@ Widget build(BuildContext context) {
           keyboardType: TextInputType.number,
         ),
         DropdownButtonFormField<String>(
-          value: _disponibilidadeSelecionada,
+          initialValue: _disponibilidadeSelecionada,
           items: ['Disponível', 'Indisponível'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
           onChanged: (v) => setState(() => _disponibilidadeSelecionada = v),
           decoration: const InputDecoration(labelText: 'Disponibilidade'),

@@ -103,7 +103,7 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
               TextFormField(controller: emailController, decoration: const InputDecoration(labelText: 'E-mail'), validator: (v) => v!.isEmpty ? 'Obrigatório' : null),
               TextFormField(controller: senhaController, decoration: const InputDecoration(labelText: 'Senha'), obscureText: true, validator: (v) => v!.length < 6 ? 'Mínimo 6 caracteres' : null),
               TextFormField(controller: confirmarSenhaController, decoration: const InputDecoration(labelText: 'Confirmar senha'), obscureText: true),
-              DropdownButtonFormField(value: tipoPerfil, items: ['Cliente', 'Prestador', 'Ambos'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(), onChanged: (v) => setState(() => tipoPerfil = v!), decoration: const InputDecoration(labelText: 'Tipo de perfil')),
+              DropdownButtonFormField(initialValue: tipoPerfil, items: ['Cliente', 'Prestador', 'Ambos'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(), onChanged: (v) => setState(() => tipoPerfil = v!), decoration: const InputDecoration(labelText: 'Tipo de perfil')),
               const Divider(),
               TextFormField(controller: cepController, decoration: const InputDecoration(labelText: 'CEP'), validator: (v) => v!.isEmpty ? 'Obrigatório' : null),
               TextFormField(controller: cidadeController, decoration: const InputDecoration(labelText: 'Cidade'), validator: (v) => v!.isEmpty ? 'Obrigatório' : null),
@@ -114,9 +114,9 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
               TextFormField(controller: whatsappController, decoration: const InputDecoration(labelText: 'WhatsApp'), validator: (v) => v!.isEmpty ? 'Obrigatório' : null),
               if (isPrestador) ...[
                 const Divider(),
-                DropdownButtonFormField(value: categoriaProfissional.isEmpty ? null : categoriaProfissional, items: categorias.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(), onChanged: (v) => setState(() => categoriaProfissional = v!), decoration: const InputDecoration(labelText: 'Categoria Profissional')),
+                DropdownButtonFormField(initialValue: categoriaProfissional.isEmpty ? null : categoriaProfissional, items: categorias.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(), onChanged: (v) => setState(() => categoriaProfissional = v!), decoration: const InputDecoration(labelText: 'Categoria Profissional')),
                 TextFormField(controller: descricaoController, decoration: const InputDecoration(labelText: 'Descrição (mín. 100 caracteres)'), maxLines: 3, validator: (v) => v != null && v.length < 100 ? 'Mínimo 100 caracteres' : null),
-                DropdownButtonFormField(value: tempoExperiencia, items: experiencias.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(), onChanged: (v) => setState(() => tempoExperiencia = v!), decoration: const InputDecoration(labelText: 'Tempo de experiência')),
+                DropdownButtonFormField(initialValue: tempoExperiencia, items: experiencias.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(), onChanged: (v) => setState(() => tempoExperiencia = v!), decoration: const InputDecoration(labelText: 'Tempo de experiência')),
                 TextFormField(controller: areaAtendimentoController, decoration: const InputDecoration(labelText: 'Área de atendimento'), validator: (v) => v!.isEmpty ? 'Obrigatório' : null),
                 Wrap(
                   children: ['Dinheiro', 'PIX', 'Cartão'].map((e) => CheckboxListTile(
