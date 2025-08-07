@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:myapp/Administrador/categProf.dart';
 import 'unidadeMed.dart';
 import 'categServ.dart';
+import 'visualizarUsuarios.dart';
 
 class PerfilAdminScreen extends StatelessWidget {
   const PerfilAdminScreen({super.key});
@@ -55,7 +57,10 @@ class PerfilAdminScreen extends StatelessWidget {
             title: 'Categorias de Profissionais',
             subtitle: 'Gerencie as categorias disponíveis de profissionais',
             onTap: () {
-              // Navegar para a tela de categorias de profissionais
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const CategProf()),
+              );
             },
           ),
           _buildTile(
@@ -64,7 +69,10 @@ class PerfilAdminScreen extends StatelessWidget {
             title: 'Visualizar Usuários',
             subtitle: 'Listar e monitorar usuários cadastrados',
             onTap: () {
-              // Navegar para a tela de usuários
+            Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const VisualizarUsuarios()),
+              );
             },
           ),
           _buildTile(

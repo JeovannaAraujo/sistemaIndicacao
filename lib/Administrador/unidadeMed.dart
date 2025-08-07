@@ -10,7 +10,7 @@ class UnidadeMedScreen extends StatefulWidget {
 
 class _UnidadeMedScreenState extends State<UnidadeMedScreen> {
   final CollectionReference unidadesRef = FirebaseFirestore.instance.collection(
-    'Unidades',
+    'unidades',
   );
 
   void _abrirDialogo({DocumentSnapshot? unidade}) {
@@ -55,7 +55,7 @@ class _UnidadeMedScreenState extends State<UnidadeMedScreen> {
                 final data = {
                   'nome': nomeCtrl.text,
                   'abreviacao': abrevCtrl.text,
-                  'Ativo': true,
+                  'ativo': true,
                 };
                 if (isEdicao) {
                   unidadesRef.doc(unidade.id).update(data);
@@ -88,8 +88,8 @@ class _UnidadeMedScreenState extends State<UnidadeMedScreen> {
           ),
           const SizedBox(width: 12),
           Switch(
-            value: data['Ativo'] == true,
-            onChanged: (val) => unidadesRef.doc(doc.id).update({'Ativo': val}),
+            value: data['ativo'] == true,
+            onChanged: (val) => unidadesRef.doc(doc.id).update({'ativo': val}),
           ),
         ],
       ),
