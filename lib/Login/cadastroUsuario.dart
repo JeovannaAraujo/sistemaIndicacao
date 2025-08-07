@@ -30,11 +30,11 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
 
   String tipoPerfil = 'Cliente';
   String categoriaProfissional = '';
-  String tempoExperiencia = '0-1 ano';
+  String tempoExperiencia = '';
   List<String> meiosPagamento = [];
   List<String> jornada = [];
 
-  final categorias = ['Pedreiro', 'Eletricista', 'Encanador', 'Diarista'];
+  List<String> categoriasBanco = [];
   final experiencias = [
     '0-1 ano',
     '1-3 anos',
@@ -42,9 +42,37 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
     '5-10 anos',
     '+10 anos',
   ];
-  final diasSemana = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
+  final diasSemana = [
+    'Segunda-feira',
+    'Terça-feira',
+    'Quarta-feira',
+    'Quinta-feira',
+    'Sexta-feira',
+    'Sábado',
+    'Domingo',
+  ];
 
   bool get isPrestador => tipoPerfil == 'Prestador' || tipoPerfil == 'Ambos';
+
+  @override
+  void initState() {
+    super.initState();
+    _carregarCategorias();
+  }
+
+  Future<void> _carregarCategorias() async {
+    final snapshot = await FirebaseFirestore.instance
+        .collection('categoriasProfissionais')
+        .where('ativo', isEqualTo: true)
+        .orderBy('nome')
+        .get();
+
+    setState(() {
+      categoriasBanco = snapshot.docs
+          .map((doc) => doc['nome'] as String)
+          .toList();
+    });
+  }
 
   Future<void> _cadastrar() async {
     if (!_formKey.currentState!.validate()) return;
@@ -53,6 +81,22 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
         context,
       ).showSnackBar(const SnackBar(content: Text('As senhas não coincidem.')));
       return;
+    }
+
+    if (isPrestador) {
+      if (categoriaProfissional.isEmpty ||
+          tempoExperiencia.isEmpty ||
+          descricaoController.text.length < 50 ||
+          areaAtendimentoController.text.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Preencha todos os campos obrigatórios do prestador.',
+            ),
+          ),
+        );
+        return;
+      }
     }
 
     try {
@@ -105,6 +149,7 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
         child: Form(
           key: _formKey,
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               TextFormField(
                 controller: nomeController,
@@ -128,7 +173,7 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
                 obscureText: true,
               ),
               DropdownButtonFormField(
-                initialValue: tipoPerfil,
+                value: tipoPerfil,
                 items: ['Cliente', 'Prestador', 'Ambos']
                     .map((e) => DropdownMenuItem(value: e, child: Text(e)))
                     .toList(),
@@ -173,10 +218,11 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
               if (isPrestador) ...[
                 const Divider(),
                 DropdownButtonFormField(
-                  initialValue: categoriaProfissional.isEmpty
-                      ? null
-                      : categoriaProfissional,
-                  items: categorias
+                  value: categoriaProfissional.isNotEmpty
+                      ? categoriaProfissional
+                      : null,
+                  hint: const Text('Selecione a categoria'),
+                  items: categoriasBanco
                       .map((e) => DropdownMenuItem(value: e, child: Text(e)))
                       .toList(),
                   onChanged: (v) => setState(() => categoriaProfissional = v!),
@@ -189,13 +235,13 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
                   decoration: const InputDecoration(
                     labelText: 'Descrição (mín. 100 caracteres)',
                   ),
-                  maxLines: 3,
-                  validator: (v) => v != null && v.length < 100
+                  validator: (v) => v != null && v.length < 50
                       ? 'Mínimo 100 caracteres'
                       : null,
                 ),
                 DropdownButtonFormField(
-                  initialValue: tempoExperiencia,
+                  value: tempoExperiencia.isNotEmpty ? tempoExperiencia : null,
+                  hint: const Text('Selecione'),
                   items: experiencias
                       .map((e) => DropdownMenuItem(value: e, child: Text(e)))
                       .toList(),
@@ -207,43 +253,80 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
                 TextFormField(
                   controller: areaAtendimentoController,
                   decoration: const InputDecoration(
-                    labelText: 'Área de atendimento',
+                    labelText: 'Cidade / Área de atendimento',
+                    hintText: 'Ex: Rio Verde',
                   ),
                   validator: (v) => v!.isEmpty ? 'Obrigatório' : null,
                 ),
-                Wrap(
-                  children: ['Dinheiro', 'PIX', 'Cartão']
-                      .map(
-                        (e) => CheckboxListTile(
-                          title: Text(e),
-                          value: meiosPagamento.contains(e),
-                          onChanged: (v) => setState(
-                            () => v!
-                                ? meiosPagamento.add(e)
-                                : meiosPagamento.remove(e),
-                          ),
-                        ),
-                      )
-                      .toList(),
+                const Padding(
+                  padding: EdgeInsets.only(top: 16.0, bottom: 4.0),
+                  child: Text(
+                    'Meios de pagamento aceitos',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
                 ),
-                Wrap(
-                  children: diasSemana
-                      .map(
-                        (e) => CheckboxListTile(
-                          title: Text(e),
-                          value: jornada.contains(e),
-                          onChanged: (v) => setState(
-                            () => v! ? jornada.add(e) : jornada.remove(e),
-                          ),
-                        ),
-                      )
-                      .toList(),
+                const Text(
+                  'Os meios de pagamento servem apenas para informativo para os clientes, nosso aplicativo não processa pagamentos!',
+                  style: TextStyle(fontSize: 12, color: Colors.deepPurple),
+                ),
+                ...['Dinheiro', 'Pix', 'Cartão de crédito/débito'].map(
+                  (e) => CheckboxListTile(
+                    title: Text(e),
+                    value: meiosPagamento.contains(e),
+                    onChanged: (v) => setState(
+                      () =>
+                          v! ? meiosPagamento.add(e) : meiosPagamento.remove(e),
+                    ),
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.only(top: 16.0, bottom: 4.0),
+                  child: Text(
+                    'Jornada de trabalho',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                const Text(
+                  'Informe os dias em que você está disponível para prestar serviços.',
+                  style: TextStyle(fontSize: 12, color: Colors.deepPurple),
+                ),
+                ...diasSemana.map(
+                  (e) => CheckboxListTile(
+                    title: Text(e),
+                    value: jornada.contains(e),
+                    onChanged: (v) =>
+                        setState(() => v! ? jornada.add(e) : jornada.remove(e)),
+                  ),
                 ),
               ],
               const SizedBox(height: 20),
               ElevatedButton(
                 onPressed: _cadastrar,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 40,
+                    vertical: 16,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  backgroundColor: Colors.deepPurple,
+                ),
                 child: const Text('Cadastrar'),
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton(
+                onPressed: () => Navigator.pop(context),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 40,
+                    vertical: 16,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                ),
+                child: const Text('Cancelar'),
               ),
             ],
           ),
