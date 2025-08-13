@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:myapp/Administrador/categProf.dart';
-import 'unidadeMed.dart';
-import 'categServ.dart';
+import 'package:myapp/Administrador/categoriaProfissionais.dart';
+import 'unidadesMedidas.dart';
+import 'categoriaServicos.dart';
 import 'visualizarUsuarios.dart';
 
 class PerfilAdminScreen extends StatelessWidget {

@@ -13,7 +13,7 @@ class CategServ extends StatefulWidget {
 
 class _CategServState extends State<CategServ> {
   final CollectionReference categoriasRef = FirebaseFirestore.instance
-      .collection('categorias_servico');
+      .collection('categoriasServicos');
 
   void _abrirDialogo({DocumentSnapshot? categoria}) {
     final TextEditingController nomeCtrl = TextEditingController(
@@ -205,11 +205,7 @@ class _CategServState extends State<CategServ> {
                     alignment: Alignment.center,
                     children: [
                       Container(width: 40, height: 40, color: Colors.grey[300]),
-                      const Icon(
-                        Icons.image,
-                        size: 18,
-                        color: Colors.grey,
-                      ),
+                      const Icon(Icons.image, size: 18, color: Colors.grey),
                     ],
                   ),
           ),

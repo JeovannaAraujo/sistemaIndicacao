@@ -48,13 +48,13 @@ class _VisualizarUsuariosState extends State<VisualizarUsuarios> {
               },
               items: const [
                 DropdownMenuItem(value: 'todos', child: Text('Todos')),
-                DropdownMenuItem(value: 'cliente', child: Text('Clientes')),
+                DropdownMenuItem(value: 'Cliente', child: Text('Clientes')),
                 DropdownMenuItem(
-                  value: 'prestador',
+                  value: 'Prestador',
                   child: Text('Prestadores'),
                 ),
                 DropdownMenuItem(
-                  value: 'administrador',
+                  value: 'Administrador',
                   child: Text('Administradores'),
                 ),
               ],
@@ -93,22 +93,27 @@ class _VisualizarUsuariosState extends State<VisualizarUsuarios> {
                       final user =
                           usuarios[index].data() as Map<String, dynamic>;
 
+                      final nome = user['nome'] ?? '-';
+                      final email = user['email'] ?? '-';
+                      final tipoPerfil = user['tipoPerfil'] ?? 'Cliente';
+                      final ativo = user['ativo'] == true;
+
                       return ListTile(
                         leading: const Icon(
                           Icons.person_outline,
                           color: Colors.deepPurple,
                         ),
-                        title: Text(user['nome'] ?? '-'),
+                        title: Text(nome),
                         subtitle: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(user['email'] ?? '-'),
+                            Text(email),
                             const SizedBox(height: 4),
-                            Text('Tipo: ${user['tipoPerfil'] ?? 'cliente'}'),
+                            Text('Tipo: $tipoPerfil'),
                           ],
                         ),
                         trailing: Switch(
-                          value: user['ativo'] == true,
+                          value: ativo,
                           onChanged: (val) => usuariosRef
                               .doc(usuarios[index].id)
                               .update({'ativo': val}),
