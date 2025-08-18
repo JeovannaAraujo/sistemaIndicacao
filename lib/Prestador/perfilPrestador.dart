@@ -4,6 +4,7 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'cadastroServicos.dart';
 import 'editarServico.dart';
 import 'editarPerfilPrestador.dart';
+import 'homePrestador.dart';
 
 class PerfilPrestador extends StatefulWidget {
   final String userId;
@@ -18,17 +19,33 @@ class _PerfilPrestadorState extends State<PerfilPrestador> {
   int _selectedIndex = 3;
 
   // Caches em memória
-  final Map<String, String> _categoriaProfCache =
-      {}; // categoriasProfissionais (perfil)
-  final Map<String, String> _categoriaServCache =
-      {}; // categoriasServicos (itens)
-  final Map<String, String> _unidadeCache = {}; // unidades (itens)
+  final Map<String, String> _categoriaProfCache = {};
+  final Map<String, String> _categoriaServCache = {};
+  final Map<String, String> _unidadeCache = {};
 
   void _onItemTapped(int index) {
     setState(() => _selectedIndex = index);
+
+    switch (index) {
+      case 0:
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const HomePrestadorScreen()),
+        );
+        break;
+      case 1:
+        // tela de busca
+        break;
+      case 2:
+        // tela de solicitações do prestador
+        break;
+      case 3:
+        // já está na tela
+        break;
+    }
   }
 
-  // Nome da categoria PROFISSIONAL por ID (coleção: categoriasProfissionais)
+  // Nome da categoria PROFISSIONAL por ID
   Future<String?> _getNomeCategoriaProfById(String id) async {
     if (id.isEmpty) return null;
     if (_categoriaProfCache.containsKey(id)) return _categoriaProfCache[id];
@@ -41,7 +58,7 @@ class _PerfilPrestadorState extends State<PerfilPrestador> {
     return nome;
   }
 
-  // Nome da categoria de SERVIÇO por ID (coleção: categoriasServicos)
+  // Nome da categoria de SERVIÇO por ID
   Future<String?> _getNomeCategoriaServById(String id) async {
     if (id.isEmpty) return null;
     if (_categoriaServCache.containsKey(id)) return _categoriaServCache[id];
@@ -54,7 +71,7 @@ class _PerfilPrestadorState extends State<PerfilPrestador> {
     return nome;
   }
 
-  // Nome da UNIDADE por ID (coleção: unidades)
+  // Nome da UNIDADE por ID
   Future<String?> _getNomeUnidadeById(String id) async {
     if (id.isEmpty) return null;
     if (_unidadeCache.containsKey(id)) return _unidadeCache[id];
@@ -77,32 +94,28 @@ class _PerfilPrestadorState extends State<PerfilPrestador> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Perfil do Prestador')),
-      body: FutureBuilder<DocumentSnapshot>(
-        future: FirebaseFirestore.instance
+      body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: FirebaseFirestore.instance
             .collection('usuarios')
             .doc(widget.userId)
-            .get(),
+            .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-
           if (!snapshot.hasData || !snapshot.data!.exists) {
             return const Center(child: Text('Prestador não encontrado.'));
           }
 
-          final dados = snapshot.data!.data() as Map<String, dynamic>;
-
+          final dados = snapshot.data!.data()!;
           final nome = (dados['nome'] ?? '') as String;
           final email = (dados['email'] ?? '') as String;
-
           final endereco = (dados['endereco'] as Map<String, dynamic>?) ?? {};
           final cidade = (endereco['cidade'] ?? '') as String;
           final whatsapp = (endereco['whatsapp'] ?? '') as String;
-
           final String? catProfId = dados['categoriaProfissionalId'] as String?;
+          final String? fotoUrl = (dados['fotoUrl'] ?? '') as String?;
 
-          // Avaliação do prestador (opcional)
           double avaliacao = 0.0;
           final av = dados['avaliacao'];
           if (av is num) {
@@ -130,9 +143,19 @@ class _PerfilPrestadorState extends State<PerfilPrestador> {
                 // ---------- TOPO ----------
                 Row(
                   children: [
-                    const CircleAvatar(
+                    CircleAvatar(
                       radius: 30,
-                      child: Icon(Icons.person, size: 30),
+                      backgroundColor: Colors.deepPurple.shade50,
+                      backgroundImage: (fotoUrl != null && fotoUrl.isNotEmpty)
+                          ? NetworkImage(fotoUrl)
+                          : null,
+                      child: (fotoUrl == null || fotoUrl.isEmpty)
+                          ? const Icon(
+                              Icons.person,
+                              size: 30,
+                              color: Colors.deepPurple,
+                            )
+                          : null,
                     ),
                     const SizedBox(width: 16),
                     Expanded(
@@ -273,16 +296,18 @@ class _PerfilPrestadorState extends State<PerfilPrestador> {
                       ),
                     ),
                     ElevatedButton.icon(
-                      onPressed: () {
-                        Navigator.push(
+                      onPressed: () async {
+                        await Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (_) =>
                                 EditarPerfilPrestador(userId: widget.userId),
                           ),
                         );
+                        // Com StreamBuilder não é necessário, mas se voltar para FutureBuilder algum dia,
+                        // esse setState força o rebuild.
+                        if (mounted) setState(() {});
                       },
-
                       icon: const Icon(Icons.edit),
                       label: const Text('Editar Perfil'),
                     ),
@@ -336,12 +361,10 @@ class _PerfilPrestadorState extends State<PerfilPrestador> {
                         final catId = (data['categoriaId'] ?? '') as String;
                         final unidadeId = (data['unidadeId'] ?? '') as String;
 
-                        // valores – usa valorMedio se existir, senão minimo
                         final num? vMed = data['valorMedio'] as num?;
                         final num? vMin = data['valorMinimo'] as num?;
                         final price = vMed ?? vMin ?? 0;
 
-                        // avaliação do serviço (opcional)
                         double avServ = 0.0;
                         final avVal = data['avaliacao'];
                         if (avVal is num) {
@@ -363,14 +386,61 @@ class _PerfilPrestadorState extends State<PerfilPrestador> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               // Thumb placeholder
-                              Container(
-                                width: 56,
-                                height: 56,
-                                decoration: BoxDecoration(
-                                  color: Colors.black12,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
+                              FutureBuilder<
+                                DocumentSnapshot<Map<String, dynamic>>
+                              >(
+                                future: FirebaseFirestore.instance
+                                    .collection('categoriasServicos')
+                                    .doc(catId)
+                                    .get(),
+                                builder: (context, snapCat) {
+                                  if (snapCat.connectionState ==
+                                      ConnectionState.waiting) {
+                                    return Container(
+                                      width: 56,
+                                      height: 56,
+                                      decoration: BoxDecoration(
+                                        color: Colors.black12,
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: const Center(
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      ),
+                                    );
+                                  }
+
+                                  final dataCat = snapCat.data?.data();
+                                  final imagemUrl =
+                                      (dataCat?['imagemUrl'] ?? '') as String?;
+
+                                  return Container(
+                                    width: 56,
+                                    height: 56,
+                                    decoration: BoxDecoration(
+                                      color: Colors.black12,
+                                      borderRadius: BorderRadius.circular(8),
+                                      image:
+                                          (imagemUrl != null &&
+                                              imagemUrl.isNotEmpty)
+                                          ? DecorationImage(
+                                              image: NetworkImage(imagemUrl),
+                                              fit: BoxFit.cover,
+                                            )
+                                          : null,
+                                    ),
+                                    child:
+                                        (imagemUrl == null || imagemUrl.isEmpty)
+                                        ? const Icon(
+                                            Icons.image_not_supported,
+                                            color: Colors.grey,
+                                          )
+                                        : null,
+                                  );
+                                },
                               ),
+
                               const SizedBox(width: 12),
 
                               // Infos
@@ -378,7 +448,6 @@ class _PerfilPrestadorState extends State<PerfilPrestador> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    // Linha de rating (se existir)
                                     if (qtdAvServ > 0 || avServ > 0)
                                       Row(
                                         children: [
@@ -394,7 +463,6 @@ class _PerfilPrestadorState extends State<PerfilPrestador> {
                                         ],
                                       ),
 
-                                    // Nome do serviço
                                     Text(
                                       nomeServ,
                                       style: const TextStyle(
@@ -403,7 +471,6 @@ class _PerfilPrestadorState extends State<PerfilPrestador> {
                                       ),
                                     ),
 
-                                    // Descrição
                                     if (descricaoServ.isNotEmpty)
                                       Padding(
                                         padding: const EdgeInsets.only(
@@ -419,7 +486,6 @@ class _PerfilPrestadorState extends State<PerfilPrestador> {
                                         ),
                                       ),
 
-                                    // Categoria do serviço (por ID)
                                     Padding(
                                       padding: const EdgeInsets.only(top: 4.0),
                                       child: FutureBuilder<String?>(
@@ -442,7 +508,6 @@ class _PerfilPrestadorState extends State<PerfilPrestador> {
                                       ),
                                     ),
 
-                                    // Preço / unidade (resolve unidade por unidadeId)
                                     Padding(
                                       padding: const EdgeInsets.only(top: 6.0),
                                       child: FutureBuilder<String?>(
@@ -485,7 +550,6 @@ class _PerfilPrestadorState extends State<PerfilPrestador> {
                                     },
                                     child: const Text('Editar'),
                                   ),
-
                                   const SizedBox(height: 8),
                                   Row(
                                     children: [

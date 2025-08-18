@@ -3,7 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'cadastroUsuarios.dart';
-import '../Cliente/home.dart';
+import '../Cliente/homeCliente.dart';
 import '../Administrador/perfilAdmin.dart';
 import '../Prestador/perfilPrestador.dart';
 

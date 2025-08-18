@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+// kIsWeb
 
 class EditarPerfilPrestador extends StatefulWidget {
   final String userId;
@@ -30,12 +33,16 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
 
   // estado
   bool carregando = true;
-  String tipoPerfil =
-      'Prestador'; // Prestador | Ambos (mantemos o padrão capitalizado)
+  String tipoPerfil = 'Prestador'; // Prestador | Ambos
   String? categoriaProfId; // salvamos só o ID
   String tempoExperiencia = '';
   final List<String> meiosPagamento = [];
   final List<String> jornada = [];
+
+  // foto de perfil
+  String? _fotoUrl; // URL pública salva no Firestore (usuarios/{uid}.fotoUrl)
+  String? _fotoPath; // caminho no Storage para facilitar remoção
+  bool _enviandoFoto = false;
 
   // streams
   late final Stream<QuerySnapshot<Map<String, dynamic>>> _categoriasStream;
@@ -108,6 +115,10 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
         if (!jornada.contains(s)) jornada.add(s);
       });
 
+      // foto
+      _fotoUrl = (d['fotoUrl'] ?? '') as String?;
+      _fotoPath = (d['fotoPath'] ?? '') as String?;
+
       if (mounted) setState(() => carregando = false);
     } catch (e) {
       if (mounted) {
@@ -115,6 +126,94 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
           context,
         ).showSnackBar(SnackBar(content: Text('Erro ao carregar: $e')));
         Navigator.pop(context);
+      }
+    }
+  }
+
+  Future<void> _selecionarFotoPerfil() async {
+    try {
+      final picker = ImagePicker();
+      final XFile? img = await picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1024,
+        imageQuality: 80,
+      );
+      if (img == null) return;
+
+      setState(() => _enviandoFoto = true);
+
+      final bytes = await img.readAsBytes();
+
+      final storage = FirebaseStorage.instance;
+      final String path =
+          'usuarios/${widget.userId}/perfil_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final ref = storage.ref().child(path);
+
+      final meta = SettableMetadata(
+        contentType: 'image/jpeg',
+        cacheControl: 'public,max-age=604800',
+      );
+      await ref.putData(bytes, meta);
+
+      final String url = await ref.getDownloadURL();
+
+      await _db.collection('usuarios').doc(widget.userId).set({
+        'fotoUrl': url,
+        'fotoPath': path,
+        'atualizadoEm': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      setState(() {
+        _fotoUrl = url;
+        _fotoPath = path;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Foto de perfil atualizada!')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Falha ao enviar a foto: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _enviandoFoto = false);
+    }
+  }
+
+  Future<void> _removerFotoPerfil() async {
+    try {
+      if (_fotoPath != null && _fotoPath!.isNotEmpty) {
+        await FirebaseStorage.instance
+            .ref()
+            .child(_fotoPath!)
+            .delete()
+            .catchError((_) {});
+      }
+      await _db.collection('usuarios').doc(widget.userId).set({
+        'fotoUrl': FieldValue.delete(),
+        'fotoPath': FieldValue.delete(),
+        'atualizadoEm': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      setState(() {
+        _fotoUrl = null;
+        _fotoPath = null;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Foto removida.')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Não foi possível remover a foto: $e')),
+        );
       }
     }
   }
@@ -208,6 +307,14 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
       for (final d in servs.docs) {
         batch.delete(d.reference);
       }
+
+      // apaga foto do Storage se existir
+      if (_fotoPath != null && _fotoPath!.isNotEmpty) {
+        try {
+          await FirebaseStorage.instance.ref().child(_fotoPath!).delete();
+        } catch (_) {}
+      }
+
       batch.delete(_db.collection('usuarios').doc(widget.userId));
       await batch.commit();
 
@@ -224,7 +331,6 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
         Navigator.of(context).popUntil((r) => r.isFirst);
       }
     } catch (e) {
-      // esse erro costuma ser "requires-recent-login"
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -279,6 +385,81 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // ===== CABEÇALHO COM AVATAR + BOTÃO CÂMERA =====
+                    Center(
+                      child: Stack(
+                        alignment: Alignment.bottomRight,
+                        children: [
+                          CircleAvatar(
+                            radius: 48,
+                            backgroundColor: Colors.deepPurple.shade50,
+                            backgroundImage:
+                                (_fotoUrl != null && _fotoUrl!.isNotEmpty)
+                                ? NetworkImage(_fotoUrl!)
+                                : null,
+                            child: (_fotoUrl == null || _fotoUrl!.isEmpty)
+                                ? const Icon(
+                                    Icons.person,
+                                    size: 48,
+                                    color: Colors.deepPurple,
+                                  )
+                                : null,
+                          ),
+                          Positioned(
+                            right: -4,
+                            bottom: -4,
+                            child: ElevatedButton(
+                              onPressed: _enviandoFoto
+                                  ? null
+                                  : _selecionarFotoPerfil,
+                              style: ElevatedButton.styleFrom(
+                                padding: const EdgeInsets.all(10),
+                                shape: const CircleBorder(),
+                                backgroundColor: Colors.deepPurple,
+                              ),
+                              child: _enviandoFoto
+                                  ? const SizedBox(
+                                      height: 16,
+                                      width: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Icon(
+                                      Icons.camera_alt,
+                                      size: 18,
+                                      color: Colors.white,
+                                    ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Center(
+                      child: Text(
+                        nomeCtrl.text.isNotEmpty ? nomeCtrl.text : 'Seu nome',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    if (_fotoUrl != null && _fotoUrl!.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Center(
+                        child: TextButton.icon(
+                          onPressed: _removerFotoPerfil,
+                          icon: const Icon(Icons.delete_outline),
+                          label: const Text('Remover foto'),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+
+                    // ===== FIM CABEÇALHO =====
                     _secTitle('Informações Pessoais'),
                     DropdownButtonFormField<String>(
                       initialValue: tipoPerfil,
@@ -301,6 +482,8 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
                       validator: (v) => (v == null || v.trim().isEmpty)
                           ? 'Obrigatório'
                           : null,
+                      onChanged: (_) =>
+                          setState(() {}), // atualiza o cabeçalho com o nome
                     ),
                     TextFormField(
                       controller: emailCtrl,
@@ -347,7 +530,6 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
                     ),
 
                     _secTitle('Informações Profissionais'),
-                    // Categoria profissional (ID) via Stream
                     StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                       stream: _categoriasStream,
                       builder: (context, snap) {
@@ -383,7 +565,6 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
                           );
                         }).toList();
 
-                        // se a selecionada saiu da lista, limpa
                         if (categoriaProfId != null &&
                             !docs.any((d) => d.id == categoriaProfId)) {
                           WidgetsBinding.instance.addPostFrameCallback((_) {
