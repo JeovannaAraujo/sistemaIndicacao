@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../Login/login.dart';
 import 'buscarServicos.dart';
-import 'listarProfissionais.dart'; // ProfissionaisPorCategoriaScreen
+import 'listarProfissionais.dart';
+import 'rotasNavegacao.dart';
+import 'servicosFinalizados.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -64,14 +66,31 @@ class _HomeScreenState extends State<HomeScreen> {
               leading: Icon(Icons.settings),
               title: Text('Configurações'),
             ),
-            const ListTile(
-              leading: Icon(Icons.description),
-              title: Text('Solicitações'),
+
+            // 👉 agora navega para solicitacoesRespondidas.dart
+            ListTile(
+              leading: const Icon(Icons.description),
+              title: const Text('Solicitações'),
+              onTap: () {
+                Navigator.pop(context); // fecha o drawer
+                context.goRespondidas();
+              },
             ),
-            const ListTile(
-              leading: Icon(Icons.check_circle),
-              title: Text('Serviços Finalizados'),
+
+            ListTile(
+              leading: const Icon(Icons.check_circle),
+              title: const Text('Serviços Finalizados'),
+              onTap: () {
+                Navigator.pop(context); // fecha o drawer
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const ServicosFinalizadosScreen(),
+                  ),
+                );
+              },
             ),
+
             ListTile(
               leading: const Icon(Icons.logout),
               title: const Text('Sair'),
@@ -89,21 +108,9 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       appBar: AppBar(),
       body: _buildBody(),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: _onItemTapped,
-        selectedItemColor: Colors.deepPurple,
-        unselectedItemColor: Colors.grey,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Início'),
-          BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Buscar'),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.description),
-            label: 'Solicitações',
-          ),
-          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Perfil'),
-        ],
-      ),
+
+      // 👉 usa o bottom nav centralizado nas suas rotas
+      bottomNavigationBar: const ClienteBottomNav(selectedIndex: 0),
     );
   }
 

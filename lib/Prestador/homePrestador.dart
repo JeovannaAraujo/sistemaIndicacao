@@ -1,13 +1,11 @@
+// lib/Prestador/homePrestador.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+
 import '../Login/login.dart';
 import 'agendaPrestador.dart';
-// TODO: importe suas telas reais para as rotas abaixo
-// import 'servicos_finalizados.dart';
-// import 'solicitacoes.dart';
-// import 'agenda_prestador.dart';
-// import 'perfilPrestador.dart';
+import 'solicitacoesRecebidas.dart'; // << tela das solicitações recebidas
 
 class HomePrestadorScreen extends StatefulWidget {
   const HomePrestadorScreen({super.key});
@@ -20,19 +18,33 @@ class _HomePrestadorScreenState extends State<HomePrestadorScreen> {
   final user = FirebaseAuth.instance.currentUser;
   int _selectedIndex = 0;
 
-  void _onItemTapped(int index) {
-    setState(() => _selectedIndex = index);
-    // mantenho a navegação já existente, ajuste se necessário
-    if (index == 3 && user != null) {
-      // TODO: aponte para sua tela de perfil, se desejar manter no bottom bar
-      // Navigator.push(context,
-      //   MaterialPageRoute(builder: (_) => PerfilPrestador(userId: user!.uid)),
-      // );
-    }
+  // ======== STREAM: contagem de pendentes para badge ========
+  static const String _colSolicitacoes = 'solicitacoesOrcamento';
+  Stream<int> _pendentesCountStream(String prestadorId) {
+    return FirebaseFirestore.instance
+        .collection(_colSolicitacoes)
+        .where('prestadorId', isEqualTo: prestadorId)
+        .where('status', isEqualTo: 'pendente')
+        .snapshots()
+        .map((s) => s.size);
   }
 
-  // === NOVO: somente a seção Atalhos com 3 itens ============================
+  void _onItemTapped(int index) {
+    setState(() => _selectedIndex = index);
+
+    // Se quiser navegação imediata por aba:
+    if (index == 2) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const SolicitacoesRecebidasScreen()),
+      );
+    }
+    // if (index == 3) -> perfil, etc
+  }
+
+  // ===================== ATALHOS ============================
   Widget _buildAtalhos() {
+    final uid = user?.uid;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -51,39 +63,56 @@ class _HomePrestadorScreenState extends State<HomePrestadorScreen> {
           runSpacing: 8,
           children: [
             _buildAtalho(
-              Icons.check_circle,
-              'Serviços Finalizados',
-              Colors.green,
-              () {
+              icon: Icons.check_circle,
+              label: 'Serviços Finalizados',
+              color: Colors.green,
+              onTap: () {
                 // TODO: navegue para sua tela de serviços finalizados
-                // Navigator.push(context, MaterialPageRoute(builder: (_) => ServicosFinalizadosScreen()));
               },
             ),
-            _buildAtalho(Icons.assignment, 'Solicitações', Colors.orange, () {
-              // TODO: navegue para sua tela de solicitações/órçamentos recebidos
-              // Navigator.push(context, MaterialPageRoute(builder: (_) => SolicitacoesScreen()));
-            }),
-            _buildAtalho(Icons.calendar_month, 'Agenda', Colors.blue, () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const AgendaPrestadorScreen(),
-                ),
-              );
-            }),
+            // Atalho de Solicitações com BADGE em tempo real
+            _buildAtalho(
+              icon: Icons.assignment,
+              label: 'Solicitações',
+              color: Colors.orange,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const SolicitacoesRecebidasScreen(),
+                  ),
+                );
+              },
+              badgeStream: (uid == null) ? null : _pendentesCountStream(uid),
+            ),
+            _buildAtalho(
+              icon: Icons.calendar_month,
+              label: 'Agenda',
+              color: Colors.blue,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const AgendaPrestadorScreen(),
+                  ),
+                );
+              },
+            ),
           ],
         ),
       ],
     );
   }
 
-  Widget _buildAtalho(
-    IconData icon,
-    String label,
-    Color color,
-    VoidCallback onTap,
-  ) {
-    return InkWell(
+  // Card de atalho com suporte a badge opcional
+  Widget _buildAtalho({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+    Stream<int>? badgeStream,
+  }) {
+    Widget card = InkWell(
       borderRadius: BorderRadius.circular(14),
       onTap: onTap,
       child: Container(
@@ -111,8 +140,27 @@ class _HomePrestadorScreenState extends State<HomePrestadorScreen> {
         ),
       ),
     );
+
+    // Se houver stream de badge, envelopa num Stack
+    if (badgeStream == null) return card;
+
+    return StreamBuilder<int>(
+      stream: badgeStream,
+      builder: (context, snap) {
+        final count = snap.data ?? 0;
+        if (count <= 0) return card;
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            card,
+            Positioned(right: 6, top: 6, child: _Badge(count: count)),
+          ],
+        );
+      },
+    );
   }
 
+  // ===================== CONTEÚDO ===========================
   Widget _buildBody() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -132,7 +180,7 @@ class _HomePrestadorScreenState extends State<HomePrestadorScreen> {
             style: TextStyle(color: Colors.deepPurple),
           ),
           const SizedBox(height: 20),
-          _buildAtalhos(), // os 3 atalhos
+          _buildAtalhos(),
         ],
       ),
     );
@@ -141,8 +189,9 @@ class _HomePrestadorScreenState extends State<HomePrestadorScreen> {
   @override
   Widget build(BuildContext context) {
     final u = user;
+    final uid = u?.uid;
+
     return Scaffold(
-      // Drawer mantido (se quiser remover também, me avise)
       drawer: Drawer(
         child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
           stream: (u == null)
@@ -216,6 +265,24 @@ class _HomePrestadorScreenState extends State<HomePrestadorScreen> {
                 ListTile(
                   leading: const Icon(Icons.assignment),
                   title: const Text('Solicitações'),
+                  trailing: (uid == null)
+                      ? null
+                      : StreamBuilder<int>(
+                          stream: _pendentesCountStream(uid),
+                          builder: (context, snap) {
+                            final c = snap.data ?? 0;
+                            if (c <= 0) return const SizedBox.shrink();
+                            return _Badge(count: c, small: true);
+                          },
+                        ),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const SolicitacoesRecebidasScreen(),
+                      ),
+                    );
+                  },
                 ),
                 ListTile(
                   leading: const Icon(Icons.check_circle),
@@ -249,20 +316,89 @@ class _HomePrestadorScreenState extends State<HomePrestadorScreen> {
 
       body: _buildBody(),
 
+      // ============== Bottom Bar com BADGE dinâmico ==============
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         onTap: _onItemTapped,
         selectedItemColor: Colors.deepPurple,
         unselectedItemColor: Colors.grey,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Início'),
-          BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Buscar'),
+        items: [
+          const BottomNavigationBarItem(
+            icon: Icon(Icons.home),
+            label: 'Início',
+          ),
+          const BottomNavigationBarItem(
+            icon: Icon(Icons.search),
+            label: 'Buscar',
+          ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.description),
+            // Ícone com badge em tempo real
+            icon: (uid == null)
+                ? const Icon(Icons.description)
+                : StreamBuilder<int>(
+                    stream: _pendentesCountStream(uid),
+                    builder: (context, snap) {
+                      final count = snap.data ?? 0;
+                      if (count <= 0) {
+                        return const Icon(Icons.description);
+                      }
+                      return Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          const Icon(Icons.description),
+                          Positioned(
+                            right: -6,
+                            top: -2,
+                            child: _Badge(count: count),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
             label: 'Solicitações',
           ),
-          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Perfil'),
+          const BottomNavigationBarItem(
+            icon: Icon(Icons.person),
+            label: 'Perfil',
+          ),
         ],
+      ),
+    );
+  }
+}
+
+// =================== Widget de Badge reutilizável ===================
+class _Badge extends StatelessWidget {
+  final int count;
+  final bool small;
+  const _Badge({required this.count, this.small = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final txt = (count > 99) ? '99+' : '$count';
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: small ? 6 : 7,
+        vertical: small ? 2 : 3,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.red,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white, width: small ? 1 : 1.5),
+      ),
+      constraints: BoxConstraints(
+        minWidth: small ? 18 : 20,
+        minHeight: small ? 18 : 20,
+      ),
+      child: Text(
+        txt,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: small ? 11 : 12,
+          fontWeight: FontWeight.bold,
+          height: 1.0,
+        ),
       ),
     );
   }

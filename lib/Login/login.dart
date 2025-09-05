@@ -31,7 +31,10 @@ class _LoginScreenState extends State<LoginScreen> {
     if (docUID.exists) return;
 
     // Buscar um doc antigo pelo e-mail (ID aleatório)
-    final q = await col.where('email', isEqualTo: email.toLowerCase()).limit(1).get();
+    final q = await col
+        .where('email', isEqualTo: email.toLowerCase())
+        .limit(1)
+        .get();
 
     if (q.docs.isEmpty) {
       // Não existe documento antigo — cria um mínimo, para não travar o fluxo.
@@ -62,7 +65,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
     // 2) (Opcional) copiar subcoleções conhecidas (ex.: 'servicos')
     // Se tiver outras, repita o bloco alterando o nome.
-    final subServicosSnap = await col.doc(antigo.id).collection('servicos').get();
+    final subServicosSnap = await col
+        .doc(antigo.id)
+        .collection('servicos')
+        .get();
     if (subServicosSnap.docs.isNotEmpty) {
       final batch = FirebaseFirestore.instance.batch();
       for (final s in subServicosSnap.docs) {
@@ -83,15 +89,16 @@ class _LoginScreenState extends State<LoginScreen> {
       final email = emailController.text.trim().toLowerCase();
       final senha = senhaController.text.trim();
 
-      final cred = await _auth.signInWithEmailAndPassword(
+      final cred = await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: email,
         password: senha,
       );
 
-      final uid = cred.user?.uid;
-      if (uid == null) {
-        throw FirebaseAuthException(code: 'user-not-found', message: 'Usuário não encontrado.');
-      }
+      final uid = cred.user!.uid;
+      final snap = await FirebaseFirestore.instance
+          .collection('usuarios')
+          .doc(uid)
+          .get(); // permitido pelas regras acima
 
       // MIGRAR se necessário (antigos com ID aleatório)
       await _migrarUsuarioSeNecessario(uid: uid, email: email);
@@ -145,7 +152,9 @@ class _LoginScreenState extends State<LoginScreen> {
       }
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Erro: $e')));
     }
   }
 
@@ -170,13 +179,15 @@ class _LoginScreenState extends State<LoginScreen> {
               TextFormField(
                 controller: emailController,
                 decoration: const InputDecoration(labelText: 'E-mail'),
-                validator: (v) => (v == null || v.trim().isEmpty) ? 'Informe o e-mail' : null,
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty) ? 'Informe o e-mail' : null,
               ),
               TextFormField(
                 controller: senhaController,
                 decoration: const InputDecoration(labelText: 'Senha'),
                 obscureText: true,
-                validator: (v) => (v == null || v.trim().isEmpty) ? 'Informe a senha' : null,
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty) ? 'Informe a senha' : null,
               ),
               const SizedBox(height: 20),
               ElevatedButton(onPressed: _login, child: const Text('Entrar')),

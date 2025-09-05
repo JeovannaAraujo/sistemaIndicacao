@@ -1,0 +1,504 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'enviarOrcamento.dart';
+
+class DetalhesSolicitacaoScreen extends StatelessWidget {
+  final String docId;
+  const DetalhesSolicitacaoScreen({super.key, required this.docId});
+
+  static const String _colSolicitacoes = 'solicitacoesOrcamento';
+
+  @override
+  Widget build(BuildContext context) {
+    final moeda = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF9F6FF),
+      appBar: AppBar(
+        title: const Text('Detalhes Serviço'),
+        backgroundColor: Colors.white,
+        elevation: 0.3,
+      ),
+      body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: FirebaseFirestore.instance
+            .collection(_colSolicitacoes)
+            .doc(docId)
+            .snapshots(),
+        builder: (context, snap) {
+          if (snap.hasError) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  'Erro ao carregar a solicitação:\n${snap.error}',
+                  style: const TextStyle(color: Colors.red),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            );
+          }
+          if (!snap.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (!snap.data!.exists) {
+            return const Center(child: Text('Solicitação não encontrada.'));
+          }
+
+          final d = snap.data!.data()!;
+          final estimativa = (d['estimativaValor'] is num)
+              ? moeda.format((d['estimativaValor'] as num).toDouble())
+              : 'R\$0,00';
+          final titulo = (d['servicoTitulo'] ?? '').toString();
+          final descricao = (d['descricaoDetalhada'] ?? '').toString();
+
+          final quantidade = (d['quantidade'] is num)
+              ? (d['quantidade'] as num).toString()
+              : (d['quantidade']?.toString() ?? '');
+          final unAbrev = (d['unidadeSelecionadaAbrev'] ?? '').toString();
+
+          final ts = d['dataDesejada'] as Timestamp?;
+          final dataDesejada = ts == null
+              ? ''
+              : DateFormat('dd/MM/yyyy').format(ts.toDate());
+          final horaDesejada = ts == null
+              ? ''
+              : DateFormat('HH:mm').format(ts.toDate());
+
+          final imagens = (d['imagens'] is List)
+              ? List<String>.from(d['imagens'] as List)
+              : const <String>[];
+
+          final clienteNome = (d['clienteNome'] ?? '').toString();
+          final clienteWhatsapp = (d['clienteWhatsapp'] ?? '').toString();
+          final end = (d['clienteEndereco'] is Map<String, dynamic>)
+              ? (d['clienteEndereco'] as Map<String, dynamic>)
+              : <String, dynamic>{};
+
+          String enderecoLinha() {
+            String ln = '';
+            if ((end['rua'] ?? '').toString().isNotEmpty) {
+              ln = '${end['rua']}';
+              if ((end['numero'] ?? '').toString().isNotEmpty) {
+                ln += ', Nº ${end['numero']}';
+              }
+              if ((end['complemento'] ?? '').toString().isNotEmpty) {
+                ln += ', ${end['complemento']}';
+              }
+            }
+            final bairro = (end['bairro'] ?? '').toString();
+            final cep = (end['cep'] ?? '').toString();
+            final cidade = (end['cidade'] ?? '').toString();
+            final partes = <String>[
+              if (ln.isNotEmpty) ln,
+              if (bairro.isNotEmpty) bairro,
+              if (cep.isNotEmpty) 'CEP $cep',
+              if (cidade.isNotEmpty) cidade,
+            ];
+            return partes.join('. ');
+          }
+
+          return SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Estimativa
+                const _SectionTitle('Estimativa de Valor'),
+                const SizedBox(height: 6),
+                _ReadonlyField(
+                  controller: TextEditingController(text: estimativa),
+                ),
+                const SizedBox(height: 6),
+                const _HintBox(
+                  children: [
+                    Text(
+                      'Este valor é calculado automaticamente com base na quantidade informada e na média de preços do serviço.',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Fórmula: Quantidade × Valor Médio por unidade.',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Este campo é apenas informativo e não pode ser editado manualmente.',
+                      style: TextStyle(fontSize: 12, color: Colors.black54),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                // Serviço desejado
+                const _SectionTitle('Serviço desejado'),
+                const SizedBox(height: 6),
+                _ReadonlyField(controller: TextEditingController(text: titulo)),
+                const SizedBox(height: 16),
+
+                // Descrição
+                const _SectionTitle('Descrição detalhada da Solicitação'),
+                const SizedBox(height: 6),
+                _ReadonlyField.multiline(
+                  controller: TextEditingController(text: descricao),
+                ),
+                const SizedBox(height: 16),
+
+                // Quantidade
+                const _SectionTitle('Quantidade ou dimensão'),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _ReadonlyField(
+                        controller: TextEditingController(
+                          text: quantidade.isEmpty ? '—' : quantidade,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      width: 80,
+                      child: _ReadonlyField(
+                        controller: TextEditingController(
+                          text: unAbrev.isEmpty ? 'un.' : unAbrev,
+                        ),
+                        centered: true,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                const _HintBox(
+                  children: [
+                    Text(
+                      'Utilize essa informação para calcular o valor do orçamento com base no preço por unidade.',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                // Datas
+                const _SectionTitle('Data desejada para início'),
+                const SizedBox(height: 6),
+                _ReadonlyField(
+                  controller: TextEditingController(
+                    text: dataDesejada.isEmpty ? 'Não informado' : dataDesejada,
+                  ),
+                  trailingIcon: Icons.calendar_today_outlined,
+                ),
+                const SizedBox(height: 12),
+                const _SectionTitle('Horário desejado para execução'),
+                const SizedBox(height: 6),
+                _ReadonlyField(
+                  controller: TextEditingController(
+                    text: horaDesejada.isEmpty ? 'Não informado' : horaDesejada,
+                  ),
+                  trailingIcon: Icons.access_time_outlined,
+                ),
+
+                const SizedBox(height: 16),
+                const _SectionTitle('Imagens (opcional)'),
+                const SizedBox(height: 6),
+                _ImagesGrid(urls: imagens),
+
+                const SizedBox(height: 20),
+                const _SectionTitle('Informações do cliente'),
+                const SizedBox(height: 10),
+                _LabelValue(label: 'Cliente', value: clienteNome),
+                const SizedBox(height: 10),
+                _LabelValue(label: 'Endereço', value: enderecoLinha()),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    const FaIcon(
+                      FontAwesomeIcons.whatsapp,
+                      size: 18,
+                      color: Color(0xFF25D366),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      clienteWhatsapp.isEmpty
+                          ? 'Sem WhatsApp'
+                          : clienteWhatsapp,
+                      style: const TextStyle(fontSize: 13.5),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 24),
+
+                // Ações
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  EnviarOrcamentoScreen(solicitacaoId: docId),
+                            ),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.deepPurple,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        child: const Text('Enviar Orçamento'),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.tonal(
+                        onPressed: () => _abrirDialogoRecusar(context),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFFE9D7FF),
+                          foregroundColor: Colors.deepPurple,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        child: const Text('Recusar Solicitação'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // ======== Ações ========
+
+  void _abrirDialogoRecusar(BuildContext context) {
+    final motivoCtl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Recusar Solicitação'),
+        content: TextField(
+          controller: motivoCtl,
+          minLines: 2,
+          maxLines: 4,
+          decoration: const InputDecoration(
+            hintText: 'Motivo (opcional)',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              await FirebaseFirestore.instance
+                  .collection(_colSolicitacoes)
+                  .doc(docId)
+                  .update({
+                    'status': 'recusada',
+                    'recusadaEm': FieldValue.serverTimestamp(),
+                    'recusaMotivo': motivoCtl.text.trim(),
+                  });
+              if (context.mounted) Navigator.pop(context);
+              if (context.mounted) Navigator.pop(context);
+            },
+            child: const Text('Confirmar'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ========================= Widgets auxiliares =========================
+
+class _SectionTitle extends StatelessWidget {
+  final String text;
+  const _SectionTitle(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: const TextStyle(
+        fontSize: 18,
+        fontWeight: FontWeight.bold,
+        color: Colors.deepPurple,
+      ),
+    );
+  }
+}
+
+class _ReadonlyField extends StatelessWidget {
+  final TextEditingController controller;
+  final bool multiline;
+  final bool centered;
+  final IconData? trailingIcon;
+
+  const _ReadonlyField({
+    required this.controller,
+    this.centered = false,
+    this.trailingIcon,
+  }) : multiline = false; // ✅ inicializa o final
+
+  const _ReadonlyField.multiline({required this.controller})
+    : multiline = true,
+      centered = false,
+      trailingIcon = null;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      readOnly: true,
+      minLines: multiline ? 3 : 1,
+      maxLines: multiline ? 5 : 1,
+      textAlign: centered ? TextAlign.center : TextAlign.start,
+      decoration: InputDecoration(
+        suffixIcon: trailingIcon == null ? null : Icon(trailingIcon),
+        filled: true,
+        fillColor: Colors.white,
+        hintText: '—',
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 12,
+        ),
+      ),
+    );
+  }
+}
+
+class _HintBox extends StatelessWidget {
+  final List<Widget> children;
+  const _HintBox({required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF2E7FE),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.deepPurple.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: children,
+      ),
+    );
+  }
+}
+
+class _LabelValue extends StatelessWidget {
+  final String label;
+  final String value;
+  const _LabelValue({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontWeight: FontWeight.w700,
+            color: Colors.deepPurple,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.black12),
+          ),
+          child: Text(value.isEmpty ? '—' : value),
+        ),
+      ],
+    );
+  }
+}
+
+class _ImagesGrid extends StatelessWidget {
+  final List<String> urls;
+  const _ImagesGrid({required this.urls});
+
+  @override
+  Widget build(BuildContext context) {
+    if (urls.isEmpty) {
+      return Container(
+        height: 96,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.black26),
+          borderRadius: BorderRadius.circular(12),
+          color: Colors.white,
+        ),
+        child: const Text('Sem imagens anexadas'),
+      );
+    }
+
+    return GridView.builder(
+      itemCount: urls.length,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 4,
+        mainAxisSpacing: 8,
+        crossAxisSpacing: 8,
+        childAspectRatio: 1,
+      ),
+      itemBuilder: (_, i) {
+        final u = urls[i];
+        return InkWell(
+          onTap: () => _showImage(context, u),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              color: Colors.grey.shade300,
+              child: Image.network(u, fit: BoxFit.cover),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  static void _showImage(BuildContext context, String url) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withOpacity(0.85),
+      builder: (_) => GestureDetector(
+        onTap: () => Navigator.pop(context),
+        child: InteractiveViewer(
+          child: Center(
+            child: AspectRatio(
+              aspectRatio: 1,
+              child: Image.network(url, fit: BoxFit.contain),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

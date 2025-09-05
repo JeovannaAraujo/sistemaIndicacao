@@ -2,7 +2,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'visualizarAgendaPrestador.dart';
+import 'visualizarAgendaPrestador.dart'; // contém showAgendaPrestadorModal
 import 'solicitarOrcamento.dart';
 
 class VisualizarPerfilPrestador extends StatelessWidget {
@@ -24,7 +24,7 @@ class VisualizarPerfilPrestador extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(),
-      body: StreamBuilder<DocumentSnapshot>(
+      body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         stream: docRef.snapshots(),
         builder: (context, snap) {
           if (snap.hasError) {
@@ -37,16 +37,15 @@ class VisualizarPerfilPrestador extends StatelessWidget {
             return const Center(child: Text('Prestador não encontrado.'));
           }
 
-          final d = (snap.data!.data() as Map<String, dynamic>)
-            ..removeWhere((k, v) => v == null);
+          final d = Map<String, dynamic>.from(snap.data!.data() ?? {})
+            ..removeWhere((_, v) => v == null);
 
           final nome = (d['nome'] ?? '').toString();
           final email = (d['email'] ?? '').toString();
           final fotoUrl = (d['fotoUrl'] ?? '').toString();
 
           final categoriaId = (d['categoriaProfissionalId'] ?? '').toString();
-          final tempoExp = (d['tempoExperiencia'] ?? '')
-              .toString(); // "5-10 anos"
+          final tempoExp = (d['tempoExperiencia'] ?? '').toString();
           final descricao = (d['descricao'] ?? '').toString();
           final nota = (d['nota'] is num)
               ? (d['nota'] as num).toDouble()
@@ -66,21 +65,19 @@ class VisualizarPerfilPrestador extends StatelessWidget {
               ? List<String>.from(d['meiosPagamento'])
               : <String>[];
 
-          // Busca nome da categoria (se existir id)
-          final Future<DocumentSnapshot?> catFuture = categoriaId.isEmpty
+          final Future<DocumentSnapshot<Map<String, dynamic>>?> catFuture =
+              categoriaId.isEmpty
               ? Future.value(null)
               : FirebaseFirestore.instance
                     .collection(colCategoriasProf)
                     .doc(categoriaId)
                     .get();
 
-          return FutureBuilder<DocumentSnapshot?>(
+          return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>?>(
             future: catFuture,
             builder: (context, catSnap) {
               String categoriaNome =
-                  (catSnap.data?.data() as Map<String, dynamic>?)?['nome']
-                      ?.toString() ??
-                  '';
+                  (catSnap.data?.data()?['nome']?.toString() ?? '');
               if (categoriaNome.isEmpty) {
                 categoriaNome = (d['categoriaNome'] ?? '').toString();
               }
@@ -142,25 +139,27 @@ class VisualizarPerfilPrestador extends StatelessWidget {
                       Wrap(
                         spacing: 8,
                         runSpacing: 8,
-                        children: pagamentos.map((p) {
-                          return Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.deepPurple.withOpacity(0.12),
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: Text(
-                              p.toUpperCase(),
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Colors.deepPurple,
+                        children: pagamentos
+                            .map(
+                              (p) => Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.deepPurple.withOpacity(0.12),
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: Text(
+                                  p.toUpperCase(),
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.deepPurple,
+                                  ),
+                                ),
                               ),
-                            ),
-                          );
-                        }).toList(),
+                            )
+                            .toList(),
                       ),
                     ],
 
@@ -179,14 +178,10 @@ class VisualizarPerfilPrestador extends StatelessWidget {
                           ),
                         ),
                         OutlinedButton(
-                          onPressed: () {
-                            Navigator.push(
+                          onPressed: () async {
+                            await showAgendaPrestadorModal(
                               context,
-                              MaterialPageRoute(
-                                builder: (_) => VisualizarAgendaPrestador(
-                                  prestadorId: prestadorId,
-                                ),
-                              ),
+                              prestadorId: prestadorId, // uid correto
                             );
                           },
                           style: OutlinedButton.styleFrom(
@@ -364,7 +359,7 @@ class _ListaServicos extends StatelessWidget {
         .where('prestadorId', isEqualTo: prestadorId)
         .where('ativo', isEqualTo: true);
 
-    return StreamBuilder<QuerySnapshot>(
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: query.snapshots(),
       builder: (context, snap) {
         if (snap.hasError) {
@@ -394,10 +389,10 @@ class _ListaServicos extends StatelessWidget {
           itemCount: docs.length,
           separatorBuilder: (_, __) => const SizedBox(height: 12),
           itemBuilder: (_, i) {
-            final s = (docs[i].data() as Map<String, dynamic>?) ?? {};
+            final s = docs[i].data();
             return _ServicoItem(
               serviceId: docs[i].id,
-              prestadorId: prestadorId, // <<< AQUI
+              prestadorId: prestadorId, // <<< passa o uid correto
               data: s,
             );
           },
@@ -574,7 +569,7 @@ class _ServicoItem extends StatelessWidget {
                             context,
                             MaterialPageRoute(
                               builder: (_) => SolicitarOrcamentoScreen(
-                                prestadorId: prestadorId, // <<< agora existe
+                                prestadorId: prestadorId,
                                 servicoId: serviceId,
                               ),
                             ),

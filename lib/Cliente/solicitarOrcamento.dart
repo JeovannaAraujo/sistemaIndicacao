@@ -1,8 +1,12 @@
 // lib/Cliente/solicitarOrcamento.dart
+import 'dart:io';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 class SolicitarOrcamentoScreen extends StatefulWidget {
@@ -21,11 +25,11 @@ class SolicitarOrcamentoScreen extends StatefulWidget {
 }
 
 class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
-  // coleções (ajuste se seus nomes diferirem)
+  // coleções (ajuste os nomes se necessário)
   static const colUsuarios = 'usuarios';
   static const colServicos = 'servicos';
   static const colUnidades = 'unidades';
-  static const colSolicitacoes = 'solicitacoesOrcamento';
+  static const colSolicitacoes = 'solicitacoesOrcamento'; // ou 'solicitacoes'
   static const colCategoriasServ = 'categoriasServicos';
 
   final _formKey = GlobalKey<FormState>();
@@ -40,12 +44,17 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
   DocumentSnapshot<Map<String, dynamic>>? _docPrestador;
   DocumentSnapshot<Map<String, dynamic>>? _docCliente;
 
-  // unidade
+  // unidade/valor
   String? _selectedUnidadeId;
-  String? _selectedUnidadeAbrev; // rótulo
-  double? _valorMedio; // do serviço
+  String? _selectedUnidadeAbrev;
+  double? _valorMedio;
 
   final _moeda = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
+
+  // imagens (galeria + upload)
+  final ImagePicker _picker = ImagePicker();
+  final List<XFile> _imagens = [];
+  final Map<String, double> _uploadProgress = {}; // path => 0..1
 
   @override
   void initState() {
@@ -71,7 +80,6 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
         .get();
 
     final s = servico.data() ?? {};
-    // preselect unidade do serviço
     _selectedUnidadeId =
         (s['unidadeId'] ?? s['unidade'] ?? '').toString().isEmpty
         ? null
@@ -79,14 +87,15 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
     _selectedUnidadeAbrev = (s['unidadeAbreviacao'] ?? '').toString().isEmpty
         ? null
         : (s['unidadeAbreviacao'] as String);
-    // valor médio do serviço (double ou string)
     _valorMedio = _parseValor(s['valorMedio']);
 
-    setState(() {
-      _docServico = servico;
-      _docPrestador = prestador;
-      _docCliente = cliente;
-    });
+    if (mounted) {
+      setState(() {
+        _docServico = servico;
+        _docPrestador = prestador;
+        _docCliente = cliente;
+      });
+    }
   }
 
   double? _parseValor(dynamic v) {
@@ -108,11 +117,10 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
     if (q == null || q <= 0) return null;
     if (_valorMedio == null) return null;
 
-    // só calcula se a unidade selecionada for a mesma unidade do serviço (quando soubermos)
     final s = _docServico?.data() ?? {};
     final unidadeServicoId = (s['unidadeId'] ?? s['unidade'] ?? '').toString();
     if (unidadeServicoId.isNotEmpty && _selectedUnidadeId != unidadeServicoId) {
-      return null; // sem conversão automática entre unidades
+      return null; // sem conversão automática entre unidades diferentes
     }
     return q * _valorMedio!;
   }
@@ -143,18 +151,55 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
     if (picked != null) setState(() => _horaDesejada = picked);
   }
 
+  Future<void> _pickImages() async {
+    final imgs = await _picker.pickMultiImage(imageQuality: 80);
+    if (imgs.isNotEmpty) {
+      setState(() => _imagens.addAll(imgs));
+    }
+  }
+
+  void _removeImage(XFile x) {
+    setState(() {
+      _uploadProgress.remove(x.path);
+      _imagens.remove(x);
+    });
+  }
+
+  Future<List<String>> _uploadImagens(String docId) async {
+    final storage = FirebaseStorage.instance;
+    final urls = <String>[];
+
+    for (final x in _imagens) {
+      final file = File(x.path);
+      final fname = '${DateTime.now().millisecondsSinceEpoch}_${x.name}';
+      final ref = storage.ref().child('solicitacoes/$docId/$fname');
+
+      final task = ref.putFile(file);
+      task.snapshotEvents.listen((s) {
+        final p = s.bytesTransferred / (s.totalBytes == 0 ? 1 : s.totalBytes);
+        setState(() => _uploadProgress[x.path] = p);
+      });
+
+      final snap = await task;
+      final url = await snap.ref.getDownloadURL();
+      urls.add(url);
+    }
+
+    return urls;
+  }
+
   Future<void> _enviar() async {
     if (_docServico == null || _docPrestador == null || _docCliente == null) {
       return;
     }
     if (!_formKey.currentState!.validate()) return;
 
+    final fs = FirebaseFirestore.instance;
     final auth = FirebaseAuth.instance;
     final serv = _docServico!.data()!;
     final prest = _docPrestador!.data()!;
     final cli = _docCliente!.data() ?? {};
 
-    // compõe data-hora (pode ser só data)
     DateTime? dataHora;
     if (_dataDesejada != null) {
       final h = _horaDesejada?.hour ?? 0;
@@ -174,6 +219,12 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
     final whatsappCli = (endereco['whatsapp'] ?? cli['whatsapp'] ?? '')
         .toString();
 
+    // cria o docId antes para organizar o upload
+    final docRef = fs.collection(colSolicitacoes).doc();
+
+    // faz upload das imagens (se houver)
+    final imagensUrls = await _uploadImagens(docRef.id);
+
     final doc = <String, dynamic>{
       'clienteId': auth.currentUser!.uid,
       'clienteNome': (cli['nome'] ?? '').toString(),
@@ -186,10 +237,8 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
         'cep': endereco['cep'] ?? '',
         'cidade': endereco['cidade'] ?? '',
       },
-
       'prestadorId': widget.prestadorId,
       'prestadorNome': (prest['nome'] ?? '').toString(),
-
       'servicoId': widget.servicoId,
       'servicoTitulo': (serv['titulo'] ?? serv['nome'] ?? '').toString(),
       'servicoDescricao': (serv['descricao'] ?? '').toString(),
@@ -197,20 +246,18 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
       'servicoUnidadeId': (serv['unidadeId'] ?? serv['unidade'] ?? '')
           .toString(),
       'servicoUnidadeAbrev': (serv['unidadeAbreviacao'] ?? '').toString(),
-
       'quantidade': double.tryParse(_quantCtl.text.replaceAll(',', '.')) ?? 0,
       'unidadeSelecionadaId': _selectedUnidadeId ?? '',
       'unidadeSelecionadaAbrev': _selectedUnidadeAbrev ?? '',
-
       'descricaoDetalhada': _descricaoCtl.text.trim(),
       'dataDesejada': dataHora != null ? Timestamp.fromDate(dataHora) : null,
       'estimativaValor': _estimativaValor,
-
       'status': 'pendente',
+      'imagens': imagensUrls, // URLs publicadas no Storage
       'criadoEm': FieldValue.serverTimestamp(),
     };
 
-    await FirebaseFirestore.instance.collection(colSolicitacoes).add(doc);
+    await docRef.set(doc);
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -267,7 +314,6 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // CARD INFORMAÇÕES DO SERVIÇO
             _ServicoResumoCard(
               titulo: tituloServico,
               descricao: descricaoServico,
@@ -288,7 +334,6 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
 
             const SizedBox(height: 16),
 
-            // DESCRIÇÃO DETALHADA
             const _SectionTitle('Descrição detalhada da Solicitação'),
             const SizedBox(height: 6),
             TextFormField(
@@ -302,7 +347,6 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
 
             const SizedBox(height: 16),
 
-            // QUANTIDADE + UNIDADE (abreviação do banco)
             const _SectionTitle('Quantidade ou dimensão'),
             const SizedBox(height: 6),
             Row(
@@ -323,7 +367,6 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                // Dropdown de abreviações da coleção "unidades"
                 _UnidadesDropdown(
                   selectedId: _selectedUnidadeId,
                   onChanged: (id, abrev) {
@@ -338,7 +381,6 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
 
             const SizedBox(height: 16),
 
-            // DATA e HORA
             const _SectionTitle('Data desejada para início'),
             const SizedBox(height: 6),
             Row(
@@ -379,7 +421,6 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
 
             const SizedBox(height: 16),
 
-            // ESTIMATIVA (somente leitura)
             const _SectionTitle('Estimativa de Valor'),
             const SizedBox(height: 6),
             TextFormField(
@@ -424,7 +465,6 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
 
             const SizedBox(height: 16),
 
-            // ENDEREÇO E CONTATO (CARD)
             const _SectionTitle('Endereço e contato'),
             const SizedBox(height: 6),
             _EnderecoContatoCard(
@@ -433,7 +473,6 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
                   : enderecoLinha,
               whatsapp: whatsappCli,
               onEditar: () {
-                // TODO: abrir tela de edição do endereço do cliente
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text('Editar endereço (implementar)'),
@@ -444,14 +483,17 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
 
             const SizedBox(height: 16),
 
-            // IMAGENS (OPCIONAL)
             const _SectionTitle('Imagens (opcional)'),
             const SizedBox(height: 6),
-            _UploadPlaceholder(),
+            _ImagePickerGrid(
+              imagens: _imagens,
+              progresso: _uploadProgress,
+              onAdd: _pickImages,
+              onRemove: _removeImage,
+            ),
 
             const SizedBox(height: 20),
 
-            // AÇÕES
             Row(
               children: [
                 Expanded(
@@ -546,7 +588,7 @@ class _HintBox extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFFF2E7FE), // roxinho bem claro
+        color: const Color(0xFFF2E7FE),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.deepPurple.withOpacity(0.2)),
       ),
@@ -575,7 +617,7 @@ class _SectionTitle extends StatelessWidget {
 class _ServicoResumoCard extends StatelessWidget {
   final String titulo;
   final String descricao;
-  final String categoriaServicoId; // sempre buscar imagem aqui
+  final String categoriaServicoId;
   final String prestadorNome;
   final String cidade;
   final String? unidadeAbrev;
@@ -607,7 +649,7 @@ class _ServicoResumoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final larguraThumb = 54.0;
+    const larguraThumb = 54.0;
 
     String precosFmt(BuildContext ctx) {
       String fmt(double v) =>
@@ -617,7 +659,7 @@ class _ServicoResumoCard extends StatelessWidget {
       if (valorMedio != null) partes.add(fmt(valorMedio!));
       if (valorMaximo != null) partes.add(fmt(valorMaximo!));
       if (partes.isEmpty) return '';
-      final unidade = unidadeAbrev?.isNotEmpty == true
+      final unidade = (unidadeAbrev?.isNotEmpty ?? false)
           ? ' por ${unidadeAbrev!}'
           : '';
       return '${partes.join(' – ')}$unidade';
@@ -634,7 +676,6 @@ class _ServicoResumoCard extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // THUMB da categoria de serviço
           FutureBuilder<String>(
             future: _imagemCategoria(),
             builder: (context, snap) {
@@ -656,13 +697,10 @@ class _ServicoResumoCard extends StatelessWidget {
             },
           ),
           const SizedBox(width: 12),
-
-          // Conteúdo textual
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // título
                 Text(
                   titulo,
                   style: const TextStyle(fontWeight: FontWeight.w700),
@@ -670,19 +708,14 @@ class _ServicoResumoCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 4),
-                // descrição curta
                 if (descricao.isNotEmpty)
                   Text(descricao, maxLines: 2, overflow: TextOverflow.ellipsis),
-
                 const SizedBox(height: 6),
-                // Prestador (linha separada)
                 Text(
                   'Prestador: $prestadorNome',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-
-                // Cidade (linha de baixo)
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -701,8 +734,6 @@ class _ServicoResumoCard extends StatelessWidget {
                     ),
                   ],
                 ),
-
-                // Preços (mín – méd – máx) logo abaixo
                 Builder(
                   builder: (ctx) {
                     final precoStr = precosFmt(ctx);
@@ -738,7 +769,7 @@ class _UnidadesDropdown extends StatelessWidget {
         .orderBy('abreviacao');
 
     return SizedBox(
-      width: 92, // fica certinho na linha
+      width: 92,
       child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: q.snapshots(),
         builder: (context, snap) {
@@ -778,9 +809,7 @@ class _UnidadesDropdown extends StatelessWidget {
             items: items,
             onChanged: (v) {
               if (v == null) return;
-              final d = docs.firstWhere(
-                (e) => e.id == v,
-              ); // docs não está vazio
+              final d = docs.firstWhere((e) => e.id == v);
               final m = d.data();
               final abrev = (m['abreviacao'] ?? m['sigla'] ?? '').toString();
               onChanged(v, abrev);
@@ -865,24 +894,89 @@ class _EnderecoContatoCard extends StatelessWidget {
   }
 }
 
-class _UploadPlaceholder extends StatelessWidget {
+class _ImagePickerGrid extends StatelessWidget {
+  final List<XFile> imagens;
+  final Map<String, double> progresso; // path => 0..1
+  final VoidCallback onAdd;
+  final void Function(XFile img) onRemove;
+
+  const _ImagePickerGrid({
+    required this.imagens,
+    required this.progresso,
+    required this.onAdd,
+    required this.onRemove,
+  });
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 96,
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.black26),
+    final itens = <Widget>[
+      InkWell(
+        onTap: onAdd,
         borderRadius: BorderRadius.circular(12),
+        child: Container(
+          height: 96,
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.black26),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          alignment: Alignment.center,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: const [
+              Icon(Icons.photo_camera_outlined),
+              SizedBox(height: 6),
+              Text('Anexar'),
+            ],
+          ),
+        ),
       ),
-      alignment: Alignment.center,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: const [
-          Icon(Icons.photo_camera_outlined),
-          SizedBox(height: 6),
-          Text('Foto'),
-        ],
-      ),
+      ...imagens.map((x) {
+        final p = progresso[x.path] ?? 0;
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.file(File(x.path), fit: BoxFit.cover),
+            ),
+            if (p > 0 && p < 1)
+              Container(
+                alignment: Alignment.bottomCenter,
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.25),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: LinearProgressIndicator(value: p),
+              ),
+            Positioned(
+              top: 4,
+              right: 4,
+              child: Material(
+                color: Colors.black54,
+                shape: const CircleBorder(),
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: () => onRemove(x),
+                  child: const Padding(
+                    padding: EdgeInsets.all(6.0),
+                    child: Icon(Icons.close, size: 16, color: Colors.white),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      }),
+    ];
+
+    return GridView.count(
+      crossAxisCount: 3,
+      mainAxisSpacing: 8,
+      crossAxisSpacing: 8,
+      childAspectRatio: 1,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      children: itens,
     );
   }
 }
