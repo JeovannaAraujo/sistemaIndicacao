@@ -481,16 +481,24 @@ class _CardAceita extends StatelessWidget {
         'atualizadoEm': FieldValue.serverTimestamp(),
       });
 
-      // (Opcional) registra no histórico
+      // (Opcional) registra no histórico — 🔥 ATUALIZADO mantendo as chaves antigas
       await fs
           .collection('solicitacoesOrcamento')
           .doc(id)
           .collection('historico')
           .add({
+            // chaves que já existiam
             'tipo': 'cancelada_cliente',
             'quando': FieldValue.serverTimestamp(),
             'por': uid,
             'motivo': motivo,
+
+            // chaves novas (padrão unificado)
+            'em': FieldValue.serverTimestamp(),
+            'porUid': uid,
+            'porRole': 'Cliente',
+            'statusPara': 'cancelada',
+            'mensagem': 'Cliente cancelou o serviço.',
           });
 
       if (context.mounted) {

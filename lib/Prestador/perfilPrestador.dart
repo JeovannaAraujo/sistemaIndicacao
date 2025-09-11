@@ -5,6 +5,7 @@ import 'cadastroServicos.dart';
 import 'editarServico.dart';
 import 'editarPerfilPrestador.dart';
 import 'homePrestador.dart';
+import 'visualizarAvaliacoes.dart';
 
 class PerfilPrestador extends StatefulWidget {
   final String userId;
@@ -43,6 +44,221 @@ class _PerfilPrestadorState extends State<PerfilPrestador> {
         // já está na tela
         break;
     }
+  }
+
+  // 👇 helper para abrir a tela de avaliações do serviço
+  void _abrirAvaliacoesDoServico({
+    required String servicoId,
+    required String servicoTitulo,
+  }) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => VisualizarAvaliacoesScreen(
+          prestadorId: widget.userId,
+          servicoId: servicoId,
+          servicoTitulo: servicoTitulo,
+        ),
+      ),
+    );
+  }
+
+  // ============================
+  // AVALIAÇÕES (cálculo robusto)
+  // ============================
+
+  // Lê nota em nomes diferentes de campo, priorizando 'nota'
+  double? _extrairNotaGenerica(Map<String, dynamic> data) {
+    final ordem = ['nota', 'rating', 'estrelas', 'notaGeral'];
+    for (final c in ordem) {
+      final v = data[c];
+      if (v is num) return v.toDouble();
+      if (v is String) {
+        final d = double.tryParse(v);
+        if (d != null) return d;
+      }
+    }
+    final aval = data['avaliacao'];
+    if (aval is Map<String, dynamic>) {
+      for (final c in ordem) {
+        final v = aval[c];
+        if (v is num) return v.toDouble();
+        if (v is String) {
+          final d = double.tryParse(v);
+          if (d != null) return d;
+        }
+      }
+    }
+    return null;
+    // (se precisar suportar outro nome, basta incluir acima)
+  }
+
+  // Calcula média/quantidade para o serviço:
+  // (A) solicitacoesOrcamento -> avaliacoes por solicitacaoId
+  // (B) fallback por servicoId direto (se existir na sua base)
+  // (C) fallback final pelo que está no seu banco: prestadorId + servicoTitulo
+  Future<Map<String, num>> _mediaQtdDoServicoPorAvaliacoes(
+    String servicoId, {
+    String? prestadorId,
+    String? servicoTitulo,
+  }) async {
+    try {
+      if (servicoId.isEmpty) return {'media': 0, 'qtd': 0};
+      final fs = FirebaseFirestore.instance;
+
+      double soma = 0;
+      int qtd = 0;
+
+      // (A) via solicitacoesOrcamento -> avaliacoes (solicitacaoId in [...])
+      final solicQuery = await fs
+          .collection('solicitacoesOrcamento')
+          .where('servicoId', isEqualTo: servicoId)
+          .get();
+
+      if (solicQuery.docs.isNotEmpty) {
+        final ids = solicQuery.docs.map((d) => d.id).toList();
+        for (var i = 0; i < ids.length; i += 10) {
+          final chunk = ids.sublist(
+            i,
+            (i + 10 > ids.length) ? ids.length : i + 10,
+          );
+
+          final avSnap = await fs
+              .collection('avaliacoes')
+              .where('solicitacaoId', whereIn: chunk)
+              .get();
+
+          for (final a in avSnap.docs) {
+            final data = a.data();
+            final nota = _extrairNotaGenerica(data);
+            if (nota != null) {
+              soma += nota;
+              qtd += 1;
+            }
+          }
+        }
+      }
+
+      // (B) fallback por servicoId (se sua coleção avaliacoes tiver esse campo)
+      if (qtd == 0) {
+        final possiveisCampos = [
+          ['servicoId', servicoId],
+          ['servico.id', servicoId],
+          ['servicoIdRef', servicoId],
+        ];
+        for (final par in possiveisCampos) {
+          final snap = await fs
+              .collection('avaliacoes')
+              .where(par[0] as String, isEqualTo: par[1])
+              .get();
+          if (snap.docs.isNotEmpty) {
+            for (final a in snap.docs) {
+              final nota = _extrairNotaGenerica(a.data());
+              if (nota != null) {
+                soma += nota;
+                qtd++;
+              }
+            }
+            break;
+          }
+        }
+      }
+
+      // (C) fallback final pelo padrão do seu banco (print): prestadorId + servicoTitulo
+      if (qtd == 0) {
+        if ((prestadorId ?? '').isNotEmpty &&
+            (servicoTitulo ?? '').isNotEmpty) {
+          final snap = await fs
+              .collection('avaliacoes')
+              .where('prestadorId', isEqualTo: prestadorId)
+              .where('servicoTitulo', isEqualTo: servicoTitulo)
+              .get();
+
+          for (final a in snap.docs) {
+            final nota = _extrairNotaGenerica(a.data());
+            if (nota != null) {
+              soma += nota;
+              qtd++;
+            }
+          }
+        }
+      }
+
+      final media = (qtd == 0) ? 0 : (soma / qtd);
+      return {'media': media, 'qtd': qtd};
+    } catch (_) {
+      return {'media': 0, 'qtd': 0};
+    }
+  }
+
+  // Linha de rating com fallback automático
+  Widget _ratingLinha({
+    required String servicoId,
+    required String servicoTitulo,
+    required double docMedia,
+    required int docQtd,
+  }) {
+    final String prestadorId = widget.userId;
+
+    final Future<Map<String, num>> fut = (docQtd > 0 || docMedia > 0)
+        ? Future.value({'media': docMedia, 'qtd': docQtd})
+        : _mediaQtdDoServicoPorAvaliacoes(
+            servicoId,
+            prestadorId: prestadorId,
+            servicoTitulo: servicoTitulo,
+          );
+
+    return FutureBuilder<Map<String, num>>(
+      future: fut,
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const SizedBox(height: 18);
+        }
+        final media = (snap.data?['media'] ?? 0).toDouble();
+        final qtd = (snap.data?['qtd'] ?? 0).toInt();
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 4.0),
+          child: InkWell(
+            onTap: () => _abrirAvaliacoesDoServico(
+              servicoId: servicoId,
+              servicoTitulo: servicoTitulo,
+            ),
+            borderRadius: BorderRadius.circular(8),
+            child: // dentro de _ratingLinha, substitua o Row(...) por:
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: // dentro de _ratingLinha, substitua o Row(...) por:
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Row(
+                  mainAxisSize: MainAxisSize.max,
+                  children: [
+                    const Icon(Icons.star, size: 16, color: Colors.amber),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${media.toStringAsFixed(1)} ($qtd avaliações)',
+                      maxLines: 1,
+                      softWrap: false,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                    ),
+                    const SizedBox(width: 4),
+                    const Icon(
+                      Icons.chevron_right,
+                      size: 16,
+                      color: Colors.deepPurple,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   // Nome da categoria PROFISSIONAL por ID
@@ -304,8 +520,6 @@ class _PerfilPrestadorState extends State<PerfilPrestador> {
                                 EditarPerfilPrestador(userId: widget.userId),
                           ),
                         );
-                        // Com StreamBuilder não é necessário, mas se voltar para FutureBuilder algum dia,
-                        // esse setState força o rebuild.
                         if (mounted) setState(() {});
                       },
                       icon: const Icon(Icons.edit),
@@ -385,7 +599,7 @@ class _PerfilPrestadorState extends State<PerfilPrestador> {
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // Thumb placeholder
+                              // Thumb placeholder (categoria do serviço)
                               FutureBuilder<
                                 DocumentSnapshot<Map<String, dynamic>>
                               >(
@@ -448,27 +662,21 @@ class _PerfilPrestadorState extends State<PerfilPrestador> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    if (qtdAvServ > 0 || avServ > 0)
-                                      Row(
-                                        children: [
-                                          const Icon(
-                                            Icons.star,
-                                            color: Colors.amber,
-                                            size: 16,
-                                          ),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            '${avServ.toStringAsFixed(1)} ($qtdAvServ avaliações)',
-                                          ),
-                                        ],
-                                      ),
-
+                                    // TÍTULO
                                     Text(
                                       nomeServ,
                                       style: const TextStyle(
                                         fontSize: 16,
                                         fontWeight: FontWeight.w600,
                                       ),
+                                    ),
+
+                                    // ⭐ LINHA DE AVALIAÇÃO (logo abaixo do título)
+                                    _ratingLinha(
+                                      servicoId: s.id,
+                                      servicoTitulo: nomeServ,
+                                      docMedia: avServ,
+                                      docQtd: qtdAvServ,
                                     ),
 
                                     if (descricaoServ.isNotEmpty)
@@ -495,8 +703,8 @@ class _PerfilPrestadorState extends State<PerfilPrestador> {
                                         builder: (context, catSnap) {
                                           final catNome = catSnap.data;
                                           return Text(
-                                            catNome != null &&
-                                                    catNome.isNotEmpty
+                                            (catNome != null &&
+                                                    catNome.isNotEmpty)
                                                 ? catNome
                                                 : 'Categoria',
                                             style: const TextStyle(

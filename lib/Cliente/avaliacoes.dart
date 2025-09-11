@@ -43,6 +43,53 @@ class MinhasAvaliacoesTab extends StatelessWidget {
     return '—';
   }
 
+  /// ✅ NOVO: garante que a solicitação ligada à avaliação esteja marcada como "avaliada"
+  /// e registra no histórico (executa uma única vez por doc).
+  Future<void> _marcarAvaliadaSeNecessario({
+    required String solicitacaoId,
+    required String clienteUid,
+    required double nota,
+    required String comentario,
+  }) async {
+    if (solicitacaoId.isEmpty) return;
+    final fs = FirebaseFirestore.instance;
+    final ref = fs.collection('solicitacoesOrcamento').doc(solicitacaoId);
+
+    await fs.runTransaction((tx) async {
+      final snap = await tx.get(ref);
+      if (!snap.exists) return;
+      final data = (snap.data() ?? {});
+      final statusAtual = (data['status'] ?? '').toString();
+
+      // só transiciona finalizada -> avaliada
+      if (statusAtual == 'finalizada') {
+        tx.update(ref, {
+          'status': 'avaliada',
+          'avaliadaEm': FieldValue.serverTimestamp(),
+          'atualizadoEm': FieldValue.serverTimestamp(),
+        });
+
+        final histRef = ref.collection('historico').doc();
+        tx.set(histRef, {
+          // chaves compatíveis com seu padrão anterior
+          'tipo': 'avaliada_cliente',
+          'quando': FieldValue.serverTimestamp(),
+          'por': clienteUid,
+
+          // chaves novas padronizadas
+          'em': FieldValue.serverTimestamp(),
+          'porUid': clienteUid,
+          'porRole': 'Cliente',
+          'statusDe': statusAtual,
+          'statusPara': 'avaliada',
+          'mensagem': 'Cliente avaliou o serviço.',
+          'nota': nota,
+          'comentario': comentario,
+        });
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final uid = FirebaseAuth.instance.currentUser!.uid;
@@ -57,8 +104,9 @@ class MinhasAvaliacoesTab extends StatelessWidget {
       stream: stream,
       builder: (context, snap) {
         if (snap.hasError) return Center(child: Text('Erro: ${snap.error}'));
-        if (!snap.hasData)
+        if (!snap.hasData) {
           return const Center(child: CircularProgressIndicator());
+        }
 
         final docs = snap.data!.docs;
         if (docs.isEmpty) {
@@ -133,6 +181,14 @@ class MinhasAvaliacoesTab extends StatelessWidget {
                     );
                     if (ini != '—' || fim != '—') periodo = '$ini – $fim';
                     duracao = _duracaoFromSolic(sdata);
+
+                    // ✅ NOVO: ao exibir a avaliação, garante status "avaliada" + histórico
+                    _marcarAvaliadaSeNecessario(
+                      solicitacaoId: solicitacaoId,
+                      clienteUid: uid,
+                      nota: nota,
+                      comentario: comentario,
+                    );
                   }
                 }
 
@@ -174,6 +230,20 @@ class MinhasAvaliacoesTab extends StatelessWidget {
                             const SizedBox(width: 6),
                             Text(
                               periodo,
+                              style: const TextStyle(fontSize: 12.5),
+                            ),
+                          ],
+                        ),
+                      ],
+
+                      if (duracao.isNotEmpty && duracao != '—') ...[
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            const Icon(Icons.timelapse, size: 14),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Duração: $duracao',
                               style: const TextStyle(fontSize: 12.5),
                             ),
                           ],

@@ -225,6 +225,19 @@ class _ServicosAgendadosScreenState extends State<ServicosAgendadosScreen> {
     }
   }
 
+  // ================== HISTÓRICO (NOVO HELPER – sem remover nada) ==================
+  Future<void> _addHistorico(String docId, Map<String, dynamic> data) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection(_colSolicitacoes)
+          .doc(docId)
+          .collection('historico')
+          .add({'em': FieldValue.serverTimestamp(), ...data});
+    } catch (_) {
+      // Mantém silencioso para não quebrar o fluxo de UI
+    }
+  }
+
   Future<void> _finalizarServico(String docId) async {
     await FirebaseFirestore.instance
         .collection(_colSolicitacoes)
@@ -234,6 +247,16 @@ class _ServicosAgendadosScreenState extends State<ServicosAgendadosScreen> {
           'dataFinalizacaoReal': FieldValue.serverTimestamp(),
           'atualizadoEm': FieldValue.serverTimestamp(),
         });
+
+    // ================== HISTÓRICO (ADIÇÃO) ==================
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    await _addHistorico(docId, {
+      'tipo': 'finalizacao_prestador',
+      'mensagem': 'Prestador finalizou o serviço.',
+      'porUid': uid,
+      'porRole': 'Prestador',
+      'statusPara': 'finalizada',
+    });
   }
 
   // ========= CANCELAMENTO =========
@@ -275,6 +298,17 @@ class _ServicosAgendadosScreenState extends State<ServicosAgendadosScreen> {
           'motivoCancelamento': (motivo ?? '').trim(),
           'atualizadoEm': FieldValue.serverTimestamp(),
         });
+
+    // ================== HISTÓRICO (ADIÇÃO) ==================
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    await _addHistorico(docId, {
+      'tipo': 'cancelamento_prestador',
+      'mensagem': 'Prestador cancelou o serviço.',
+      'porUid': uid,
+      'porRole': 'Prestador',
+      'statusPara': 'cancelada',
+      'motivo': (motivo ?? '').trim(),
+    });
   }
 
   @override

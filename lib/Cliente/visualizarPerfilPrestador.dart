@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'visualizarAgendaPrestador.dart'; // contém showAgendaPrestadorModal
 import 'solicitarOrcamento.dart';
+import '../Prestador/visualizarAvaliacoes.dart'; // ajuste o caminho conforme sua estrutura
 
 class VisualizarPerfilPrestador extends StatelessWidget {
   final String prestadorId;
@@ -449,6 +450,48 @@ class _ServicoItem extends StatelessWidget {
     return (d['imagemUrl'] ?? '').toString();
   }
 
+  // === NOVO: calcular média/quantidade por serviço via coleção 'avaliacoes'
+  Future<Map<String, num>> _mediaQtdDoServicoPorAvaliacoes() async {
+    final fs = FirebaseFirestore.instance;
+
+    final avSnap = await fs
+        .collection('avaliacoes')
+        .where('prestadorId', isEqualTo: prestadorId)
+        .get();
+
+    double soma = 0.0;
+    int qtd = 0;
+
+    for (final av in avSnap.docs) {
+      final avData = av.data();
+      final solicId = (avData['solicitacaoId'] ?? '').toString();
+      if (solicId.isEmpty) continue;
+
+      final solic = await fs
+          .collection('solicitacoesOrcamento')
+          .doc(solicId)
+          .get();
+      final sData = solic.data();
+      if (sData == null) continue;
+
+      final sId = (sData['servicoId'] ?? '').toString();
+      if (sId != serviceId) continue;
+
+      final nRaw = avData['nota'];
+      final n = nRaw is num
+          ? nRaw.toDouble()
+          : (nRaw is String ? double.tryParse(nRaw) ?? 0.0 : 0.0);
+
+      if (n > 0) {
+        soma += n;
+        qtd += 1;
+      }
+    }
+
+    final media = qtd > 0 ? (soma / qtd) : 0.0;
+    return {'media': media, 'qtd': qtd};
+  }
+
   @override
   Widget build(BuildContext context) {
     final titulo = (data['titulo'] ?? data['nome'] ?? '').toString();
@@ -517,21 +560,111 @@ class _ServicoItem extends StatelessWidget {
                           style: const TextStyle(fontWeight: FontWeight.w700),
                         ),
                       ),
+
+                      // 1) Se o doc do serviço já tem nota/avaliacoes
                       if (nota != null) ...[
-                        const Icon(Icons.star, size: 16, color: Colors.amber),
-                        const SizedBox(width: 4),
-                        Text(
-                          nota.toStringAsFixed(1),
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        if (avaliacoes != null) ...[
-                          const SizedBox(width: 4),
-                          Text(
-                            '($avaliacoes avaliações)',
-                            style: const TextStyle(fontSize: 12),
+                        InkWell(
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => VisualizarAvaliacoesScreen(
+                                  prestadorId: prestadorId,
+                                  servicoId: serviceId,
+                                  servicoTitulo: titulo,
+                                ),
+                              ),
+                            );
+                          },
+                          borderRadius: BorderRadius.circular(8),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.star,
+                                size: 16,
+                                color: Colors.amber,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                nota.toStringAsFixed(1),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                '(${(avaliacoes ?? 0)} avaliações)',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              const SizedBox(width: 4),
+                              const Icon(
+                                Icons.chevron_right,
+                                size: 16,
+                                color: Colors.deepPurple,
+                              ),
+                            ],
                           ),
-                        ],
+                        ),
                       ],
+
+                      // 2) Fallback: calcula via coleção 'avaliacoes'
+                      if (nota == null || (avaliacoes ?? 0) == 0)
+                        FutureBuilder<Map<String, num>>(
+                          future: _mediaQtdDoServicoPorAvaliacoes(),
+                          builder: (context, snap) {
+                            if (snap.connectionState ==
+                                ConnectionState.waiting) {
+                              return const SizedBox.shrink();
+                            }
+                            final m = (snap.data?['media'] ?? 0).toDouble();
+                            final q = (snap.data?['qtd'] ?? 0).toInt();
+
+                            return InkWell(
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => VisualizarAvaliacoesScreen(
+                                      prestadorId: prestadorId,
+                                      servicoId: serviceId,
+                                      servicoTitulo: titulo,
+                                    ),
+                                  ),
+                                );
+                              },
+                              borderRadius: BorderRadius.circular(8),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.star,
+                                    size: 16,
+                                    color: Colors.amber,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    m.toStringAsFixed(1),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    '($q avaliações)',
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  const Icon(
+                                    Icons.chevron_right,
+                                    size: 16,
+                                    color: Colors.deepPurple,
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
                     ],
                   ),
 
