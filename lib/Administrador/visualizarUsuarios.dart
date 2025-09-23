@@ -12,8 +12,27 @@ class _VisualizarUsuariosState extends State<VisualizarUsuarios> {
   String _filtroSelecionado = 'todos';
   final usuariosRef = FirebaseFirestore.instance.collection('usuarios');
 
+  Query<Map<String, dynamic>> _buildQuery() {
+    final base = usuariosRef;
+    switch (_filtroSelecionado) {
+      case 'todos':
+        return base.orderBy('nome');
+      case 'Cliente':
+      case 'Prestador':
+      case 'Administrador':
+        // filtro simples por tipoPerfil (compatível com suas rules e evita erros de OR)
+        return base
+            .where('tipoPerfil', isEqualTo: _filtroSelecionado)
+            .orderBy('nome');
+      default:
+        return base.orderBy('nome');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final query = _buildQuery();
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Usuários Cadastrados'),
@@ -41,9 +60,7 @@ class _VisualizarUsuariosState extends State<VisualizarUsuarios> {
               value: _filtroSelecionado,
               onChanged: (value) {
                 if (value != null) {
-                  setState(() {
-                    _filtroSelecionado = value;
-                  });
+                  setState(() => _filtroSelecionado = value);
                 }
               },
               items: const [
@@ -61,25 +78,32 @@ class _VisualizarUsuariosState extends State<VisualizarUsuarios> {
             ),
             const SizedBox(height: 16),
             Expanded(
-              child: StreamBuilder<QuerySnapshot>(
-                stream: _filtroSelecionado == 'todos'
-                    ? usuariosRef.orderBy('nome').snapshots()
-                    : usuariosRef
-                          .where('tipoPerfil', isEqualTo: _filtroSelecionado)
-                          .orderBy('nome')
-                          .snapshots(),
+              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: query.snapshots(),
                 builder: (context, snapshot) {
                   if (snapshot.hasError) {
-                    return const Center(
-                      child: Text('Erro ao carregar usuários'),
+                    final e = snapshot.error;
+                    String code = '-', msg = e.toString();
+                    if (e is FirebaseException) {
+                      code = e.code;
+                      msg = e.message ?? e.toString();
+                    }
+                    return Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Text(
+                          'Erro ao carregar usuários.\ncode: $code\n$msg',
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
                     );
                   }
+
                   if (!snapshot.hasData) {
                     return const Center(child: CircularProgressIndicator());
                   }
 
                   final usuarios = snapshot.data!.docs;
-
                   if (usuarios.isEmpty) {
                     return const Center(
                       child: Text('Nenhum usuário encontrado.'),
@@ -90,12 +114,11 @@ class _VisualizarUsuariosState extends State<VisualizarUsuarios> {
                     itemCount: usuarios.length,
                     separatorBuilder: (_, __) => const Divider(),
                     itemBuilder: (context, index) {
-                      final user =
-                          usuarios[index].data() as Map<String, dynamic>;
-
-                      final nome = user['nome'] ?? '-';
-                      final email = user['email'] ?? '-';
-                      final tipoPerfil = user['tipoPerfil'] ?? 'Cliente';
+                      final user = usuarios[index].data();
+                      final nome = (user['nome'] ?? '-') as String;
+                      final email = (user['email'] ?? '-') as String;
+                      final tipoPerfil =
+                          (user['tipoPerfil'] ?? 'Cliente') as String;
                       final ativo = user['ativo'] == true;
 
                       return ListTile(
@@ -114,9 +137,40 @@ class _VisualizarUsuariosState extends State<VisualizarUsuarios> {
                         ),
                         trailing: Switch(
                           value: ativo,
-                          onChanged: (val) => usuariosRef
-                              .doc(usuarios[index].id)
-                              .update({'ativo': val}),
+                          onChanged: (val) async {
+                            try {
+                              await usuariosRef.doc(usuarios[index].id).update({
+                                'ativo': val,
+                                'atualizadoEm': FieldValue.serverTimestamp(),
+                              });
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    val
+                                        ? 'Usuário ativado'
+                                        : 'Usuário desativado',
+                                  ),
+                                ),
+                              );
+                            } on FirebaseException catch (e) {
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    'Falha ao atualizar: ${e.code}',
+                                  ),
+                                ),
+                              );
+                            } catch (e) {
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Falha ao atualizar: $e'),
+                                ),
+                              );
+                            }
+                          },
                         ),
                       );
                     },

@@ -3,6 +3,7 @@ import 'package:myapp/Administrador/categoriaProfissionais.dart';
 import 'unidadesMedidas.dart';
 import 'categoriaServicos.dart';
 import 'visualizarUsuarios.dart';
+import '../Login/login.dart';
 
 class PerfilAdminScreen extends StatelessWidget {
   const PerfilAdminScreen({super.key});
@@ -69,7 +70,7 @@ class PerfilAdminScreen extends StatelessWidget {
             title: 'Visualizar Usuários',
             subtitle: 'Listar e monitorar usuários cadastrados',
             onTap: () {
-            Navigator.push(
+              Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const VisualizarUsuarios()),
               );
@@ -86,7 +87,14 @@ class PerfilAdminScreen extends StatelessWidget {
           ),
           const SizedBox(height: 5),
           ElevatedButton.icon(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () {
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (_) => const LoginScreen()),
+                (Route<dynamic> route) =>
+                    false, // remove todas as rotas anteriores
+              );
+            },
             icon: const Icon(Icons.logout),
             label: const Text(
               'Sair do Painel',

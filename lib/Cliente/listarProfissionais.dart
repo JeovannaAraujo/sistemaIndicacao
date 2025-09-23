@@ -14,12 +14,13 @@ class ProfissionaisPorCategoriaScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Consulta SEM orderBy (evita índice composto obrigatório).
     final query = FirebaseFirestore.instance
         .collection('usuarios')
         .where('tipoPerfil', isEqualTo: 'Prestador')
         .where('ativo', isEqualTo: true)
-        .where('categoriaProfissionalId', isEqualTo: categoriaId)
-        .orderBy('atualizadoEm', descending: true);
+        .where('categoriaProfissionalId', isEqualTo: categoriaId);
+        // .orderBy('criadoEm', descending: true); // <- se quiser usar, crie índice composto
 
     return Scaffold(
       appBar: AppBar(title: Text(categoriaNome)),
@@ -27,13 +28,38 @@ class ProfissionaisPorCategoriaScreen extends StatelessWidget {
         stream: query.snapshots(),
         builder: (context, snap) {
           if (snap.hasError) {
-            return const Center(child: Text('Erro ao carregar profissionais.'));
+            // Mostra o erro real para facilitar a vida (ex.: link de índice do Firestore)
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  'Erro: ${snap.error}',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            );
           }
           if (!snap.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final docs = snap.data!.docs;
+          // Ordena em memória por criadoEm desc (fallback para atualizadoEm, depois DateTime(0))
+          final docs = snap.data!.docs.toList()
+            ..sort((a, b) {
+              DateTime _getDate(QueryDocumentSnapshot d) {
+                final m = d.data() as Map<String, dynamic>;
+                final ce = m['criadoEm'];
+                final ae = m['atualizadoEm'];
+                if (ce is Timestamp) return ce.toDate();
+                if (ae is Timestamp) return ae.toDate();
+                return DateTime.fromMillisecondsSinceEpoch(0);
+              }
+
+              final tb = _getDate(b);
+              final ta = _getDate(a);
+              return tb.compareTo(ta); // desc
+            });
+
           if (docs.isEmpty) {
             return Center(
               child: Padding(
@@ -57,20 +83,28 @@ class ProfissionaisPorCategoriaScreen extends StatelessWidget {
                   (data['endereco'] as Map?)?.cast<String, dynamic>() ?? {};
 
               final nome = (data['nome'] ?? '').toString();
-              final areaAtendimento = (data['areaAtendimento'] ?? '')
-                  .toString();
-              final cidade = (endereco['cidade'] ?? data['cidade'] ?? '')
-                  .toString();
+              final areaAtendimento = (data['areaAtendimento'] ?? '').toString();
+              final cidade =
+                  (endereco['cidade'] ?? data['cidade'] ?? '').toString();
 
               final fotoUrl = (data['fotoUrl'] ?? '').toString();
-              final tempoExperiencia = (data['tempoExperiencia'] ?? '')
-                  .toString(); // "5-10 anos"
-              final nota = (data['nota'] is num)
+              final tempoExperiencia =
+                  (data['tempoExperiencia'] ?? '').toString(); // "5-10 anos"
+
+              // Campo de nota pode variar no seu app; aqui mantenho suporte ao que você usou.
+              final double? nota = (data['nota'] is num)
                   ? (data['nota'] as num).toDouble()
-                  : null;
-              final avaliacoes = (data['avaliacoes'] is num)
+                  : (data['avaliacao'] is num)
+                      ? (data['avaliacao'] as num).toDouble()
+                      : (data['rating'] is num)
+                          ? (data['rating'] as num).toDouble()
+                          : null;
+
+              final int? avaliacoes = (data['avaliacoes'] is num)
                   ? (data['avaliacoes'] as num).toInt()
-                  : null;
+                  : (data['qtdAvaliacoes'] is num)
+                      ? (data['qtdAvaliacoes'] as num).toInt()
+                      : null;
 
               return _ProfessionalCard(
                 id: docs[i].id,
@@ -131,12 +165,8 @@ class _ProfessionalCard extends StatelessWidget {
             CircleAvatar(
               radius: 28,
               backgroundColor: Colors.grey.shade200,
-              backgroundImage: (fotoUrl.isNotEmpty)
-                  ? NetworkImage(fotoUrl)
-                  : null,
-              child: (fotoUrl.isEmpty)
-                  ? const Icon(Icons.person, size: 32)
-                  : null,
+              backgroundImage: (fotoUrl.isNotEmpty) ? NetworkImage(fotoUrl) : null,
+              child: (fotoUrl.isEmpty) ? const Icon(Icons.person, size: 32) : null,
             ),
             const SizedBox(width: 12),
 
@@ -184,7 +214,7 @@ class _ProfessionalCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
 
-                  // Categoria | 📍 Local (somente cidade)
+                  // Categoria | 📍 Local (somente cidade/área)
                   Row(
                     children: [
                       Flexible(
@@ -194,15 +224,9 @@ class _ProfessionalCard extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      const Text(
-                        '  |  ',
-                        style: TextStyle(color: Colors.black45),
-                      ),
-                      const Icon(
-                        Icons.location_on_outlined,
-                        size: 16,
-                        color: Colors.black54,
-                      ),
+                      const Text('  |  ', style: TextStyle(color: Colors.black45)),
+                      const Icon(Icons.location_on_outlined,
+                          size: 16, color: Colors.black54),
                       const SizedBox(width: 4),
                       Flexible(
                         child: Text(
@@ -220,11 +244,8 @@ class _ProfessionalCard extends StatelessWidget {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(
-                        Icons.work_outline,
-                        size: 18,
-                        color: Colors.deepPurple,
-                      ),
+                      const Icon(Icons.work_outline,
+                          size: 18, color: Colors.deepPurple),
                       const SizedBox(width: 8),
                       Text(
                         tempoExperiencia.isEmpty
@@ -268,9 +289,7 @@ class _ProfessionalCard extends StatelessWidget {
                             // TODO: Navegar para Agenda do prestador
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
-                                content: Text(
-                                  'Abrir Agenda (implementar rota)',
-                                ),
+                                content: Text('Abrir Agenda (implementar rota)'),
                               ),
                             );
                           },

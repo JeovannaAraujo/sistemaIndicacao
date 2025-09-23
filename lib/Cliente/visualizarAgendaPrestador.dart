@@ -242,7 +242,7 @@ class _VisualizarAgendaPrestadorState extends State<VisualizarAgendaPrestador> {
 
   Widget _calendarCard() {
     const clrSelBorder = Color(0xFF673AB7); // borda roxa selecionado
-    const clrBusy = Color.fromARGB(255, 255, 64, 77); // indisponível
+    const clrBusy = Color.fromARGB(255, 199, 190, 190); // indisponível
     const clrAvail = Color.fromARGB(255, 109, 221, 140); // disponível
     const clrWeekend = Color.fromARGB(255, 199, 190, 190); // fds
     const clrToday = Color(0xFF673AB7); // hoje roxo
@@ -356,7 +356,7 @@ class _VisualizarAgendaPrestadorState extends State<VisualizarAgendaPrestador> {
       padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
       child: Row(
         children: [
-          chip(const Color.fromARGB(255, 243, 46, 62), 'Indisponível'),
+          chip(const Color.fromARGB(255, 199, 190, 190), 'Indisponível'),
           const SizedBox(width: 14),
           chip(const Color.fromARGB(255, 93, 248, 137), 'Disponível'),
         ],

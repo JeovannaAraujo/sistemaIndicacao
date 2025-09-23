@@ -5,6 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'detalhesSolicitacao.dart';
 
+// >>> importa rotas e a BottomNav do prestador
+import 'rotasNavegacao.dart';
+
 class SolicitacoesRecebidasScreen extends StatefulWidget {
   const SolicitacoesRecebidasScreen({super.key});
 
@@ -101,6 +104,7 @@ class _SolicitacoesRecebidasScreenState
         title: const Text('Solicitações'),
         backgroundColor: Colors.white,
         elevation: 0.3,
+        automaticallyImplyLeading: false, // 🔥 remove seta de voltar
         bottom: TabBar(
           controller: _tab,
           labelColor: Colors.deepPurple,
@@ -125,6 +129,8 @@ class _SolicitacoesRecebidasScreenState
           ),
         ],
       ),
+      // <<< Bottom Navigation centralizada do Prestador
+      bottomNavigationBar: const PrestadorBottomNav(selectedIndex: 1),
     );
   }
 }
@@ -489,7 +495,7 @@ class _SolicCard extends StatelessWidget {
         return Colors.orange.shade700;
       case 'respondida':
       case 'aceita':
-        return Colors.green.shade700;
+        return const Color.fromARGB(255, 45, 48, 45);
       case 'recusada':
       case 'cancelada':
         return Colors.red.shade700;
@@ -501,8 +507,6 @@ class _SolicCard extends StatelessWidget {
   }
 }
 
-/// *Exemplo* de tela de detalhes mínima.
-/// (no seu app você usa DetalhesSolicitacaoScreen real)
 class _SolicitacaoDetalheScreen extends StatelessWidget {
   final String docId;
   final Map<String, dynamic> data;

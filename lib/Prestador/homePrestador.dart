@@ -2,13 +2,18 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../Login/login.dart';
 import 'agendaPrestador.dart';
 import 'solicitacoesRecebidas.dart';
 import 'editarServico.dart';
 import 'visualizarAvaliacoes.dart';
-import 'perfilPrestador.dart'; // para abrir o perfil do prestador via BottomNavigation
+import 'perfilPrestador.dart';
+import 'cadastroServicos.dart';
+import 'notificacoes.dart';
+
+// >>> importe as rotas do Prestador
+import 'rotasNavegacao.dart';
 
 class HomePrestadorScreen extends StatefulWidget {
   const HomePrestadorScreen({super.key});
@@ -19,7 +24,6 @@ class HomePrestadorScreen extends StatefulWidget {
 
 class _HomePrestadorScreenState extends State<HomePrestadorScreen> {
   final user = FirebaseAuth.instance.currentUser;
-  int _selectedIndex = 0;
 
   // ======== STREAM: contagem de pendentes para badge ========
   static const String _colSolicitacoes = 'solicitacoesOrcamento';
@@ -30,31 +34,6 @@ class _HomePrestadorScreenState extends State<HomePrestadorScreen> {
         .where('status', isEqualTo: 'pendente')
         .snapshots()
         .map((s) => s.size);
-  }
-
-  void _onItemTapped(int index) {
-    setState(() => _selectedIndex = index);
-
-    final uid = user?.uid ?? '';
-    if (index == 1) {
-      // Solicitações
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const SolicitacoesRecebidasScreen()),
-      );
-    } else if (index == 2) {
-      // Perfil do Prestador
-      if (uid.isNotEmpty) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => PerfilPrestador(userId: uid)),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Usuário não autenticado.')),
-        );
-      }
-    }
   }
 
   // ===================== ATALHOS (ícones coloridos + nome) =====================
@@ -76,12 +55,8 @@ class _HomePrestadorScreenState extends State<HomePrestadorScreen> {
         label: 'Solicitações',
         badgeStream: (uid == null) ? null : _pendentesCountStream(uid),
         onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const SolicitacoesRecebidasScreen(),
-            ),
-          );
+          // pode usar rota centralizada também:
+          context.goSolicitacoes(replace: false);
         },
       ),
       _IconOnlyAtalho(
@@ -100,7 +75,7 @@ class _HomePrestadorScreenState extends State<HomePrestadorScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SizedBox(height: 8),
+        const SizedBox(height: 7),
         const Text(
           'Atalhos',
           style: TextStyle(
@@ -109,7 +84,7 @@ class _HomePrestadorScreenState extends State<HomePrestadorScreen> {
             color: Colors.deepPurple,
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
         GridView.count(
           crossAxisCount: 3,
           mainAxisSpacing: 8,
@@ -124,7 +99,7 @@ class _HomePrestadorScreenState extends State<HomePrestadorScreen> {
 
   // ===================== SERVIÇOS (igual ao Perfil) ====================
 
-  // Helpers de avaliação (mesmos comportamentos do Perfil)
+  // Helpers de avaliação
   double? _extrairNotaGenerica(Map<String, dynamic> data) {
     final ordem = ['nota', 'rating', 'estrelas', 'notaGeral'];
     for (final c in ordem) {
@@ -359,16 +334,19 @@ class _HomePrestadorScreenState extends State<HomePrestadorScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SizedBox(height: 20),
-        const Text(
-          'Serviços Prestados',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: Colors.deepPurple,
-          ),
+        // Cabeçalho com "+ Novo Serviço"
+        _SectionHeader(
+          title: 'Serviços Prestados',
+          actionLabel: 'Novo Serviço',
+          onAction: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const CadastroServicos()),
+            );
+          },
         ),
         const SizedBox(height: 10),
+
         StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: FirebaseFirestore.instance
               .collection('servicos')
@@ -417,176 +395,34 @@ class _HomePrestadorScreenState extends State<HomePrestadorScreen> {
                     ? (data['qtdAvaliacoes'] as num).toInt()
                     : 0;
 
-                return Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.black12),
-                  ),
-                  padding: const EdgeInsets.all(12),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Thumb da categoria do serviço
-                      FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                        future: FirebaseFirestore.instance
-                            .collection('categoriasServicos')
-                            .doc(catId)
-                            .get(),
-                        builder: (context, snapCat) {
-                          if (snapCat.connectionState ==
-                              ConnectionState.waiting) {
-                            return Container(
-                              width: 56,
-                              height: 56,
-                              decoration: BoxDecoration(
-                                color: Colors.black12,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: const Center(
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              ),
-                            );
-                          }
-
-                          final dataCat = snapCat.data?.data();
-                          final imagemUrl =
-                              (dataCat?['imagemUrl'] ?? '') as String?;
-
-                          return Container(
-                            width: 56,
-                            height: 56,
-                            decoration: BoxDecoration(
-                              color: Colors.black12,
-                              borderRadius: BorderRadius.circular(8),
-                              image: (imagemUrl != null && imagemUrl.isNotEmpty)
-                                  ? DecorationImage(
-                                      image: NetworkImage(imagemUrl),
-                                      fit: BoxFit.cover,
-                                    )
-                                  : null,
-                            ),
-                            child: (imagemUrl == null || imagemUrl.isEmpty)
-                                ? const Icon(
-                                    Icons.image_not_supported,
-                                    color: Colors.grey,
-                                  )
-                                : null,
-                          );
-                        },
+                return _ServiceCard(
+                  id: s.id,
+                  nome: nomeServ,
+                  descricao: descricaoServ,
+                  categoriaId: catId,
+                  unidadeId: unidadeId,
+                  preco: price,
+                  ativo: ativo,
+                  docMedia: avServ,
+                  docQtd: qtdAvServ,
+                  onEditar: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => EditarServico(serviceId: s.id),
                       ),
-
-                      const SizedBox(width: 12),
-
-                      // Infos
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // TÍTULO
-                            Text(
-                              nomeServ,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-
-                            // ⭐ LINHA DE AVALIAÇÃO (igual Perfil)
-                            _ratingLinha(
-                              servicoId: s.id,
-                              servicoTitulo: nomeServ,
-                              docMedia: avServ,
-                              docQtd: qtdAvServ,
-                            ),
-
-                            if (descricaoServ.isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 2.0),
-                                child: Text(
-                                  descricaoServ,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(color: Colors.black87),
-                                ),
-                              ),
-
-                            Padding(
-                              padding: const EdgeInsets.only(top: 4.0),
-                              child: FutureBuilder<String?>(
-                                future: _getNomeCategoriaServById(catId),
-                                builder: (context, catSnap) {
-                                  final catNome = catSnap.data;
-                                  return Text(
-                                    (catNome != null && catNome.isNotEmpty)
-                                        ? catNome
-                                        : 'Categoria',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey,
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-
-                            Padding(
-                              padding: const EdgeInsets.only(top: 6.0),
-                              child: FutureBuilder<String?>(
-                                future: _getNomeUnidadeById(unidadeId),
-                                builder: (context, uniSnap) {
-                                  final unNome = (uniSnap.data ?? '').trim();
-                                  final sufixo = unNome.isNotEmpty
-                                      ? unNome
-                                      : 'un';
-                                  return Text(
-                                    '${_formatMoney(price)}/$sufixo',
-                                    style: const TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(width: 8),
-
-                      // Ações: Editar + Ativado
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          OutlinedButton(
-                            onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) =>
-                                      EditarServico(serviceId: s.id),
-                                ),
-                              );
-                            },
-                            child: const Text('Editar'),
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              const Text('Ativado'),
-                              Switch(
-                                value: ativo,
-                                onChanged: (val) async {
-                                  await s.reference.update({'ativo': val});
-                                },
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ],
+                    );
+                  },
+                  onToggleAtivo: (val) async {
+                    await s.reference.update({'ativo': val});
+                  },
+                  getNomeCategoria: _getNomeCategoriaServById,
+                  getNomeUnidade: _getNomeUnidadeById,
+                  ratingBuilder: () => _ratingLinha(
+                    servicoId: s.id,
+                    servicoTitulo: nomeServ,
+                    docMedia: avServ,
+                    docQtd: qtdAvServ,
                   ),
                 );
               },
@@ -621,6 +457,7 @@ class _HomePrestadorScreenState extends State<HomePrestadorScreen> {
           // atalhos somente ícones
           _buildAtalhosIcones(),
 
+          const SizedBox(height: 27),
           // lista de serviços igual ao perfil
           _buildServicosPrestadorSection(),
         ],
@@ -663,43 +500,199 @@ class _HomePrestadorScreenState extends State<HomePrestadorScreen> {
             return ListView(
               padding: EdgeInsets.zero,
               children: [
-                UserAccountsDrawerHeader(
-                  accountName: Text(nome),
-                  accountEmail: Text(
-                    whatsapp.isNotEmpty ? whatsapp : (u?.email ?? ''),
-                  ),
-                  currentAccountPicture: CircleAvatar(
-                    backgroundColor: Colors.white,
-                    backgroundImage: (fotoUrl != null && fotoUrl.isNotEmpty)
-                        ? NetworkImage(fotoUrl)
-                        : null,
-                    child: (fotoUrl == null || fotoUrl.isEmpty)
-                        ? const Icon(
-                            Icons.person,
-                            size: 36,
-                            color: Colors.deepPurple,
-                          )
-                        : null,
-                  ),
+                DrawerHeader(
                   decoration: const BoxDecoration(color: Colors.deepPurple),
-                  otherAccountsPictures: [
-                    if (enderecoTxt.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8.0),
-                        child: Text(
-                          enderecoTxt,
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                          ),
+                  margin: EdgeInsets.zero,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      CircleAvatar(
+                        radius: 30,
+                        backgroundColor: Colors.white,
+                        backgroundImage: (fotoUrl != null && fotoUrl.isNotEmpty)
+                            ? NetworkImage(fotoUrl)
+                            : null,
+                        child: (fotoUrl == null || fotoUrl.isEmpty)
+                            ? const Icon(
+                                Icons.person,
+                                size: 40,
+                                color: Colors.deepPurple,
+                              )
+                            : null,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // Nome
+                            Text(
+                              nome,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+
+                            const SizedBox(height: 4),
+
+                            // Categoria + cidade com ícone
+                            Builder(
+                              builder: (context) {
+                                final catProfId =
+                                    dados?['categoriaProfissionalId']
+                                        as String?;
+                                final cidadeStr = (cidade).toString();
+
+                                return FutureBuilder<
+                                  DocumentSnapshot<Map<String, dynamic>>
+                                >(
+                                  future:
+                                      (catProfId == null || catProfId.isEmpty)
+                                      ? null
+                                      : FirebaseFirestore.instance
+                                            .collection(
+                                              'categoriasProfissionais',
+                                            )
+                                            .doc(catProfId)
+                                            .get(),
+                                  builder: (context, snapCat) {
+                                    final catNome =
+                                        (snapCat.data?.data()?['nome']
+                                            as String?) ??
+                                        'Profissional';
+
+                                    return Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.center,
+                                      children: [
+                                        Flexible(
+                                          child: Text(
+                                            catNome,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ),
+                                        if (cidadeStr.isNotEmpty) ...[
+                                          const SizedBox(width: 6),
+                                          const Text(
+                                            '|',
+                                            style: TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 6),
+                                          const Icon(
+                                            Icons.location_on,
+                                            size: 14,
+                                            color: Colors.white70,
+                                          ),
+                                          const SizedBox(width: 2),
+                                          Flexible(
+                                            child: Text(
+                                              cidadeStr,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                color: Colors.white70,
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    );
+                                  },
+                                );
+                              },
+                            ),
+
+                            const SizedBox(height: 6),
+
+                            // WhatsApp
+                            Row(
+                              children: [
+                                const FaIcon(
+                                  FontAwesomeIcons.whatsapp,
+                                  size: 16,
+                                  color: Color.fromARGB(255, 255, 255, 255),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    whatsapp.isNotEmpty
+                                        ? whatsapp
+                                        : (u?.email ?? ''),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            // Ver perfil
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: TextButton(
+                                style: TextButton.styleFrom(
+                                  foregroundColor: Colors.white,
+                                  padding: EdgeInsets.zero,
+                                  minimumSize: const Size(0, 0),
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                onPressed: () {
+                                  // usa a rota centralizada (push sem replace)
+                                  context.goPerfil(replace: false);
+                                },
+                                child: const Text(
+                                  'Ver perfil',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                  ],
+                    ],
+                  ),
                 ),
+
+                // === menu ===
                 ListTile(
                   leading: const Icon(Icons.notifications),
                   title: const Text('Notificações'),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const NotificacoesScreen(),
+                      ),
+                    );
+                  },
                 ),
+
                 ListTile(
                   leading: const Icon(Icons.settings),
                   title: const Text('Configurações'),
@@ -718,12 +711,8 @@ class _HomePrestadorScreenState extends State<HomePrestadorScreen> {
                           },
                         ),
                   onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const SolicitacoesRecebidasScreen(),
-                      ),
-                    );
+                    // usa a rota centralizada (push sem replace)
+                    context.goSolicitacoes(replace: false);
                   },
                 ),
                 ListTile(
@@ -750,7 +739,6 @@ class _HomePrestadorScreenState extends State<HomePrestadorScreen> {
       ),
 
       appBar: AppBar(
-        title: const Text('Indica Aí'),
         backgroundColor: Colors.white,
         foregroundColor: Colors.deepPurple,
         elevation: 0,
@@ -758,47 +746,8 @@ class _HomePrestadorScreenState extends State<HomePrestadorScreen> {
 
       body: _buildBody(),
 
-      // ============== Bottom Bar SOMENTE 3 itens ==============
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: _onItemTapped,
-        selectedItemColor: Colors.deepPurple,
-        unselectedItemColor: Colors.grey,
-        type: BottomNavigationBarType.fixed,
-        items: [
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.home),
-            label: 'Início',
-          ),
-          BottomNavigationBarItem(
-            icon: (uid == null)
-                ? const Icon(Icons.description)
-                : StreamBuilder<int>(
-                    stream: _pendentesCountStream(uid),
-                    builder: (context, snap) {
-                      final count = snap.data ?? 0;
-                      if (count <= 0) return const Icon(Icons.description);
-                      return Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          const Icon(Icons.description),
-                          Positioned(
-                            right: -6,
-                            top: -2,
-                            child: _Badge(count: count),
-                          ),
-                        ],
-                      );
-                    },
-                  ),
-            label: 'Solicitações',
-          ),
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.person),
-            label: 'Perfil',
-          ),
-        ],
-      ),
+      // ============== Bottom Bar: usa o componente centralizado ==============
+      bottomNavigationBar: const PrestadorBottomNav(selectedIndex: 0),
     );
   }
 }
@@ -897,6 +846,283 @@ class _IconOnlyAtalho extends StatelessWidget {
             Center(child: iconText),
             Positioned(right: 28, top: 2, child: _Badge(count: count)),
           ],
+        );
+      },
+    );
+  }
+}
+
+// ---------- Header com ação à direita ----------
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  final String actionLabel;
+  final VoidCallback onAction;
+
+  const _SectionHeader({
+    super.key,
+    required this.title,
+    required this.actionLabel,
+    required this.onAction,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.deepPurple,
+            ),
+          ),
+        ),
+        TextButton.icon(
+          onPressed: onAction,
+          icon: const Icon(Icons.add, size: 18, color: Colors.deepPurple),
+          label: Text(
+            actionLabel,
+            style: const TextStyle(
+              color: Colors.deepPurple,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          style: TextButton.styleFrom(
+            foregroundColor: Colors.deepPurple,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ServiceCard extends StatelessWidget {
+  final String id;
+  final String nome;
+  final String descricao;
+  final String categoriaId;
+  final String unidadeId;
+  final num preco;
+  final bool ativo;
+  final double docMedia;
+  final int docQtd;
+
+  final VoidCallback onEditar;
+  final Future<void> Function(bool) onToggleAtivo;
+  final Future<String?> Function(String) getNomeCategoria;
+  final Future<String?> Function(String) getNomeUnidade;
+  final Widget Function() ratingBuilder;
+
+  const _ServiceCard({
+    super.key,
+    required this.id,
+    required this.nome,
+    required this.descricao,
+    required this.categoriaId,
+    required this.unidadeId,
+    required this.preco,
+    required this.ativo,
+    required this.docMedia,
+    required this.docQtd,
+    required this.onEditar,
+    required this.onToggleAtivo,
+    required this.getNomeCategoria,
+    required this.getNomeUnidade,
+    required this.ratingBuilder,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.deepPurple.withOpacity(0.08)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x14000000),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ====== Linha principal: imagem + conteúdo
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // deixa a thumb mais baixa, como estava antes
+              Padding(
+                padding: const EdgeInsets.only(top: 16),
+                child: _CategoriaThumb(categoriaId: categoriaId),
+              ),
+
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Rating no topo à direita
+                    Align(
+                      alignment: Alignment.topRight,
+                      child: DefaultTextStyle.merge(
+                        style: const TextStyle(fontSize: 13),
+                        child: ratingBuilder(),
+                      ),
+                    ),
+
+                    // Nome
+                    Text(
+                      nome,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+
+                    // Descrição
+                    if (descricao.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        descricao,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.black87),
+                      ),
+                    ],
+
+                    // Categoria
+                    const SizedBox(height: 6),
+                    FutureBuilder<String?>(
+                      future: getNomeCategoria(categoriaId),
+                      builder: (context, catSnap) {
+                        final catNome = catSnap.data;
+                        return Text(
+                          (catNome != null && catNome.isNotEmpty)
+                              ? catNome
+                              : 'Categoria',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey,
+                          ),
+                        );
+                      },
+                    ),
+
+                    // Preço / unidade
+                    const SizedBox(height: 6),
+                    FutureBuilder<String?>(
+                      future: getNomeUnidade(unidadeId),
+                      builder: (context, uniSnap) {
+                        final unNome = (uniSnap.data ?? '').trim();
+                        final sufixo = unNome.isNotEmpty ? unNome : 'unidade';
+                        final s = preco
+                            .toDouble()
+                            .toStringAsFixed(2)
+                            .replaceAll('.', ',');
+                        return Text(
+                          'R\$ $s / $sufixo',
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 12),
+
+          // ====== Rodapé: Editar à esquerda | Ativo à direita
+          Row(
+            children: [
+              ElevatedButton(
+                onPressed: onEditar,
+                style: ElevatedButton.styleFrom(
+                  elevation: 0,
+                  backgroundColor: Colors.deepPurple.withOpacity(0.08),
+                  foregroundColor: Colors.deepPurple,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  textStyle: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                child: const Text('Editar'),
+              ),
+              const Spacer(),
+              const Text(
+                'Ativo',
+                style: TextStyle(fontWeight: FontWeight.w500),
+              ),
+              const SizedBox(width: 8),
+              Switch.adaptive(
+                value: ativo,
+                activeColor: Colors.deepPurple,
+                onChanged: (val) => onToggleAtivo(val),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------- Thumb de categoria com loading gracioso ----------
+class _CategoriaThumb extends StatelessWidget {
+  final String categoriaId;
+  const _CategoriaThumb({super.key, required this.categoriaId});
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      future: FirebaseFirestore.instance
+          .collection('categoriasServicos')
+          .doc(categoriaId)
+          .get(),
+      builder: (context, snapCat) {
+        final radius = BorderRadius.circular(10);
+        if (snapCat.connectionState == ConnectionState.waiting) {
+          return Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              color: Colors.deepPurple.withOpacity(0.06),
+              borderRadius: radius,
+            ),
+            child: const Center(
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          );
+        }
+        final dataCat = snapCat.data?.data();
+        final imagemUrl = (dataCat?['imagemUrl'] ?? '') as String?;
+        return ClipRRect(
+          borderRadius: radius,
+          child: Container(
+            width: 64,
+            height: 64,
+            color: Colors.deepPurple.withOpacity(0.06),
+            child: (imagemUrl != null && imagemUrl.isNotEmpty)
+                ? Image.network(imagemUrl, fit: BoxFit.cover)
+                : const Icon(Icons.image_not_supported, color: Colors.grey),
+          ),
         );
       },
     );

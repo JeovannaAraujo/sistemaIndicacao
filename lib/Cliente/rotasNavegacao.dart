@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // ADICIONADO
 import 'solicitacoesEnviadas.dart';
 import 'solicitacoesRespondidas.dart';
 import 'solicitacoesAceitas.dart';
 import 'buscarServicos.dart';
 import 'homeCliente.dart';
+import 'perfilCliente.dart'; // ADICIONADO
 
 class RotasNavegacao {
   static Future<T?> _nav<T>(
@@ -37,6 +39,23 @@ class RotasNavegacao {
     BuildContext c, {
     bool replace = true,
   }) => _nav<T>(c, const SolicitacoesAceitasScreen(), replace: replace);
+
+  /// ===== PERFIL DO CLIENTE =====
+  /// Se [userId] não for informado, tenta usar o usuário autenticado.
+  static Future<T?> irParaPerfil<T>(
+    BuildContext c, {
+    bool replace = true,
+    String? userId,
+  }) {
+    final uid = userId ?? FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || uid.isEmpty) {
+      ScaffoldMessenger.of(
+        c,
+      ).showSnackBar(const SnackBar(content: Text('Usuário não autenticado.')));
+      return Future.value(null);
+    }
+    return _nav<T>(c, PerfilCliente(userId: uid), replace: replace);
+  }
 }
 
 /// Atalhos: context.goEnviadas(), context.goAceitas(), etc.
@@ -51,6 +70,10 @@ extension RotasExt on BuildContext {
       RotasNavegacao.irParaSolicitacoesRespondidas<T>(this, replace: replace);
   Future<T?> goAceitas<T>({bool replace = true}) =>
       RotasNavegacao.irParaSolicitacoesAceitas<T>(this, replace: replace);
+
+  /// Novo atalho para o perfil do cliente
+  Future<T?> goPerfil<T>({bool replace = true, String? userId}) =>
+      RotasNavegacao.irParaPerfil<T>(this, replace: replace, userId: userId);
 }
 
 /* ====================== BottomNavigationBar (cliente) ====================== */
@@ -86,13 +109,10 @@ class ClienteBottomNav extends StatelessWidget {
             context.goBuscar();
             break;
           case 2:
-            context.goEnviadas();
-            break; // raiz das Solicitações
+            context.goEnviadas(); // raiz das Solicitações
+            break;
           case 3:
-            // Substitua quando tiver a tela de perfil
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Tela de Perfil (implementar)')),
-            );
+            context.goPerfil(); // agora navega pro PerfilCliente
             break;
         }
       },
