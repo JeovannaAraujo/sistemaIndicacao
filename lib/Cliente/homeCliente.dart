@@ -1,6 +1,8 @@
+// lib/Cliente/homeCliente.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../Login/login.dart';
 import 'buscarServicos.dart';
 import 'listarProfissionais.dart';
@@ -18,7 +20,6 @@ class _HomeScreenState extends State<HomeScreen> {
   final user = FirebaseAuth.instance.currentUser;
   int _selectedIndex = 0;
 
-  // nome da coleção das categorias de PROFISSIONAIS
   static const String _categoriasCollection = 'categoriasProfissionais';
 
   void _onItemTapped(int index) {
@@ -40,85 +41,229 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // =================== DRAWER (cliente) ===================
       drawer: Drawer(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            UserAccountsDrawerHeader(
-              accountName: const Text('Amélia Araújo'),
-              accountEmail: const Text('(64)99999-9999'),
-              currentAccountPicture: const CircleAvatar(
-                child: Icon(Icons.person, size: 36),
-              ),
-              decoration: const BoxDecoration(color: Colors.deepPurple),
-              otherAccountsPictures: const [
-                Text(
-                  'Rua Margarida...',
-                  style: TextStyle(color: Colors.white70, fontSize: 12),
+        child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: (user == null)
+              ? const Stream.empty()
+              : FirebaseFirestore.instance
+                    .collection('usuarios')
+                    .doc(user!.uid)
+                    .snapshots(),
+          builder: (context, snap) {
+            final dados = snap.data?.data() ?? {};
+            final nome = (dados['nome'] ?? 'Cliente') as String;
+
+            // cidade pode vir na raiz OU dentro de endereco
+            final endereco = (dados['endereco'] as Map<String, dynamic>?) ?? {};
+            final cidade = ((dados['cidade'] ?? endereco['cidade']) ?? '')
+                .toString()
+                .trim();
+
+            // whatsapp pode vir como 'whatsApp' na raiz, ou 'whatsapp' no endereco
+            final whatsRoot =
+                (dados['whatsApp'] ?? dados['WhatsApp'] ?? '') as String?;
+            final whatsEnd =
+                (endereco['whatsapp'] ?? endereco['WhatsApp'] ?? '') as String?;
+            final whatsapp = (whatsRoot?.trim().isNotEmpty == true
+                ? whatsRoot!.trim()
+                : (whatsEnd ?? '').trim());
+
+            // foto (opcional)
+            final fotoUrl = (dados['fotoUrl'] ?? '') as String?;
+
+            return ListView(
+              padding: EdgeInsets.zero,
+              children: [
+                DrawerHeader(
+                  decoration: const BoxDecoration(color: Colors.deepPurple),
+                  margin: EdgeInsets.zero,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      CircleAvatar(
+                        radius: 30,
+                        backgroundColor: Colors.white,
+                        backgroundImage: (fotoUrl != null && fotoUrl.isNotEmpty)
+                            ? NetworkImage(fotoUrl)
+                            : null,
+                        child: (fotoUrl == null || fotoUrl.isEmpty)
+                            ? const Icon(
+                                Icons.person,
+                                size: 40,
+                                color: Colors.deepPurple,
+                              )
+                            : null,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // Nome
+                            Text(
+                              nome,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+
+                            // Cidade
+                            if (cidade.isNotEmpty)
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.location_on,
+                                    size: 14,
+                                    color: Colors.white70,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      cidade,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+
+                            const SizedBox(height: 6),
+
+                            // WhatsApp (ou e-mail quando vazio)
+                            Row(
+                              children: [
+                                const FaIcon(
+                                  FontAwesomeIcons.whatsapp,
+                                  size: 16,
+                                  color: Colors.white,
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    whatsapp.isNotEmpty
+                                        ? whatsapp
+                                        : (user?.email ?? ''),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            const SizedBox(height: 6),
+
+                            // Ver perfil
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: TextButton(
+                                style: TextButton.styleFrom(
+                                  foregroundColor: Colors.white,
+                                  padding: EdgeInsets.zero,
+                                  minimumSize: const Size(0, 0),
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                onPressed: () {
+                                  context.goPerfil(replace: false);
+                                },
+                                child: const Text(
+                                  'Ver perfil',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // ===== Itens de menu =====
+                ListTile(
+                  leading: const Icon(Icons.notifications),
+                  title: const Text('Notificações'),
+                  onTap: () {
+                    Navigator.pop(context);
+                  },
+                ),
+                const ListTile(
+                  leading: Icon(Icons.settings),
+                  title: Text('Configurações'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.description),
+                  title: const Text('Solicitações'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    context.goRespondidas();
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.check_circle),
+                  title: const Text('Serviços Finalizados'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const ServicosFinalizadosScreen(),
+                      ),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.logout),
+                  title: const Text('Sair'),
+                  onTap: () async {
+                    await FirebaseAuth.instance.signOut();
+                    if (!context.mounted) return;
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(builder: (_) => const LoginScreen()),
+                    );
+                  },
                 ),
               ],
-            ),
-            const ListTile(
-              leading: Icon(Icons.notifications),
-              title: Text('Notificações'),
-            ),
-            const ListTile(
-              leading: Icon(Icons.settings),
-              title: Text('Configurações'),
-            ),
-
-            // 👉 agora navega para solicitacoesRespondidas.dart
-            ListTile(
-              leading: const Icon(Icons.description),
-              title: const Text('Solicitações'),
-              onTap: () {
-                Navigator.pop(context); // fecha o drawer
-                context.goRespondidas();
-              },
-            ),
-
-            ListTile(
-              leading: const Icon(Icons.check_circle),
-              title: const Text('Serviços Finalizados'),
-              onTap: () {
-                Navigator.pop(context); // fecha o drawer
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const ServicosFinalizadosScreen(),
-                  ),
-                );
-              },
-            ),
-
-            ListTile(
-              leading: const Icon(Icons.logout),
-              title: const Text('Sair'),
-              onTap: () async {
-                await FirebaseAuth.instance.signOut();
-                if (!context.mounted) return;
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (_) => const LoginScreen()),
-                );
-              },
-            ),
-          ],
+            );
+          },
         ),
       ),
+
       appBar: AppBar(),
       body: _buildBody(),
 
-      // 👉 usa o bottom nav centralizado nas suas rotas
       bottomNavigationBar: const ClienteBottomNav(selectedIndex: 0),
     );
   }
 
+  // ==================== CONTEÚDO ====================
   Widget _buildBody() {
     final categoriasQuery = FirebaseFirestore.instance
         .collection(_categoriasCollection)
         .where('ativo', isEqualTo: true)
-        .orderBy('nome'); // se pedir índice composto, crie pelo link do erro
+        .orderBy('nome');
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -159,7 +304,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 24),
 
-          // --- CATEGORIAS DO FIRESTORE ---
           const Text(
             'Categorias',
             style: TextStyle(
@@ -184,7 +328,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 return const Text('Nenhuma categoria disponível no momento.');
               }
 
-              // grid “fluido” com Wrap
               return Wrap(
                 spacing: 16,
                 runSpacing: 16,
@@ -208,7 +351,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
           const SizedBox(height: 24),
 
-          // placeholder de destaques (você liga depois)
           const Text(
             'Profissionais em destaque',
             style: TextStyle(
@@ -227,7 +369,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // item visual de categoria (com imagem ou ícone)
   Widget _CategoriaItem({
     required String label,
     required Color color,
@@ -271,7 +412,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ícone padrão por nome (fallback se a categoria não tiver imagem)
   IconData _iconForCategory(String nome) {
     final n = nome.toLowerCase();
     if (n.contains('pedreiro')) return Icons.construction;
@@ -296,7 +436,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // placeholder do profissional em destaque (mock)
   Widget _buildProfissional(
     String nome,
     String categoria,
