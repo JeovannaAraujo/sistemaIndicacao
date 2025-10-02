@@ -2,9 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'cadastroUsuarios.dart';
-import '../Cliente/homeCliente.dart';
-import '../Administrador/perfilAdmin.dart';
-import '../Prestador/homePrestador.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -71,7 +68,7 @@ class _LoginScreenState extends State<LoginScreen> {
       await col.doc(uid).set({
         'uid': uid,
         'email': email.toLowerCase(),
-        'tipoPerfil': 'Cliente', // **padrão conforme regra**
+        'tipoPerfil': 'Cliente',
         'ativo': true,
         'criadoEm': FieldValue.serverTimestamp(),
         'migrado': true,
@@ -84,7 +81,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final antigo = q.docs.first;
     final antigoData = Map<String, dynamic>.from(antigo.data());
 
-    // Normaliza tipoPerfil para o padrão das regras.
+    // Normaliza tipoPerfil
     antigoData['tipoPerfil'] = _normalizePerfil(
       antigoData['tipoPerfil'] as String?,
     );
@@ -98,7 +95,7 @@ class _LoginScreenState extends State<LoginScreen> {
     // Copia doc top-level
     await col.doc(uid).set(antigoData, SetOptions(merge: true));
 
-    // Copia subcoleções conhecidas (adicione outras se houver)
+    // Copia subcoleções conhecidas
     await _copiarSubcolecao(
       usuariosCol: col,
       antigoId: antigo.id,
@@ -112,12 +109,10 @@ class _LoginScreenState extends State<LoginScreen> {
       subcolecao: 'enderecos',
     );
 
-    // Tenta remover o doc antigo (pode falhar pelas regras — best-effort)
+    // Tenta remover o doc antigo (best-effort)
     try {
       await col.doc(antigo.id).delete();
-    } catch (_) {
-      // Sem permissão? OK. Limpeza pode ser feita por admin/Cloud Function.
-    }
+    } catch (_) {}
   }
 
   Future<void> _login() async {
@@ -136,36 +131,8 @@ class _LoginScreenState extends State<LoginScreen> {
       // Migra se necessário (cria/ajusta usuarios/{uid}).
       await _migrarUsuarioSeNecessario(uid: uid, email: email);
 
-      // Releitura garantida do doc correto
-      final userDoc = await FirebaseFirestore.instance
-          .collection('usuarios')
-          .doc(uid)
-          .get();
-      if (!userDoc.exists) {
-        throw Exception('Usuário não cadastrado no Firestore.');
-      }
-
-      final data = userDoc.data() as Map<String, dynamic>;
-      final tipoPerfil = _normalizePerfil(data['tipoPerfil'] as String?);
-
-      // Roteamento por perfil (mantendo telas atuais do seu app)
-      if (tipoPerfil == 'Administrador') {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const PerfilAdminScreen()),
-        );
-      } else if (tipoPerfil == 'Prestador') {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const HomePrestadorScreen()),
-        );
-      } else {
-        // Cliente (padrão)
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
-        );
-      }
+      // 🚀 Não faz mais Navigator.pushReplacement aqui
+      // O StreamBuilder no main.dart cuida do redirecionamento.
     } on FirebaseAuthException catch (e) {
       String msg;
       switch (e.code) {

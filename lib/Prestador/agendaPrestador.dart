@@ -213,9 +213,9 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
   Widget build(BuildContext context) {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) {
-      return Scaffold(
-        body: const Center(child: Text('Usuário não logado.')),
-        backgroundColor: const Color(0xFFF9F6FF),
+      return const Scaffold(
+        body: Center(child: Text('Usuário não logado.')),
+        backgroundColor: Color(0xFFF9F6FF),
       );
     }
 
@@ -287,13 +287,13 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
                         colors: [Color(0xFFF5F0FF), Color(0xFFD8C8F5)],
                       ),
                     ),
-                    child: SafeArea(
+                    child: const SafeArea(
                       bottom: false,
                       child: Padding(
-                        padding: const EdgeInsets.fromLTRB(64, 8, 16, 50),
+                        padding: EdgeInsets.fromLTRB(64, 8, 16, 50),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
-                          children: const [
+                          children: [
                             SizedBox(height: 6),
                             Text(
                               'Agenda do Prestador',

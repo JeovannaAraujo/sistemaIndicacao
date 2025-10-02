@@ -501,7 +501,7 @@ class _EditarPerfilClienteState extends State<EditarPerfilCliente> {
                     // ===== INFORMAÇÕES PESSOAIS =====
                     _secTitle('Informações pessoais'),
                     DropdownButtonFormField<String>(
-                      value: tipoPerfil,
+                      initialValue: tipoPerfil,
                       items: const ['Cliente', 'Prestador', 'Ambos']
                           .map((e) =>
                               DropdownMenuItem(value: e, child: Text(e)))
@@ -610,7 +610,7 @@ class _EditarPerfilClienteState extends State<EditarPerfilCliente> {
                           }).toList();
 
                           return DropdownButtonFormField<String>(
-                            value: categoriaProfId,
+                            initialValue: categoriaProfId,
                             items: itens,
                             onChanged: (v) =>
                                 setState(() => categoriaProfId = v),
@@ -642,7 +642,7 @@ class _EditarPerfilClienteState extends State<EditarPerfilCliente> {
                       ),
 
                       DropdownButtonFormField<String>(
-                        value: tempoExperiencia.isEmpty
+                        initialValue: tempoExperiencia.isEmpty
                             ? null
                             : tempoExperiencia,
                         items: experiencias

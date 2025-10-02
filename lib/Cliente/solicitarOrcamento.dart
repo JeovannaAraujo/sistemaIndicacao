@@ -920,9 +920,9 @@ class _ImagePickerGrid extends StatelessWidget {
             borderRadius: BorderRadius.circular(12),
           ),
           alignment: Alignment.center,
-          child: Column(
+          child: const Column(
             mainAxisAlignment: MainAxisAlignment.center,
-            children: const [
+            children: [
               Icon(Icons.photo_camera_outlined),
               SizedBox(height: 6),
               Text('Anexar'),

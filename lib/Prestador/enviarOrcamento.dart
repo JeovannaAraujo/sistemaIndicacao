@@ -322,7 +322,7 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
             ),
 
             const SizedBox(height: 16),
-            _SectionTitle('Dados da solicitação do cliente'),
+            const _SectionTitle('Dados da solicitação do cliente'),
             const SizedBox(height: 8),
             _ReadOnlyField(
               label: 'Serviço desejado',
@@ -357,7 +357,7 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
             ),
 
             const SizedBox(height: 16),
-            _SectionTitle('Valor Proposto'),
+            const _SectionTitle('Valor Proposto'),
             const SizedBox(height: 6),
             TextFormField(
               controller: _valorPropostoCtl,
@@ -373,7 +373,7 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
             ),
 
             const SizedBox(height: 16),
-            _SectionTitle('Tempo estimado para execução'),
+            const _SectionTitle('Tempo estimado para execução'),
             const SizedBox(height: 6),
             Row(
               children: [
@@ -409,7 +409,7 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
             ),
 
             const SizedBox(height: 16),
-            _SectionTitle('Data para iniciar execução'),
+            const _SectionTitle('Data para iniciar execução'),
             const SizedBox(height: 6),
             TextFormField(
               readOnly: true,
@@ -425,12 +425,12 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
               ),
             ),
             const SizedBox(height: 4),
-            _HelperText(
+            const _HelperText(
               'Caso indisponível na data desejada pelo cliente, favor colocar uma data alternativa.',
             ),
 
             const SizedBox(height: 16),
-            _SectionTitle('Horário para iniciar execução'),
+            const _SectionTitle('Horário para iniciar execução'),
             const SizedBox(height: 6),
             TextFormField(
               readOnly: true,
@@ -446,12 +446,12 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
               ),
             ),
             const SizedBox(height: 4),
-            _HelperText(
+            const _HelperText(
               'Caso indisponível no horário desejado pelo cliente, favor colocar um horário alternativo.',
             ),
 
             const SizedBox(height: 16),
-            _SectionTitle('Observações'),
+            const _SectionTitle('Observações'),
             const SizedBox(height: 6),
             TextFormField(
               controller: _observacoesCtl,
@@ -757,9 +757,9 @@ class _EstimativaCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          Text(
+          const Text(
             'Este valor é calculado automaticamente com base na quantidade informada e na média de preços do serviço.',
-            style: const TextStyle(fontSize: 12),
+            style: TextStyle(fontSize: 12),
           ),
           const SizedBox(height: 4),
           Text(

@@ -357,8 +357,9 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
 
     Future<String> imgCategoria(String id) async {
       if (id.isEmpty) return '';
-      if (_cacheImagemCategoria.containsKey(id))
+      if (_cacheImagemCategoria.containsKey(id)) {
         return _cacheImagemCategoria[id]!;
+      }
       final doc = await fs.collection(_colCategoriasServ).doc(id).get();
       final url = (doc.data()?['imagemUrl'] ?? '').toString();
       _cacheImagemCategoria[id] = url;
@@ -836,7 +837,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     final imagemServico = (e['imagemUrl'] ?? '').toString();
     final imagemCateg = (e['categoriaImagemUrl'] ?? '').toString();
 
-    String _formatPreco(dynamic v) {
+    String formatPreco(dynamic v) {
       double? valor;
       if (v is num) valor = v.toDouble();
       if (v is String) {
@@ -927,7 +928,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
                         Text(cidade, style: const TextStyle(fontSize: 13)),
                       const SizedBox(height: 6),
                       Text(
-                        '${_formatPreco(valorMedio)}${unidadeAbrev.isNotEmpty ? '/$unidadeAbrev' : ''}',
+                        '${formatPreco(valorMedio)}${unidadeAbrev.isNotEmpty ? '/$unidadeAbrev' : ''}',
                         style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
                     ],
@@ -1258,7 +1259,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
 
         _sectionTitle('Categoria de serviço'),
         DropdownButtonFormField<String>(
-          value: _categoriaSelecionadaId,
+          initialValue: _categoriaSelecionadaId,
           items: [
             const DropdownMenuItem(value: null, child: Text('Todas')),
             ..._categoriasServ.map(
@@ -1281,7 +1282,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
 
         _sectionTitle('Categoria profissional'),
         DropdownButtonFormField<String>(
-          value: _profissionalSelecionadoId,
+          initialValue: _profissionalSelecionadoId,
           items: [
             const DropdownMenuItem(value: null, child: Text('Todas')),
             ..._categoriasProf.map(
@@ -1304,7 +1305,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
 
         _sectionTitle('Unidade de medida'),
         DropdownButtonFormField<String>(
-          value: _unidadeSelecionada,
+          initialValue: _unidadeSelecionada,
           items: [
             const DropdownMenuItem(value: null, child: Text('Todas')),
             ..._unidades.map((u) => DropdownMenuItem(value: u, child: Text(u))),
@@ -1371,13 +1372,13 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
                       children: [
                         Text(
                           '$v',
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontSize: numberSize,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
                         const SizedBox(width: 4),
-                        Icon(Icons.star, size: starSize, color: Colors.amber),
+                        const Icon(Icons.star, size: starSize, color: Colors.amber),
                       ],
                     ),
                     side: BorderSide(
@@ -1427,7 +1428,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
                 min: 1,
                 max: 50,
                 divisions: 49,
-                label: '${_raioDistancia.toStringAsFixed(0)}',
+                label: _raioDistancia.toStringAsFixed(0),
               ),
             ),
             SizedBox(
@@ -1443,7 +1444,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
 
         _sectionTitle('Disponibilidade'),
         DropdownButtonFormField<String>(
-          value: _disponibilidadeSelecionada,
+          initialValue: _disponibilidadeSelecionada,
           items: const [
             DropdownMenuItem(
               value: null,

@@ -46,7 +46,7 @@ class _PerfilClienteState extends State<PerfilCliente> {
           final whatsapp = (endereco['whatsapp'] ?? '') as String;
 
           // "Rua alelo, 123, qd 1, bairro: ababa, Rio Verde, CEP: 75900-000"
-          String _enderecoLinha() {
+          String enderecoLinha() {
             final partes = <String>[];
 
             // Rua + número + complemento
@@ -68,7 +68,7 @@ class _PerfilClienteState extends State<PerfilCliente> {
             return partes.join(', ');
           }
 
-          final enderecoFormatado = _enderecoLinha();
+          final enderecoFormatado = enderecoLinha();
 
           return SingleChildScrollView(
             padding: const EdgeInsets.all(16),

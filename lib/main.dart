@@ -1,16 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
-import 'Login/login.dart'; // sua tela inicial
+// Telas do seu app
+import 'Login/login.dart';
+import 'Cliente/homeCliente.dart';
+import 'Administrador/perfilAdmin.dart';
+import 'Prestador/homePrestador.dart';
+import 'firebase_options.dart'; // importa o arquivo novo
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Firebase
-  await Firebase.initializeApp();
+  // Firebase inicializando com opções corretas
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   // Locale pt_BR para DateFormat, DatePicker etc.
   Intl.defaultLocale = 'pt_BR';
@@ -28,21 +35,65 @@ class MyApp extends StatelessWidget {
       title: 'Sistema de Indicação',
       debugShowCheckedModeBanner: false,
 
-      // IMPORTANTE: delegates e locales
+      // Delegates e locales
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
-      supportedLocales: const [
-        Locale('pt', 'BR'),
-        Locale('en', 'US'), // pode manter outros se quiser
-      ],
+      supportedLocales: const [Locale('pt', 'BR'), Locale('en', 'US')],
       locale: const Locale('pt', 'BR'),
 
       theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.deepPurple),
 
-      home: const LoginScreen(), // ou sua home
+      // Escolhe a tela inicial conforme estado do FirebaseAuth
+      home: StreamBuilder<User?>(
+        stream: FirebaseAuth.instance.authStateChanges(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+
+          // Usuário logado
+          if (snapshot.hasData) {
+            final uid = snapshot.data!.uid;
+
+            return FutureBuilder<DocumentSnapshot>(
+              future: FirebaseFirestore.instance
+                  .collection('usuarios')
+                  .doc(uid)
+                  .get(),
+              builder: (context, userSnap) {
+                if (userSnap.connectionState == ConnectionState.waiting) {
+                  return const Scaffold(
+                    body: Center(child: CircularProgressIndicator()),
+                  );
+                }
+
+                if (!userSnap.hasData || !userSnap.data!.exists) {
+                  return const LoginScreen();
+                }
+
+                final data = userSnap.data!.data() as Map<String, dynamic>;
+                final tipoPerfil = (data['tipoPerfil'] ?? 'Cliente').toString();
+
+                if (tipoPerfil == 'Administrador') {
+                  return const PerfilAdminScreen();
+                } else if (tipoPerfil == 'Prestador') {
+                  return const HomePrestadorScreen();
+                } else {
+                  return const HomeScreen();
+                }
+              },
+            );
+          }
+
+          // Usuário não logado → vai pro login
+          return const LoginScreen();
+        },
+      ),
     );
   }
 }

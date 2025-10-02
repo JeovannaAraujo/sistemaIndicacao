@@ -3,12 +3,7 @@ plugins {
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
-}
-
-buildscript {
-    dependencies {
-        classpath("com.google.gms:google-services:4.4.1")
-    }
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -19,7 +14,6 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
-        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -28,14 +22,13 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.jeovanna.sistemadeindicacao"
+        applicationId = "com.example.myapp"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        multiDexEnabled = true
     }
 
     buildTypes {
@@ -47,13 +40,6 @@ android {
     }
 }
 
-dependencies {
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
-    implementation("androidx.multidex:multidex:2.0.1")
-}
-
 flutter {
     source = "../.."
 }
-
-apply(plugin = "com.google.gms.google-services")

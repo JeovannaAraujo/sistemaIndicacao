@@ -648,7 +648,7 @@ class _DropdownEstrelasExato extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const borderColor = Color(0xFF5B33D6);
-    final itens = const [0, 1, 2, 3, 4, 5];
+    const itens = [0, 1, 2, 3, 4, 5];
 
     return Container(
       width: width,

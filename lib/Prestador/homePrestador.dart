@@ -174,7 +174,7 @@ class _HomePrestadorScreenState extends State<HomePrestadorScreen> {
         for (final par in possiveisCampos) {
           final snap = await fs
               .collection('avaliacoes')
-              .where(par[0] as String, isEqualTo: par[1])
+              .where(par[0], isEqualTo: par[1])
               .get();
           if (snap.docs.isNotEmpty) {
             for (final a in snap.docs) {
@@ -693,9 +693,9 @@ class _HomePrestadorScreenState extends State<HomePrestadorScreen> {
                   },
                 ),
 
-                ListTile(
-                  leading: const Icon(Icons.settings),
-                  title: const Text('Configurações'),
+                const ListTile(
+                  leading: Icon(Icons.settings),
+                  title: Text('Configurações'),
                 ),
                 ListTile(
                   leading: const Icon(Icons.assignment),
@@ -715,9 +715,9 @@ class _HomePrestadorScreenState extends State<HomePrestadorScreen> {
                     context.goSolicitacoes(replace: false);
                   },
                 ),
-                ListTile(
-                  leading: const Icon(Icons.check_circle),
-                  title: const Text('Serviços Finalizados'),
+                const ListTile(
+                  leading: Icon(Icons.check_circle),
+                  title: Text('Serviços Finalizados'),
                 ),
                 ListTile(
                   leading: const Icon(Icons.logout),
@@ -798,7 +798,6 @@ class _IconOnlyAtalho extends StatelessWidget {
   final Stream<int>? badgeStream;
 
   const _IconOnlyAtalho({
-    super.key,
     required this.icon,
     required this.color,
     required this.label,
@@ -806,7 +805,6 @@ class _IconOnlyAtalho extends StatelessWidget {
   }) : badgeStream = null;
 
   const _IconOnlyAtalho.withBadge({
-    super.key,
     required this.icon,
     required this.color,
     required this.label,
@@ -859,7 +857,6 @@ class _SectionHeader extends StatelessWidget {
   final VoidCallback onAction;
 
   const _SectionHeader({
-    super.key,
     required this.title,
     required this.actionLabel,
     required this.onAction,
@@ -917,7 +914,6 @@ class _ServiceCard extends StatelessWidget {
   final Widget Function() ratingBuilder;
 
   const _ServiceCard({
-    super.key,
     required this.id,
     required this.nome,
     required this.descricao,
@@ -945,7 +941,7 @@ class _ServiceCard extends StatelessWidget {
           BoxShadow(
             color: Color(0x14000000),
             blurRadius: 10,
-            offset: const Offset(0, 3),
+            offset: Offset(0, 3),
           ),
         ],
       ),
@@ -1087,7 +1083,7 @@ class _ServiceCard extends StatelessWidget {
 // ---------- Thumb de categoria com loading gracioso ----------
 class _CategoriaThumb extends StatelessWidget {
   final String categoriaId;
-  const _CategoriaThumb({super.key, required this.categoriaId});
+  const _CategoriaThumb({required this.categoriaId});
 
   @override
   Widget build(BuildContext context) {

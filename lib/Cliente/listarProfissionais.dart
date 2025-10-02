@@ -46,7 +46,7 @@ class ProfissionaisPorCategoriaScreen extends StatelessWidget {
           // Ordena em memória por criadoEm desc (fallback para atualizadoEm, depois DateTime(0))
           final docs = snap.data!.docs.toList()
             ..sort((a, b) {
-              DateTime _getDate(QueryDocumentSnapshot d) {
+              DateTime getDate(QueryDocumentSnapshot d) {
                 final m = d.data() as Map<String, dynamic>;
                 final ce = m['criadoEm'];
                 final ae = m['atualizadoEm'];
@@ -55,8 +55,8 @@ class ProfissionaisPorCategoriaScreen extends StatelessWidget {
                 return DateTime.fromMillisecondsSinceEpoch(0);
               }
 
-              final tb = _getDate(b);
-              final ta = _getDate(a);
+              final tb = getDate(b);
+              final ta = getDate(a);
               return tb.compareTo(ta); // desc
             });
 
