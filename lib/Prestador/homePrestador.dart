@@ -5,10 +5,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../Login/login.dart';
 import 'agendaPrestador.dart';
-import 'solicitacoesRecebidas.dart';
 import 'editarServico.dart';
 import 'visualizarAvaliacoes.dart';
-import 'perfilPrestador.dart';
 import 'cadastroServicos.dart';
 import 'notificacoes.dart';
 

@@ -4,12 +4,12 @@ import 'dart:math' as math;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:custom_info_window/custom_info_window.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter/services.dart';
 import 'rotasNavegacao.dart';
 import 'visualizarPerfilPrestador.dart';
 import 'solicitarOrcamento.dart';
-import 'homeCliente.dart';
 import '../Prestador/visualizarAvaliacoes.dart';
 import '../Prestador/avaliacoesPrestador.dart';
 
@@ -27,6 +27,8 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
   final TextEditingController _maxValueController = TextEditingController();
   final TextEditingController _localizacaoController = TextEditingController();
   final TextEditingController _horarioController = TextEditingController();
+  final CustomInfoWindowController _customInfoWindowController =
+      CustomInfoWindowController();
 
   // ====== Filtros
   String? _categoriaSelecionadaId;
@@ -170,7 +172,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     });
   }
 
-  // ===================== BUSCA =====================
   Future<void> _buscar() async {
     setState(() {
       _filtrosExibidos = false;
@@ -181,19 +182,17 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
       _exibirProfissionais = false;
     });
 
-    // >>> Validação de horário SEMPRE que houver data e horário preenchidos
     if (!_validarHorarioDesejado()) {
       setState(() => _carregando = false);
       return;
     }
 
-    final termo = _buscaController.text.trim();
-    final termoLower = termo.toLowerCase();
+    final termo = _buscaController.text.trim().toLowerCase();
 
     try {
       final fs = FirebaseFirestore.instance;
 
-      // -------- Serviços (ativos) --------
+      // ================= SERVIÇOS =================
       Query<Map<String, dynamic>> qs = fs
           .collection(_colServicos)
           .where('ativo', isEqualTo: true);
@@ -220,34 +219,13 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
         return m;
       }).toList();
 
-      // prefix match no título
+      // Filtro por nome
       servicos = servicos.where((e) {
-        final titulo = (e['titulo'] ?? e['nome'] ?? '')
-            .toString()
-            .toLowerCase()
-            .trim();
-        if (termoLower.isEmpty) return true;
-        return titulo.startsWith(termoLower);
+        final nome = (e['titulo'] ?? e['nome'] ?? '').toString().toLowerCase();
+        return termo.isEmpty || nome.contains(termo);
       }).toList();
 
-      // filtros adicionais (nota e preço)
-      final minVal = double.tryParse(
-        _minValueController.text.replaceAll(',', '.'),
-      );
-      final maxVal = double.tryParse(
-        _maxValueController.text.replaceAll(',', '.'),
-      );
-      servicos = servicos.where((e) {
-        final n = (e['notaMedia'] ?? e['nota'] ?? 0).toDouble();
-        final precoMin = (e['precoMin'] ?? e['valorMedio'] ?? 0).toDouble();
-        final precoMax = (e['precoMax'] ?? precoMin).toDouble();
-        final okAva = _avaliacaoMinima <= 0 || n >= _avaliacaoMinima;
-        final okMin = minVal == null || precoMax >= minVal;
-        final okMax = maxVal == null || precoMin <= maxVal;
-        return okAva && okMin && okMax;
-      }).toList();
-
-      // -------- Profissionais (prestadores ativos) --------
+      // ================= PROFISSIONAIS =================
       Query<Map<String, dynamic>> qu = fs
           .collection(_colUsuarios)
           .where('ativo', isEqualTo: true)
@@ -265,65 +243,255 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
       List<Map<String, dynamic>> profissionais = snapUsers.docs.map((d) {
         final m = d.data();
         m['id'] = d.id;
+        if (d.data().containsKey('geo')) m['geo'] = d.get('geo');
         return m;
       }).toList();
 
       profissionais = profissionais.where((u) {
         final nome = (u['nome'] ?? '').toString().toLowerCase();
-        if (termoLower.isEmpty) return true;
-        return nome.contains(termoLower) || nome.startsWith(termoLower);
+        return termo.isEmpty || nome.contains(termo);
       }).toList();
 
-      // Disponibilidade por agenda (opcional)
-      if (_disponibilidadeSelecionada != null && _dataSelecionada != null) {
-        final hhmm = _horarioController.text.trim();
-        final disponiveis = await _prestadoresDisponiveisNaDataHora(
-          _dataSelecionada!,
-          hhmm,
-        );
-        final querDisp = _disponibilidadeSelecionada == 'Disponível';
-        servicos = servicos.where((e) {
-          final cont = disponiveis.contains(e['prestadorId']);
-          return querDisp ? cont : !cont;
-        }).toList();
-        profissionais = profissionais.where((e) {
-          final cont = disponiveis.contains(e['id']);
-          return querDisp ? cont : !cont;
-        }).toList();
-      }
-
-      // Heurística p/ tipo de lista
-      final nomeProvavel =
-          termoLower.isNotEmpty &&
-          RegExp(r'[a-zA-Z]').hasMatch(termoLower) &&
-          termoLower.split(RegExp(r'\s+')).length <= 3;
+      // ============ Decide o que mostrar ============
       final mostrarProf =
-          (profissionais.isNotEmpty && (servicos.isEmpty || nomeProvavel));
+          profissionais.isNotEmpty &&
+          (servicos.isEmpty || termo.split(' ').length <= 3);
 
-      // Enriquecimento
       if (!mostrarProf) {
         servicos = await _enriquecerServicos(servicos);
       }
 
-      // Marcadores (opcional)
-      final markers = <Marker>{};
       final itens = mostrarProf ? profissionais : servicos;
-      for (final e in itens) {
-        final geo = e['geo'];
-        if (geo is GeoPoint) {
-          markers.add(
-            Marker(
-              markerId: MarkerId(e['id']),
-              position: LatLng(geo.latitude, geo.longitude),
-              infoWindow: InfoWindow(
-                title: (e['titulo'] ?? e['nome'] ?? 'Item').toString(),
-                snippet: (e['cidade'] ?? '').toString(),
+      final markers = <Marker>{};
+
+      // ============ Cria os marcadores ============
+      if (mostrarProf) {
+        // 🔹 Busca por profissionais diretos
+        for (final e in profissionais) {
+          final geo = e['geo'];
+          LatLng? pos;
+
+          if (geo is GeoPoint) {
+            pos = LatLng(geo.latitude, geo.longitude);
+          } else if (geo is Map) {
+            final lat = (geo['latitude'] ?? geo['lat'])?.toDouble();
+            final lon = (geo['longitude'] ?? geo['lng'])?.toDouble();
+            if (lat != null && lon != null) pos = LatLng(lat, lon);
+          }
+
+          if (pos != null) {
+            markers.add(
+              Marker(
+                markerId: MarkerId(e['id']),
+                position: pos,
+                icon: BitmapDescriptor.defaultMarkerWithHue(
+                  BitmapDescriptor.hueViolet,
+                ),
+                onTap: () async {
+                  final categoria = await _nomeCategoriaProf(
+                    e['categoriaProfissionalId'] ?? '',
+                  );
+                  final rating = await _ratingPrestador(e['id']);
+                  _customInfoWindowController.addInfoWindow!(
+                    Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF3F10D6),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      padding: const EdgeInsets.all(10),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            e['nome'] ?? 'Prestador',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '$categoria | ⭐ ${(rating['media'] ?? 0).toStringAsFixed(1)}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+                            ),
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => VisualizarPerfilPrestador(
+                                    prestadorId: e['id'],
+                                  ),
+                                ),
+                              );
+                            },
+                            child: const Text(
+                              'Ver Perfil',
+                              style: TextStyle(color: Color(0xFF3F10D6)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    pos!,
+                  );
+                },
               ),
-            ),
-          );
+            );
+          }
+        }
+      } else {
+        // 🔹 Busca por serviços → pegar geo do prestador
+        final prestadoresUsados = <String>{};
+        for (final serv in servicos) {
+          final prestadorId = serv['prestadorId'];
+          if (prestadorId == null || prestadoresUsados.contains(prestadorId))
+            continue;
+
+          final docPrest = await fs
+              .collection(_colUsuarios)
+              .doc(prestadorId)
+              .get();
+          if (!docPrest.exists) continue;
+          final prestador = docPrest.data();
+          if (prestador == null || !prestador.containsKey('geo')) continue;
+
+          final geo = prestador['geo'];
+          LatLng? pos;
+
+          if (geo is GeoPoint) {
+            pos = LatLng(geo.latitude, geo.longitude);
+          } else if (geo is Map) {
+            final lat = (geo['latitude'] ?? geo['lat'])?.toDouble();
+            final lon = (geo['longitude'] ?? geo['lng'])?.toDouble();
+            if (lat != null && lon != null) pos = LatLng(lat, lon);
+          }
+
+          if (pos != null) {
+            prestadoresUsados.add(prestadorId);
+            markers.add(
+              Marker(
+                markerId: MarkerId(prestadorId),
+                position: pos,
+                icon: BitmapDescriptor.defaultMarkerWithHue(
+                  BitmapDescriptor.hueAzure,
+                ),
+                onTap: () async {
+                  // pega o nome do serviço atual que está sendo iterado no loop
+                  final nomeServico =
+                      (serv['titulo'] ?? serv['nome'] ?? 'Serviço').toString();
+                  final prestadorNome = (prestador['nome'] ?? '').toString();
+
+                  final cat = await _nomeCategoriaProf(
+                    prestador['categoriaProfissionalId'] ?? '',
+                  );
+                  final rating = await _ratingPrestador(prestadorId);
+
+                  _customInfoWindowController.addInfoWindow!(
+                    Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF3F10D6),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      padding: const EdgeInsets.all(10),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          // nome do serviço
+                          Text(
+                            nomeServico,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+
+                          // nome do prestador
+                          Text(
+                            prestadorNome,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+
+                          // categoria + avaliação média
+                          Text(
+                            '$cat | ⭐ ${(rating['media'] ?? 0).toStringAsFixed(1)}',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+
+                          // botão de ver perfil
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+                            ),
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => VisualizarPerfilPrestador(
+                                    prestadorId: prestadorId,
+                                  ),
+                                ),
+                              );
+                            },
+                            child: const Text(
+                              'Perfil Prestador',
+                              style: TextStyle(
+                                color: Color(0xFF3F10D6),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    pos!,
+                  );
+                },
+              ),
+            );
+          }
         }
       }
 
+      // ============ Atualiza estado ============
       if (!mounted) return;
       setState(() {
         _exibirProfissionais = mostrarProf;
@@ -331,6 +499,30 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
         _marcadores.addAll(markers);
         _carregando = false;
       });
+
+      // Centraliza mapa
+      if (_mapController != null) {
+        if (markers.isNotEmpty) {
+          if (markers.length == 1) {
+            final pos = markers.first.position;
+            _mapController!.animateCamera(CameraUpdate.newLatLngZoom(pos, 15));
+          } else {
+            LatLngBounds bounds = _boundsFromMarkers(markers);
+            _mapController!.animateCamera(
+              CameraUpdate.newLatLngBounds(bounds, 60),
+            );
+          }
+        } else {
+          _mapController!.animateCamera(
+            CameraUpdate.newCameraPosition(
+              const CameraPosition(
+                target: LatLng(-17.792765, -50.919582), // Rio Verde
+                zoom: 13,
+              ),
+            ),
+          );
+        }
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _carregando = false);
@@ -338,6 +530,23 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text('Erro ao buscar: $e')));
     }
+  }
+
+  // Helper para centralizar em vários marcadores
+  LatLngBounds _boundsFromMarkers(Set<Marker> markers) {
+    final latitudes = markers.map((m) => m.position.latitude).toList();
+    final longitudes = markers.map((m) => m.position.longitude).toList();
+
+    final southwest = LatLng(
+      latitudes.reduce((a, b) => a < b ? a : b),
+      longitudes.reduce((a, b) => a < b ? a : b),
+    );
+    final northeast = LatLng(
+      latitudes.reduce((a, b) => a > b ? a : b),
+      longitudes.reduce((a, b) => a > b ? a : b),
+    );
+
+    return LatLngBounds(southwest: southwest, northeast: northeast);
   }
 
   /// Enriquecer lista de serviços com nome prestador / imagem categoria / unidade
@@ -794,13 +1003,28 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
   Widget _buildMapa() {
     return SizedBox(
       height: 400,
-      child: GoogleMap(
-        onMapCreated: (controller) => _mapController = controller,
-        markers: _marcadores,
-        initialCameraPosition: const CameraPosition(
-          target: LatLng(-17.7960, -50.9220),
-          zoom: 13,
-        ),
+      child: Stack(
+        children: [
+          GoogleMap(
+            onMapCreated: (controller) {
+              _mapController = controller;
+              _customInfoWindowController.googleMapController = controller;
+            },
+            markers: _marcadores,
+            onTap: (pos) => _customInfoWindowController.hideInfoWindow!(),
+            onCameraMove: (pos) => _customInfoWindowController.onCameraMove!(),
+            initialCameraPosition: const CameraPosition(
+              target: LatLng(-17.7960, -50.9220), // Rio Verde
+              zoom: 13,
+            ),
+          ),
+          CustomInfoWindow(
+            controller: _customInfoWindowController,
+            height: 160,
+            width: 230,
+            offset: 50,
+          ),
+        ],
       ),
     );
   }
@@ -811,7 +1035,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     final servicoId = (e['id'] ?? '').toString();
     final titulo = (e['titulo'] ?? e['nome'] ?? 'Serviço').toString();
     final descricao = (e['descricao'] ?? '').toString();
-
     final prestadorId = (e['prestadorId'] ?? '').toString();
     final prestador = (e['prestadorNome'] ?? '').toString().isNotEmpty
         ? (e['prestadorNome'] ?? '').toString()
@@ -819,7 +1042,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
               .toString();
 
     final cidade = (e['cidade'] ?? '').toString();
-
     final valorMedio = e['valorMedio'] ?? e['precoMin'];
     final unidadeAbrev = (e['unidadeAbreviacao'] ?? '').toString();
 
@@ -837,6 +1059,9 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     final imagemServico = (e['imagemUrl'] ?? '').toString();
     final imagemCateg = (e['categoriaImagemUrl'] ?? '').toString();
 
+    // ✅ Mantém a exibição original: se o serviço não tiver imagem, usa da categoria
+    final imagemFinal = imagemServico.isNotEmpty ? imagemServico : imagemCateg;
+
     String formatPreco(dynamic v) {
       double? valor;
       if (v is num) valor = v.toDouble();
@@ -852,23 +1077,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
       return 'R\$${valor.toStringAsFixed(2).replaceAll('.', ',')}';
     }
 
-    Widget thumb(String? url) {
-      return Container(
-        width: 54,
-        height: 54,
-        decoration: BoxDecoration(
-          color: Colors.grey.shade300,
-          borderRadius: BorderRadius.circular(8),
-          image: (url != null && url.isNotEmpty)
-              ? DecorationImage(image: NetworkImage(url), fit: BoxFit.cover)
-              : null,
-        ),
-        child: (url == null || url.isEmpty)
-            ? const Icon(Icons.handyman, color: Colors.deepPurple)
-            : null,
-      );
-    }
-
     return Card(
       elevation: 0.5,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -880,7 +1088,23 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                thumb(imagemServico.isNotEmpty ? imagemServico : imagemCateg),
+                Container(
+                  width: 54,
+                  height: 54,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(8),
+                    image: (imagemFinal.isNotEmpty)
+                        ? DecorationImage(
+                            image: NetworkImage(imagemFinal),
+                            fit: BoxFit.cover,
+                          )
+                        : null,
+                  ),
+                  child: imagemFinal.isEmpty
+                      ? const Icon(Icons.handyman, color: Colors.deepPurple)
+                      : null,
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -923,9 +1147,10 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
                         style: const TextStyle(fontSize: 13),
                         overflow: TextOverflow.ellipsis,
                       ),
-                      if (cidade.isNotEmpty) const SizedBox(height: 2),
-                      if (cidade.isNotEmpty)
+                      if (cidade.isNotEmpty) ...[
+                        const SizedBox(height: 2),
                         Text(cidade, style: const TextStyle(fontSize: 13)),
+                      ],
                       const SizedBox(height: 6),
                       Text(
                         '${formatPreco(valorMedio)}${unidadeAbrev.isNotEmpty ? '/$unidadeAbrev' : ''}',
@@ -936,7 +1161,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
                 ),
               ],
             ),
-
             const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -957,13 +1181,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                    minimumSize: const Size(0, 40),
-                    alignment: Alignment.center,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                   child: const Text('Perfil Prestador'),
                 ),
@@ -985,13 +1202,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
-                      minimumSize: const Size(0, 40),
-                      alignment: Alignment.center,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
                     child: const FittedBox(
                       fit: BoxFit.scaleDown,
@@ -1018,7 +1228,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
         ? (u['endereco'] as Map).cast<String, dynamic>()
         : <String, dynamic>{};
     final cidade = (endereco['cidade'] ?? u['cidade'] ?? '').toString();
-    final fotoUrl = (u['fotoUrl'] ?? '').toString();
+    final fotoUrl = (u['fotoUrl'] ?? '').toString().trim();
     final tempoExp = (u['tempoExperiencia'] ?? '').toString();
     final catProfId = (u['categoriaProfissionalId'] ?? '').toString();
 
@@ -1050,7 +1260,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
                   ? NetworkImage(fotoUrl)
                   : null,
               child: (fotoUrl.isEmpty)
-                  ? const Icon(Icons.person, size: 32)
+                  ? const Icon(Icons.person, size: 32, color: Colors.deepPurple)
                   : null,
             ),
             const SizedBox(width: 12),
@@ -1127,7 +1337,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
                   ),
                   const SizedBox(height: 10),
                   Row(
-                    mainAxisSize: MainAxisSize.min,
                     children: [
                       const Icon(
                         Icons.work_outline,
@@ -1378,7 +1587,11 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
                           ),
                         ),
                         const SizedBox(width: 4),
-                        const Icon(Icons.star, size: starSize, color: Colors.amber),
+                        const Icon(
+                          Icons.star,
+                          size: starSize,
+                          color: Colors.amber,
+                        ),
                       ],
                     ),
                     side: BorderSide(
