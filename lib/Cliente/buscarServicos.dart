@@ -1,6 +1,8 @@
 // lib/Cliente/buscarServicos.dart
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -188,182 +190,197 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     }
 
     final termo = _buscaController.text.trim().toLowerCase();
+    final fs = FirebaseFirestore.instance;
 
     try {
-      final fs = FirebaseFirestore.instance;
-
-      // ================= SERVIÇOS =================
-      Query<Map<String, dynamic>> qs = fs
-          .collection(_colServicos)
-          .where('ativo', isEqualTo: true);
-
-      if (_categoriaSelecionadaId != null &&
-          _categoriaSelecionadaId!.isNotEmpty) {
-        qs = qs.where('categoriaId', isEqualTo: _categoriaSelecionadaId);
-      }
+      // ==================== Decide o tipo de busca ====================
+      bool buscarServicos = true;
       if (_profissionalSelecionadoId != null &&
-          _profissionalSelecionadoId!.isNotEmpty) {
-        qs = qs.where('categoriaProfId', isEqualTo: _profissionalSelecionadoId);
-      }
-      if (_unidadeSelecionada != null && _unidadeSelecionada!.isNotEmpty) {
-        qs = qs.where('unidade', isEqualTo: _unidadeSelecionada);
-      }
-      if (_pagamentosAceitos.isNotEmpty) {
-        qs = qs.where('pagamentos', arrayContainsAny: _pagamentosAceitos);
+          _profissionalSelecionadoId!.isNotEmpty &&
+          (_categoriaSelecionadaId == null ||
+              _categoriaSelecionadaId!.isEmpty)) {
+        buscarServicos = false; // só profissionais
       }
 
-      final snapServ = await qs.limit(250).get();
-      List<Map<String, dynamic>> servicos = snapServ.docs.map((d) {
-        final m = d.data();
-        m['id'] = d.id;
-        return m;
-      }).toList();
+      // ==================== BUSCA SERVIÇOS ====================
+      if (buscarServicos) {
+        Query<Map<String, dynamic>> qs = fs
+            .collection(_colServicos)
+            .where('ativo', isEqualTo: true);
 
-      // Filtro por nome
-      servicos = servicos.where((e) {
-        final nome = (e['titulo'] ?? e['nome'] ?? '').toString().toLowerCase();
-        return termo.isEmpty || nome.contains(termo);
-      }).toList();
+        // filtros básicos
+        if (_categoriaSelecionadaId?.isNotEmpty ?? false) {
+          qs = qs.where('categoriaId', isEqualTo: _categoriaSelecionadaId);
+        }
+        if (_profissionalSelecionadoId?.isNotEmpty ?? false) {
+          qs = qs.where(
+            'categoriaProfId',
+            isEqualTo: _profissionalSelecionadoId,
+          );
+        }
+        // 🔹 Filtro por unidade de medida
+        if (_unidadeSelecionada != null && _unidadeSelecionada!.isNotEmpty) {
+          final unidadeAbrev = _unidadeSelecionada!.trim().toLowerCase();
 
-      // ================= PROFISSIONAIS =================
-      Query<Map<String, dynamic>> qu = fs
-          .collection(_colUsuarios)
-          .where('ativo', isEqualTo: true)
-          .where('tipoPerfil', isEqualTo: 'Prestador');
+          // Busca o ID da unidade correspondente à abreviação
+          final queryUnidade = await FirebaseFirestore.instance
+              .collection(_colUnidades)
+              .where('abreviacao', isEqualTo: unidadeAbrev)
+              .limit(1)
+              .get();
 
-      if (_profissionalSelecionadoId != null &&
-          _profissionalSelecionadoId!.isNotEmpty) {
-        qu = qu.where(
-          'categoriaProfissionalId',
-          isEqualTo: _profissionalSelecionadoId,
-        );
-      }
+          if (queryUnidade.docs.isNotEmpty) {
+            final unidadeId = queryUnidade.docs.first.id;
 
-      final snapUsers = await qu.limit(200).get();
-      List<Map<String, dynamic>> profissionais = snapUsers.docs.map((d) {
-        final m = d.data();
-        m['id'] = d.id;
-        if (d.data().containsKey('geo')) m['geo'] = d.get('geo');
-        return m;
-      }).toList();
-
-      profissionais = profissionais.where((u) {
-        final nome = (u['nome'] ?? '').toString().toLowerCase();
-        return termo.isEmpty || nome.contains(termo);
-      }).toList();
-
-      // ============ Decide o que mostrar ============
-      final mostrarProf =
-          profissionais.isNotEmpty &&
-          (servicos.isEmpty || termo.split(' ').length <= 3);
-
-      if (!mostrarProf) {
-        servicos = await _enriquecerServicos(servicos);
-      }
-
-      final itens = mostrarProf ? profissionais : servicos;
-      final markers = <Marker>{};
-
-      // ============ Cria os marcadores ============
-      if (mostrarProf) {
-        // 🔹 Busca por profissionais diretos
-        for (final e in profissionais) {
-          final geo = e['geo'];
-          LatLng? pos;
-
-          if (geo is GeoPoint) {
-            pos = LatLng(geo.latitude, geo.longitude);
-          } else if (geo is Map) {
-            final lat = (geo['latitude'] ?? geo['lat'])?.toDouble();
-            final lon = (geo['longitude'] ?? geo['lng'])?.toDouble();
-            if (lat != null && lon != null) pos = LatLng(lat, lon);
+            // Filtra os serviços por unidadeId correspondente
+            qs = qs.where('unidadeId', isEqualTo: unidadeId);
+          } else {
+            // Se não encontrar a unidade, não retorna nada
+            qs = qs.where('unidadeId', isEqualTo: '__nao_existente__');
           }
+        }
 
-          if (pos != null) {
-            markers.add(
+        if (_pagamentosAceitos.isNotEmpty) {
+          qs = qs.where('pagamentos', arrayContainsAny: _pagamentosAceitos);
+        }
+
+        final snapServ = await qs.limit(250).get();
+        List<Map<String, dynamic>> servicos = snapServ.docs.map((d) {
+          final m = d.data();
+          m['id'] = d.id;
+          return m;
+        }).toList();
+
+        // filtro de nome (texto)
+        servicos = servicos.where((e) {
+          final nome = (e['titulo'] ?? e['nome'] ?? '')
+              .toString()
+              .toLowerCase();
+          return termo.isEmpty || nome.contains(termo);
+        }).toList();
+
+        // 🔹 filtro de preço mínimo/máximo (considera campos valorMinimo, valorMedio e valorMaximo)
+        double? minVal = double.tryParse(
+          _minValueController.text
+              .replaceAll(RegExp(r'[^0-9,\.]'), '')
+              .replaceAll(',', '.'),
+        );
+        double? maxVal = double.tryParse(
+          _maxValueController.text
+              .replaceAll(RegExp(r'[^0-9,\.]'), '')
+              .replaceAll(',', '.'),
+        );
+
+        if (minVal != null || maxVal != null) {
+          servicos = servicos.where((e) {
+            final minimo = (e['valorMinimo'] ?? 0).toDouble();
+            final medio = (e['valorMedio'] ?? 0).toDouble();
+            final maximo = (e['valorMaximo'] ?? 0).toDouble();
+
+            // usa o valor médio como referência principal
+            final base = medio > 0 ? medio : ((minimo + maximo) / 2);
+
+            if (minVal != null && base < minVal) return false;
+            if (maxVal != null && base > maxVal) return false;
+            return true;
+          }).toList();
+        }
+
+        // filtro de avaliação mínima
+        if (_avaliacaoMinima > 0) {
+          List<Map<String, dynamic>> filtrados = [];
+          for (final s in servicos) {
+            final rate = await _ratingServico(s['id']);
+            if ((rate['media'] ?? 0) >= _avaliacaoMinima) filtrados.add(s);
+          }
+          servicos = filtrados;
+        }
+
+        // filtro de disponibilidade (caso exista data/hora)
+        if (_disponibilidadeSelecionada != null &&
+            _disponibilidadeSelecionada != 'Ignorar disponibilidade' &&
+            _dataSelecionada != null) {
+          final hora = _horarioController.text.trim();
+          final disponiveis = await _prestadoresDisponiveisNaDataHora(
+            _dataSelecionada!,
+            hora,
+          );
+          if (_disponibilidadeSelecionada == 'Disponível') {
+            servicos = servicos
+                .where((s) => disponiveis.contains(s['prestadorId']))
+                .toList();
+          } else if (_disponibilidadeSelecionada == 'Indisponível') {
+            servicos = servicos
+                .where((s) => !disponiveis.contains(s['prestadorId']))
+                .toList();
+          }
+        }
+
+        // filtro de localização + raio
+        if (_localizacaoController.text.isNotEmpty) {
+          final cep = _localizacaoController.text.replaceAll('-', '').trim();
+          final localUser = await _buscarLatLngPorCEP(cep);
+          if (localUser != null) {
+            double raioKm = _raioDistancia;
+            List<Map<String, dynamic>> dentroRaio = [];
+
+            for (final s in servicos) {
+              final prestadorId = s['prestadorId'];
+              if (prestadorId == null) continue;
+
+              final docPrest = await fs
+                  .collection(_colUsuarios)
+                  .doc(prestadorId)
+                  .get();
+              if (!docPrest.exists) continue;
+
+              final geo = docPrest.data()?['geo'];
+              if (geo == null) continue;
+
+              LatLng? pos;
+              if (geo is GeoPoint) {
+                pos = LatLng(geo.latitude, geo.longitude);
+              } else if (geo is Map) {
+                final lat = (geo['latitude'] ?? geo['lat'])?.toDouble();
+                final lon = (geo['longitude'] ?? geo['lng'])?.toDouble();
+                if (lat != null && lon != null) pos = LatLng(lat, lon);
+              }
+
+              if (pos != null) {
+                final dist = _distanciaKm(
+                  localUser.latitude,
+                  localUser.longitude,
+                  pos.latitude,
+                  pos.longitude,
+                );
+                if (dist <= raioKm) dentroRaio.add(s);
+              }
+            }
+            servicos = dentroRaio;
+
+            // círculo no mapa
+            _marcadores.add(
               Marker(
-                markerId: MarkerId(e['id']),
-                position: pos,
+                markerId: const MarkerId('raio'),
+                position: localUser,
                 icon: BitmapDescriptor.defaultMarkerWithHue(
-                  BitmapDescriptor.hueViolet,
+                  BitmapDescriptor.hueBlue,
                 ),
-                onTap: () async {
-                  final categoria = await _nomeCategoriaProf(
-                    e['categoriaProfissionalId'] ?? '',
-                  );
-                  final rating = await _ratingPrestador(e['id']);
-                  _customInfoWindowController.addInfoWindow!(
-                    Container(
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF3F10D6),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      padding: const EdgeInsets.all(10),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            e['nome'] ?? 'Prestador',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '$categoria | ⭐ ${(rating['media'] ?? 0).toStringAsFixed(1)}',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 6,
-                              ),
-                            ),
-                            onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => VisualizarPerfilPrestador(
-                                    prestadorId: e['id'],
-                                  ),
-                                ),
-                              );
-                            },
-                            child: const Text(
-                              'Ver Perfil',
-                              style: TextStyle(color: Color(0xFF3F10D6)),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    pos!,
-                  );
-                },
               ),
             );
           }
         }
-      } else {
-        // 🔹 Busca por serviços → pegar geo do prestador
+
+        servicos = await _enriquecerServicos(servicos);
+
+        // cria marcadores para serviços
+        final markers = <Marker>{};
         final prestadoresUsados = <String>{};
+
         for (final serv in servicos) {
           final prestadorId = serv['prestadorId'];
           if (prestadorId == null || prestadoresUsados.contains(prestadorId))
             continue;
-
           final docPrest = await fs
               .collection(_colUsuarios)
               .doc(prestadorId)
@@ -374,7 +391,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
 
           final geo = prestador['geo'];
           LatLng? pos;
-
           if (geo is GeoPoint) {
             pos = LatLng(geo.latitude, geo.longitude);
           } else if (geo is Map) {
@@ -489,39 +505,163 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
             );
           }
         }
+
+        if (!mounted) return;
+        setState(() {
+          _resultados = servicos;
+          _marcadores.addAll(markers);
+          _exibirProfissionais = false;
+          _carregando = false;
+        });
       }
+      // ==================== BUSCA PROFISSIONAIS ====================
+      else {
+        Query<Map<String, dynamic>> qu = fs
+            .collection(_colUsuarios)
+            .where('ativo', isEqualTo: true)
+            .where('tipoPerfil', isEqualTo: 'Prestador');
 
-      // ============ Atualiza estado ============
-      if (!mounted) return;
-      setState(() {
-        _exibirProfissionais = mostrarProf;
-        _resultados = itens;
-        _marcadores.addAll(markers);
-        _carregando = false;
-      });
-
-      // Centraliza mapa
-      if (_mapController != null) {
-        if (markers.isNotEmpty) {
-          if (markers.length == 1) {
-            final pos = markers.first.position;
-            _mapController!.animateCamera(CameraUpdate.newLatLngZoom(pos, 15));
-          } else {
-            LatLngBounds bounds = _boundsFromMarkers(markers);
-            _mapController!.animateCamera(
-              CameraUpdate.newLatLngBounds(bounds, 60),
-            );
-          }
-        } else {
-          _mapController!.animateCamera(
-            CameraUpdate.newCameraPosition(
-              const CameraPosition(
-                target: LatLng(-17.792765, -50.919582), // Rio Verde
-                zoom: 13,
-              ),
-            ),
+        if (_profissionalSelecionadoId?.isNotEmpty ?? false) {
+          qu = qu.where(
+            'categoriaProfissionalId',
+            isEqualTo: _profissionalSelecionadoId,
           );
         }
+
+        final snapUsers = await qu.limit(200).get();
+        List<Map<String, dynamic>> profissionais = snapUsers.docs.map((d) {
+          final m = d.data();
+          m['id'] = d.id;
+          if (d.data().containsKey('geo')) m['geo'] = d.get('geo');
+          return m;
+        }).toList();
+
+        profissionais = profissionais.where((u) {
+          final nome = (u['nome'] ?? '').toString().toLowerCase();
+          return termo.isEmpty || nome.contains(termo);
+        }).toList();
+
+        // adiciona marcadores de profissionais
+        final markers = <Marker>{};
+        for (final e in profissionais) {
+          final geo = e['geo'];
+          LatLng? pos;
+
+          if (geo is GeoPoint) {
+            pos = LatLng(geo.latitude, geo.longitude);
+          } else if (geo is Map) {
+            final lat = (geo['latitude'] ?? geo['lat'])?.toDouble();
+            final lon = (geo['longitude'] ?? geo['lng'])?.toDouble();
+            if (lat != null && lon != null) pos = LatLng(lat, lon);
+          }
+
+          if (pos != null) {
+            markers.add(
+              Marker(
+                markerId: MarkerId(e['id']),
+                position: pos,
+                icon: BitmapDescriptor.defaultMarkerWithHue(
+                  BitmapDescriptor.hueViolet,
+                ),
+                onTap: () async {
+                  final categoria = await _nomeCategoriaProf(
+                    e['categoriaProfissionalId'] ?? '',
+                  );
+                  final rating = await _ratingPrestador(e['id']);
+                  _customInfoWindowController.addInfoWindow!(
+                    Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF3F10D6),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      padding: const EdgeInsets.all(10),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            e['nome'] ?? 'Prestador',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '$categoria | ⭐ ${(rating['media'] ?? 0).toStringAsFixed(1)}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+                            ),
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => VisualizarPerfilPrestador(
+                                    prestadorId: e['id'],
+                                  ),
+                                ),
+                              );
+                            },
+                            child: const Text(
+                              'Ver Perfil',
+                              style: TextStyle(color: Color(0xFF3F10D6)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    pos!,
+                  );
+                },
+              ),
+            );
+          }
+        }
+
+        if (!mounted) return;
+        setState(() {
+          _resultados = profissionais;
+          _marcadores.addAll(markers);
+          _exibirProfissionais = true;
+          _carregando = false;
+        });
+      }
+
+      // ==================== CENTRALIZA MAPA ====================
+      if (_mapController != null && _marcadores.isNotEmpty) {
+        if (_marcadores.length == 1) {
+          final pos = _marcadores.first.position;
+          _mapController!.animateCamera(CameraUpdate.newLatLngZoom(pos, 14));
+        } else {
+          LatLngBounds bounds = _boundsFromMarkers(_marcadores);
+          _mapController!.animateCamera(
+            CameraUpdate.newLatLngBounds(bounds, 60),
+          );
+        }
+      } else {
+        _mapController?.animateCamera(
+          CameraUpdate.newCameraPosition(
+            const CameraPosition(
+              target: LatLng(-17.792765, -50.919582), // Rio Verde
+              zoom: 13,
+            ),
+          ),
+        );
       }
     } catch (e) {
       if (!mounted) return;
@@ -530,6 +670,42 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text('Erro ao buscar: $e')));
     }
+  }
+
+  Future<LatLng?> _buscarLatLngPorCEP(String cep) async {
+    try {
+      final response = await http.get(
+        Uri.parse('https://viacep.com.br/ws/$cep/json/'),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data.containsKey('localidade')) {
+          // usa o nome da cidade pra buscar coordenadas
+          final endereco =
+              "${data['logradouro'] ?? ''}, "
+              "${data['bairro'] ?? ''}, "
+              "${data['localidade'] ?? ''}";
+          final geocodeUrl =
+              'https://nominatim.openstreetmap.org/search?q=$endereco&format=json&limit=1';
+
+          final geoResp = await http.get(Uri.parse(geocodeUrl));
+          if (geoResp.statusCode == 200) {
+            final results = json.decode(geoResp.body);
+            if (results.isNotEmpty) {
+              final lat = double.tryParse(results[0]['lat']);
+              final lon = double.tryParse(results[0]['lon']);
+              if (lat != null && lon != null) {
+                return LatLng(lat, lon);
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Erro ao buscar coordenadas do CEP: $e');
+    }
+    return null;
   }
 
   // Helper para centralizar em vários marcadores
@@ -1084,10 +1260,13 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
         padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize:
+              MainAxisSize.min, // 🔹 faz o card ajustar a altura ao conteúdo
           children: [
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // 🔹 Imagem
                 Container(
                   width: 54,
                   height: 54,
@@ -1106,19 +1285,28 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
                       : null,
                 ),
                 const SizedBox(width: 12),
+
+                // 🔹 Coluna de textos
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // 🔸 Título (agora quebra automaticamente)
                       Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Expanded(
                             child: Text(
                               titulo,
                               style: const TextStyle(
                                 fontWeight: FontWeight.w700,
+                                fontSize: 15,
+                                height:
+                                    1.2, // 🔹 espaçamento entre linhas equilibrado
                               ),
-                              overflow: TextOverflow.ellipsis,
+                              softWrap: true, // 🔹 permite quebra
+                              maxLines: 2, // 🔹 no máximo 2 linhas
+                              overflow: TextOverflow.visible, // 🔹 sem "..."
                             ),
                           ),
                           _ratingInlineLink(
@@ -1133,6 +1321,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
                           ),
                         ],
                       ),
+
                       if (descricao.isNotEmpty) ...[
                         const SizedBox(height: 4),
                         Text(
@@ -1141,6 +1330,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ],
+
                       const SizedBox(height: 6),
                       Text(
                         'Prestador: ${prestador.isNotEmpty ? prestador : prestadorId}',
@@ -1151,17 +1341,32 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
                         const SizedBox(height: 2),
                         Text(cidade, style: const TextStyle(fontSize: 13)),
                       ],
-                      const SizedBox(height: 6),
-                      Text(
-                        '${formatPreco(valorMedio)}${unidadeAbrev.isNotEmpty ? '/$unidadeAbrev' : ''}',
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
                     ],
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+
+            // 🔹 Linha de valores colada à esquerda e antes dos botões
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Mín: ${formatPreco(e['valorMinimo'])}   '
+                'Méd: ${formatPreco(e['valorMedio'])}   '
+                'Máx: ${formatPreco(e['valorMaximo'])}'
+                '${unidadeAbrev.isNotEmpty ? '/$unidadeAbrev' : ''}',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: Colors.deepPurple,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 10),
+
+            // 🔹 Botões
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -1246,79 +1451,99 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
         : null;
 
     return Card(
-      elevation: 0.5,
+      elevation: 1,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
+        padding: const EdgeInsets.all(14),
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            CircleAvatar(
-              radius: 28,
-              backgroundColor: Colors.grey.shade200,
-              backgroundImage: (fotoUrl.isNotEmpty)
-                  ? NetworkImage(fotoUrl)
-                  : null,
-              child: (fotoUrl.isEmpty)
-                  ? const Icon(Icons.person, size: 32, color: Colors.deepPurple)
-                  : null,
+            // ⭐ Avaliação no topo
+            Align(
+              alignment: Alignment.centerRight,
+              child: _ratingInline(
+                _ratingPrestador(id, notaAgg: nota, qtdAgg: avaliacoes),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          VisualizarAvaliacoesPrestador(prestadorId: id),
+                    ),
+                  );
+                },
+              ),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+
+            const SizedBox(height: 4),
+
+            // 🔹 Linha principal: Avatar + informações
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Foto do prestador
+                CircleAvatar(
+                  radius: 30,
+                  backgroundColor: Colors.grey.shade200,
+                  backgroundImage: (fotoUrl.isNotEmpty)
+                      ? NetworkImage(fotoUrl)
+                      : null,
+                  child: (fotoUrl.isEmpty)
+                      ? const Icon(
+                          Icons.person,
+                          size: 34,
+                          color: Colors.deepPurple,
+                        )
+                      : null,
+                ),
+                const SizedBox(width: 12),
+
+                // 🔸 Coluna de informações
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: Text(
-                          nome,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                          ),
-                          overflow: TextOverflow.ellipsis,
+                      // Nome do prestador
+                      Text(
+                        nome,
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                          height: 1.3,
                         ),
+                        softWrap: true,
+                        maxLines: 2,
+                        overflow: TextOverflow.visible,
                       ),
-                      _ratingInline(
-                        _ratingPrestador(id, notaAgg: nota, qtdAgg: avaliacoes),
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => VisualizarAvaliacoesPrestador(
-                                prestadorId: id,
-                              ),
+
+                      const SizedBox(height: 4),
+
+                      // Categoria
+                      FutureBuilder<String>(
+                        future: _nomeCategoriaProf(catProfId),
+                        builder: (_, snapCat) {
+                          final cat = (snapCat.data ?? '').trim();
+                          return Text(
+                            cat.isNotEmpty ? cat : 'Categoria não informada',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              height: 1.2,
                             ),
+                            softWrap: true,
+                            maxLines: 2,
+                            overflow: TextOverflow.visible,
                           );
                         },
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  FutureBuilder<String>(
-                    future: _nomeCategoriaProf(catProfId),
-                    builder: (_, snapCat) {
-                      final cat = (snapCat.data ?? '').trim();
-                      return Row(
+
+                      const SizedBox(height: 4),
+
+                      // 📍 Cidade
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Flexible(
-                            child: Text(
-                              cat.isNotEmpty ? cat : 'Categoria não informada',
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 6),
-                            child: Text(
-                              '|',
-                              style: TextStyle(color: Colors.black54),
-                            ),
-                          ),
                           const Icon(
                             Icons.location_on_outlined,
                             size: 16,
@@ -1328,82 +1553,99 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
                           Flexible(
                             child: Text(
                               cidade,
-                              style: const TextStyle(fontSize: 13),
+                              style: const TextStyle(
+                                fontSize: 13.5,
+                                color: Colors.black87,
+                                height: 1.2,
+                              ),
+                              softWrap: true,
+                              maxLines: 2,
+                              overflow: TextOverflow.visible,
                             ),
                           ),
                         ],
+                      ),
+
+                      const SizedBox(height: 4),
+
+                      // 💼 Experiência
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(
+                            Icons.work_outline,
+                            size: 17,
+                            color: Colors.deepPurple,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              tempoExp.isEmpty
+                                  ? 'Experiência não informada'
+                                  : tempoExp,
+                              style: const TextStyle(fontSize: 13.5),
+                              softWrap: true,
+                              maxLines: 2,
+                              overflow: TextOverflow.visible,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 14),
+
+            // 🔹 Botões
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              VisualizarPerfilPrestador(prestadorId: id),
+                        ),
                       );
                     },
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.work_outline,
-                        size: 18,
-                        color: Colors.deepPurple,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.deepPurple,
+                      side: const BorderSide(color: Colors.deepPurple),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
                       ),
-                      const SizedBox(width: 8),
-                      Text(
-                        tempoExp.isEmpty
-                            ? 'Experiência não informada'
-                            : tempoExp,
-                        style: const TextStyle(fontSize: 13),
-                      ),
-                    ],
+                    ),
+                    child: const Text('Ver Perfil'),
                   ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) =>
-                                    VisualizarPerfilPrestador(prestadorId: id),
-                              ),
-                            );
-                          },
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.deepPurple,
-                            side: const BorderSide(color: Colors.deepPurple),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                          ),
-                          child: const Text('Ver Perfil'),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Abrir Agenda (implementar rota)'),
                         ),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.deepPurple,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'Abrir Agenda (implementar rota)',
-                                ),
-                              ),
-                            );
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.deepPurple,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                          ),
-                          child: const Text(
-                            'Agenda',
-                            style: TextStyle(color: Colors.white),
-                          ),
-                        ),
-                      ),
-                    ],
+                    ),
+                    child: const Text(
+                      'Agenda',
+                      style: TextStyle(color: Colors.white),
+                    ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ],
         ),

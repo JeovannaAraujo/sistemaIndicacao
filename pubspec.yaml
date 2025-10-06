@@ -50,6 +50,7 @@ dependencies:
   google_maps_webservice: ^0.0.20-nullsafety.5
   google_maps_flutter_web: ^0.5.14+2
   custom_info_window: ^1.0.1
+  http: ^0.13.6
 
 dev_dependencies:
   flutter_test:
