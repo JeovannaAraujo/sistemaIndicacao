@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'rotasNavegacao.dart';
+import 'visualizarResposta.dart';
 
 class SolicitacoesRespondidasScreen extends StatelessWidget {
   const SolicitacoesRespondidasScreen({super.key});
@@ -67,13 +68,12 @@ class SolicitacoesRespondidasScreen extends StatelessWidget {
           ),
         ],
       ),
-      // ✅ Bottom bar fixa nas telas de solicitações
       bottomNavigationBar: const ClienteBottomNav(selectedIndex: 2),
     );
   }
 }
 
-/* ========================= Widgets ========================= */
+/* ========================= Abas ========================= */
 
 enum _TabKind { enviadas, respondidas, aceitas }
 
@@ -135,7 +135,7 @@ class _Tabs extends StatelessWidget {
   }
 }
 
-/* ========================= Cache para nome da categoria ========================= */
+/* ========================= Cache de categoria ========================= */
 
 class _CategoriaRepo {
   static final Map<String, String> _cache = {};
@@ -152,7 +152,7 @@ class _CategoriaRepo {
   }
 }
 
-/* ========================= Card (com cabeçalho estilo mock) ========================= */
+/* ========================= Card ========================= */
 
 class _PropostaCard extends StatelessWidget {
   final String docId;
@@ -160,31 +160,46 @@ class _PropostaCard extends StatelessWidget {
 
   const _PropostaCard({required this.docId, required this.dados});
 
-  String _fmtMoeda(num? v) => v == null
-      ? '—'
-      : NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$').format(v);
+  String _fmtDataHora(dynamic ts) {
+    if (ts is! Timestamp) return '—';
+    return DateFormat('dd/MM/yyyy \'às\' HH:mm').format(ts.toDate());
+  }
 
-  String _fmtDataTs(dynamic ts) =>
-      ts is Timestamp ? DateFormat('dd/MM/yyyy').format(ts.toDate()) : '—';
+  String _fmtQtd(dynamic qtd, String un) {
+    if (qtd == null) return '—';
+    String valor = qtd.toString().replaceAll('.0', '');
+    if (un.isNotEmpty) valor += ' $un';
+    return valor;
+  }
 
   @override
   Widget build(BuildContext context) {
     final fs = FirebaseFirestore.instance;
-
-    // IDs
     final prestadorId = (dados['prestadorId'] ?? '').toString();
 
-    // Dados da proposta
-    final servico = (dados['servicoTitulo'] ?? '').toString();
-    final valorProposto = (dados['valorProposto'] as num?);
-    final tempoValor = (dados['tempoEstimadoValor'] as num?);
-    final tempoUn = (dados['tempoEstimadoUnidade'] ?? '').toString();
-    final dataInicioSug = dados['dataInicioSugerida'];
-    final dataFinalPrev = dados['dataFinalPrevista'];
-    final observacoes = (dados['observacoesPrestador'] ?? '').toString();
+    final servicoTitulo = (dados['servicoTitulo'] ?? '').toString();
+    final descricao = (dados['descricaoDetalhada'] ?? '').toString();
+    final quantidade = (dados['quantidade'] ?? '').toString();
+    final unidadeSelecionadaId = (dados['unidadeSelecionadaId'] ?? '')
+        .toString();
+    final servicoUnidadeId = (dados['servicoUnidadeId'] ?? '').toString();
+
+    Future<String> buscarAbreviacaoUnidade() async {
+      final fs = FirebaseFirestore.instance;
+      final unidadeId = unidadeSelecionadaId.isNotEmpty
+          ? unidadeSelecionadaId
+          : servicoUnidadeId;
+      if (unidadeId.isEmpty) return '';
+      final snap = await fs.collection('unidades').doc(unidadeId).get();
+      return (snap.data()?['abreviacao'] ?? '').toString();
+    }
+
+    final dataEnvio =
+        dados['criadoEm'] ?? dados['enviadaEm'] ?? dados['respondidaEm'];
+    final dataFmt = _fmtDataHora(dataEnvio);
 
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
@@ -193,7 +208,7 @@ class _PropostaCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // -------- Cabeçalho: foto, nome, "Profissão • 📍 Local" --------
+          // ====== Cabeçalho: Imagem, nome do prestador, categoria e cidade ======
           FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
             future: fs.collection('usuarios').doc(prestadorId).get(),
             builder: (context, snap) {
@@ -201,7 +216,6 @@ class _PropostaCard extends StatelessWidget {
               final nome = (u['nome'] ?? '').toString();
               final fotoUrl = (u['fotoUrl'] ?? '').toString();
 
-              // Local
               final end = (u['endereco'] is Map)
                   ? (u['endereco'] as Map).cast<String, dynamic>()
                   : <String, dynamic>{};
@@ -213,7 +227,6 @@ class _PropostaCard extends StatelessWidget {
                 local = local.isEmpty ? uf : '$local, $uf';
               }
 
-              // Categoria
               final catId =
                   (u['categoriaProfissionalId'] ??
                           dados['categoriaProfissionalId'] ??
@@ -221,7 +234,9 @@ class _PropostaCard extends StatelessWidget {
                       .toString();
 
               return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Foto
                   ClipRRect(
                     borderRadius: BorderRadius.circular(10),
                     child: Container(
@@ -238,6 +253,8 @@ class _PropostaCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 12),
+
+                  // Nome, categoria e cidade
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -274,11 +291,6 @@ class _PropostaCard extends StatelessWidget {
                                   ),
                                 ),
                                 const SizedBox(width: 6),
-                                const Text(
-                                  '•',
-                                  style: TextStyle(color: Colors.black26),
-                                ),
-                                const SizedBox(width: 6),
                                 const Icon(
                                   Icons.location_on_outlined,
                                   size: 14,
@@ -308,201 +320,107 @@ class _PropostaCard extends StatelessWidget {
             },
           ),
 
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
 
-          // -------- Dados da proposta --------
-          _kv('Serviço:', servico.isEmpty ? '—' : servico, boldValue: true),
-          _kv('Valor Total Proposto:', _fmtMoeda(valorProposto)),
-          _kv('Forma de cobrança:', tempoUn == 'hora' ? 'hora' : 'm²'),
-          _kv(
-            'Tempo estimado:',
-            (tempoValor == null || tempoUn.isEmpty)
-                ? '—'
-                : '$tempoValor $tempoUn${tempoValor == 1 ? '' : 's'}',
+          // ====== Nome do serviço (embaixo da imagem) ======
+          if (servicoTitulo.isNotEmpty)
+            Text(
+              servicoTitulo,
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                color: Colors.deepPurple,
+                fontSize: 15,
+              ),
+            ),
+
+          const SizedBox(height: 8),
+
+          // ====== Descrição, quantidade e data ======
+          RichText(
+            text: TextSpan(
+              style: const TextStyle(fontSize: 13.5, color: Colors.black87),
+              children: [
+                const TextSpan(
+                  text: 'Descrição: ',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                  ), // só isso em negrito
+                ),
+                TextSpan(
+                  text: descricao, // texto normal
+                ),
+              ],
+            ),
           ),
-          _kv('Data de início:', _fmtDataTs(dataInicioSug)),
-          _kv('Data final:', _fmtDataTs(dataFinalPrev)),
-          _kv('Observações:', observacoes.isEmpty ? '—' : observacoes),
 
-          const SizedBox(height: 12),
-
-          // -------- Ações --------
-          Row(
-            children: [
-              Expanded(
-                child: _PrimaryGradientButton(
-                  text: 'Aceitar Orçamento',
-                  onPressed: () async {
-                    final uid = FirebaseAuth.instance.currentUser!.uid;
-
-                    // 1) Atualiza status
-                    await fs
-                        .collection(SolicitacoesRespondidasScreen._colSolic)
-                        .doc(docId)
-                        .update({
-                          'status': 'aceita',
-                          'aceitaEm': FieldValue.serverTimestamp(),
-                          'aceitaPor': uid,
-                        });
-
-                    // 2) Historiza
-                    await fs
-                        .collection(SolicitacoesRespondidasScreen._colSolic)
-                        .doc(docId)
-                        .collection('historico')
-                        .add({
-                          'tipo': 'cliente_aceitou',
-                          'quando': FieldValue.serverTimestamp(),
-                          'por': uid,
-                          'valorProposto': valorProposto,
-                        });
-
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Orçamento aceito!')),
-                      );
-                    }
-                  },
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton.tonal(
-                  onPressed: () async {
-                    final motivoCtl = TextEditingController();
-                    final ok = await showDialog<bool>(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        title: const Text('Recusar orçamento'),
-                        content: TextField(
-                          controller: motivoCtl,
-                          maxLines: 3,
-                          decoration: const InputDecoration(
-                            hintText: 'Opcional: informe o motivo',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(ctx, false),
-                            child: const Text('Cancelar'),
-                          ),
-                          FilledButton(
-                            onPressed: () => Navigator.pop(ctx, true),
-                            child: const Text('Recusar'),
-                          ),
-                        ],
-                      ),
-                    );
-                    if (ok != true) return;
-
-                    final uid = FirebaseAuth.instance.currentUser!.uid;
-
-                    await fs
-                        .collection(SolicitacoesRespondidasScreen._colSolic)
-                        .doc(docId)
-                        .update({
-                          'status': 'recusadaCliente',
-                          'recusadaClienteEm': FieldValue.serverTimestamp(),
-                          'recusadaClientePor': uid,
-                          'recusaMotivoCliente': motivoCtl.text.trim(),
-                        });
-
-                    await fs
-                        .collection(SolicitacoesRespondidasScreen._colSolic)
-                        .doc(docId)
-                        .collection('historico')
-                        .add({
-                          'tipo': 'cliente_recusou',
-                          'quando': FieldValue.serverTimestamp(),
-                          'por': uid,
-                          'motivo': motivoCtl.text.trim(),
-                        });
-
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Orçamento recusado.')),
-                      );
-                    }
-                  },
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFFEDE7F6),
-                    foregroundColor: Colors.deepPurple,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+          const SizedBox(height: 3),
+          FutureBuilder<String>(
+            future: buscarAbreviacaoUnidade(),
+            builder: (context, snapshot) {
+              final un = snapshot.data ?? '';
+              return RichText(
+                text: TextSpan(
+                  style: const TextStyle(fontSize: 13.5, color: Colors.black87),
+                  children: [
+                    const TextSpan(
+                      text: 'Quantidade: ',
+                      style: TextStyle(fontWeight: FontWeight.bold),
                     ),
+                    TextSpan(text: _fmtQtd(quantidade, un)),
+                  ],
+                ),
+              );
+            },
+          ),
+
+          const SizedBox(height: 3),
+          Text(
+            'Enviada em: $dataFmt',
+            style: const TextStyle(color: Colors.black54, fontSize: 12.5),
+          ),
+
+          const SizedBox(height: 14),
+
+          // ====== Botão Ver Orçamento ======
+          GestureDetector(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => VisualizarRespostaScreen(docId: docId),
+                ),
+              );
+            },
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF7C4DFF), Color(0xFF651FFF)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x22000000),
+                    blurRadius: 6,
+                    offset: Offset(0, 3),
                   ),
-                  child: const Text('Recusar Orçamento'),
+                ],
+              ),
+              alignment: Alignment.center,
+              child: const Text(
+                'Ver Orçamento',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
                 ),
               ),
-            ],
+            ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _kv(String k, String v, {bool boldValue = false}) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: RichText(
-        text: TextSpan(
-          style: const TextStyle(color: Colors.black87, fontSize: 13.5),
-          children: [
-            TextSpan(
-              text: '$k ',
-              style: const TextStyle(fontWeight: FontWeight.w700),
-            ),
-            TextSpan(
-              text: v,
-              style: TextStyle(
-                fontWeight: boldValue ? FontWeight.w700 : FontWeight.w400,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/* Botão roxo com gradiente (mesmo do design) */
-class _PrimaryGradientButton extends StatelessWidget {
-  final String text;
-  final VoidCallback onPressed;
-
-  const _PrimaryGradientButton({required this.text, required this.onPressed});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onPressed,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFF7C4DFF), Color(0xFF651FFF)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(14),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x22000000),
-              blurRadius: 8,
-              offset: Offset(0, 3),
-            ),
-          ],
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          text,
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
       ),
     );
   }

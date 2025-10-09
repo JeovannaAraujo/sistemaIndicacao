@@ -127,18 +127,21 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
     final valor = _parseMoeda(_valorPropostoCtl.text) ?? 0;
     final tempo =
         double.tryParse(_tempoValorCtl.text.replaceAll(',', '.')) ?? 0;
-
     DateTime? inicioSugerido;
-    if (_dataInicio != null) {
-      final h = _horaInicio?.hour ?? 0;
-      final m = _horaInicio?.minute ?? 0;
-      inicioSugerido = DateTime(
-        _dataInicio!.year,
-        _dataInicio!.month,
-        _dataInicio!.day,
-        h,
-        m,
-      );
+
+    // pega data/hora do cliente, caso prestador não altere
+    final dataCliTs = _docSolic!.data()?['dataDesejada'] as Timestamp?;
+    final dataCli = dataCliTs?.toDate();
+
+    if (_dataInicio != null || _horaInicio != null) {
+      // prestador escolheu data/hora alternativa
+      final base = _dataInicio ?? dataCli ?? DateTime.now();
+      final h = _horaInicio?.hour ?? dataCli?.hour ?? 8;
+      final m = _horaInicio?.minute ?? dataCli?.minute ?? 0;
+      inicioSugerido = DateTime(base.year, base.month, base.day, h, m);
+    } else {
+      // usa data e hora do cliente
+      inicioSugerido = dataCli ?? DateTime.now();
     }
 
     setState(() => _enviando = true);
@@ -169,9 +172,7 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
         'valorProposto': valor,
         'tempoEstimadoValor': tempo,
         'tempoEstimadoUnidade': _tempoUnidade,
-        'dataInicioSugerida': inicioSugerido != null
-            ? Timestamp.fromDate(inicioSugerido)
-            : null,
+        'dataInicioSugerida': Timestamp.fromDate(inicioSugerido),
 
         // ✅ grava a data final prevista
         'dataFinalPrevista': Timestamp.fromDate(fimPrevisto),
@@ -213,72 +214,6 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
     }
   }
 
-  Future<void> _recusarSolicitacao() async {
-    if (_docSolic == null) return;
-
-    final motivoCtl = TextEditingController();
-    final confirmar = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Recusar solicitação'),
-        content: TextField(
-          controller: motivoCtl,
-          maxLines: 3,
-          decoration: const InputDecoration(
-            hintText: 'Opcional: informe o motivo',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Recusar'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmar != true) return;
-
-    setState(() => _enviando = true);
-    try {
-      final fs = FirebaseFirestore.instance;
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-
-      await fs.collection(colSolicitacoes).doc(widget.solicitacaoId).update({
-        'status': 'recusada',
-        'recusadaEm': FieldValue.serverTimestamp(),
-        'recusadaPor': uid,
-        'recusaMotivo': motivoCtl.text.trim(),
-        'historico': FieldValue.arrayUnion([
-          {
-            'tipo': 'recusada',
-            'quando': FieldValue.serverTimestamp(),
-            'por': uid,
-            'motivo': motivoCtl.text.trim(),
-          },
-        ]),
-      });
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Solicitação recusada.')));
-      Navigator.of(context).pop();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Falha ao recusar: $e')));
-    } finally {
-      if (mounted) setState(() => _enviando = false);
-    }
-  }
-
   // ---------- UI ----------
   @override
   Widget build(BuildContext context) {
@@ -300,7 +235,10 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
   Widget _buildForm() {
     final d = _docSolic!.data()!;
     final titulo = (d['servicoTitulo'] ?? '').toString();
-    final quantidade = (d['quantidade'] ?? 0).toString();
+    final quantidade = (d['quantidade'] is num)
+        ? (d['quantidade'] as num).toStringAsFixed(0)
+        : (d['quantidade']?.toString() ?? '');
+
     final unidadeAbrev =
         (d['unidadeSelecionadaAbrev'] ?? d['servicoUnidadeAbrev'] ?? '')
             .toString();
@@ -323,7 +261,7 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
 
             const SizedBox(height: 16),
             const _SectionTitle('Dados da solicitação do cliente'),
-            const SizedBox(height: 8),
+            const SizedBox(height: 15),
             _ReadOnlyField(
               label: 'Serviço desejado',
               value: titulo.isEmpty ? 'Não informado' : titulo,
@@ -338,9 +276,6 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
             _ReadOnlyField(
               label: 'Horário desejado para execução',
               value: _fmtHora(d['dataDesejada']),
-              hint:
-                  'Caso indisponível no horário desejado pelo cliente, favor colocar uma'
-                  ' data alternativa ao enviar sua proposta.',
             ),
             const SizedBox(height: 16),
             Row(
@@ -364,10 +299,36 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
+              textAlign: TextAlign.start,
               decoration: _inputDecoration(hint: 'R\$ 0,00'),
+              onChanged: (v) {
+                String digits = v.replaceAll(RegExp(r'[^0-9]'), '');
+
+                if (digits.isEmpty) {
+                  _valorPropostoCtl.text = '';
+                  return;
+                }
+
+                // Converte os centavos
+                double value = double.parse(digits) / 100.0;
+
+                final textoFormatado = _moeda.format(value);
+
+                if (textoFormatado != v) {
+                  _valorPropostoCtl.value = TextEditingValue(
+                    text: textoFormatado,
+                    selection: TextSelection.collapsed(
+                      offset: textoFormatado.length,
+                    ),
+                  );
+                }
+              },
               validator: (v) {
-                final x = _parseMoeda(v ?? '');
-                if (x == null || x <= 0) return 'Informe um valor válido';
+                final cleaned = (v ?? '').replaceAll(RegExp(r'[^0-9,]'), '');
+                final valor = double.tryParse(cleaned.replaceAll(',', '.'));
+                if (valor == null || valor <= 0) {
+                  return 'Informe um valor válido';
+                }
                 return null;
               },
             ),
@@ -409,7 +370,7 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
             ),
 
             const SizedBox(height: 16),
-            const _SectionTitle('Data para iniciar execução'),
+            const _SectionTitle('Data alternativa para iniciar execução'),
             const SizedBox(height: 6),
             TextFormField(
               readOnly: true,
@@ -424,13 +385,9 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
                 suffixIcon: const Icon(Icons.calendar_today_outlined),
               ),
             ),
-            const SizedBox(height: 4),
-            const _HelperText(
-              'Caso indisponível na data desejada pelo cliente, favor colocar uma data alternativa.',
-            ),
 
             const SizedBox(height: 16),
-            const _SectionTitle('Horário para iniciar execução'),
+            const _SectionTitle('Horário alternativo para iniciar execução'),
             const SizedBox(height: 6),
             TextFormField(
               readOnly: true,
@@ -445,9 +402,38 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
                 suffixIcon: const Icon(Icons.access_time_outlined),
               ),
             ),
-            const SizedBox(height: 4),
-            const _HelperText(
-              'Caso indisponível no horário desejado pelo cliente, favor colocar um horário alternativo.',
+
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEDE7F6),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.deepPurple.shade200),
+              ),
+              child: const Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.access_time_outlined,
+                    size: 18,
+                    color: Colors.deepPurple,
+                  ),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Caso indisponível na data ou horário desejado pelo cliente, '
+                      'favor colocar uma data ou horário alternativos ao enviar sua proposta.',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        color: Colors.deepPurple,
+                        fontWeight: FontWeight.w600,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
 
             const SizedBox(height: 16),
@@ -462,46 +448,18 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
               ),
             ),
 
-            const SizedBox(height: 22),
+            const SizedBox(height: 20),
             // Botões (gradiente + ação secundária)
             _PrimaryGradientButton(
               text: 'Enviar Orçamento',
               onPressed: _enviando ? null : _enviarOrcamento,
               loading: _enviando,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
 
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.tonal(
-                onPressed: _enviando ? null : _recusarSolicitacao,
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFFEDE7F6), // lilás claro
-                  foregroundColor: Colors.deepPurple,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  textStyle: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-                child: const Text('Recusar Solicitação'),
-              ),
-            ),
-            const SizedBox(height: 8),
-
-            Center(
-              child: TextButton(
-                onPressed: _enviando ? null : () => Navigator.pop(context),
-                style: TextButton.styleFrom(
-                  foregroundColor: Colors.black54,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 12,
-                  ),
-                  shape: const StadiumBorder(), // pílula suave
-                ),
-                child: const Text('Cancelar'),
-              ),
+            _GlossyRedButton(
+              text: 'Cancelar',
+              onPressed: _enviando ? null : () => Navigator.pop(context),
             ),
           ],
         ),
@@ -729,6 +687,8 @@ class _EstimativaCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final semEstimativa = valor == 'R\$0,00' || valor.trim().isEmpty;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
@@ -737,42 +697,51 @@ class _EstimativaCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.deepPurple.withOpacity(0.2)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Estimativa de Valor',
-            style: TextStyle(
-              fontWeight: FontWeight.w700,
-              color: Colors.black87,
+      child: semEstimativa
+          ? const Text(
+              'Não há estimativa de valor para esta solicitação, pois o cliente selecionou uma unidade de medida diferente da cadastrada para o serviço.',
+              style: TextStyle(
+                fontSize: 12.5,
+                color: Colors.deepPurple,
+                fontWeight: FontWeight.w500,
+              ),
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Estimativa de Valor',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  valor,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Este valor é calculado automaticamente com base na quantidade informada e na média de preços do serviço.',
+                  style: TextStyle(fontSize: 12),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Fórmula: Quantidade × Valor Médio por $unidade.',
+                  style: const TextStyle(fontSize: 12),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Este campo é apenas informativo e não pode ser editado manualmente.',
+                  style: TextStyle(fontSize: 12, color: Colors.black54),
+                ),
+              ],
             ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            valor,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: Colors.black87,
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Este valor é calculado automaticamente com base na quantidade informada e na média de preços do serviço.',
-            style: TextStyle(fontSize: 12),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Fórmula: Quantidade × Valor Médio por $unidade.',
-            style: const TextStyle(fontSize: 12),
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'Este campo é apenas informativo e não pode ser editado manualmente.',
-            style: TextStyle(fontSize: 12, color: Colors.black54),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -800,13 +769,14 @@ class _SectionTitle extends StatelessWidget {
 class _ReadOnlyField extends StatelessWidget {
   final String label;
   final String value;
-  final String? hint;
   final Widget? suffixIcon;
+  final String? hint; // ✅ torna opcional (pode ser null)
+
   const _ReadOnlyField({
     required this.label,
     required this.value,
-    this.hint,
     this.suffixIcon,
+    this.hint, // ✅ adiciona no construtor
   });
 
   @override
@@ -922,6 +892,55 @@ class _PrimaryGradientButton extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GlossyRedButton extends StatelessWidget {
+  final String text;
+  final VoidCallback? onPressed;
+
+  const _GlossyRedButton({required this.text, this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    final isEnabled = onPressed != null;
+
+    return GestureDetector(
+      onTap: isEnabled ? onPressed : null,
+      child: Opacity(
+        opacity: isEnabled ? 1 : 0.7,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [
+                Color(0xFFFF5252),
+                Color(0xFFD32F2F),
+              ], // vermelho degradê
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x22000000),
+                blurRadius: 8,
+                offset: Offset(0, 3),
+              ),
+            ],
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            text,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
         ),
       ),
     );

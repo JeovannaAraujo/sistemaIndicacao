@@ -197,6 +197,54 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
     }
   }
 
+  Future<void> _loadWorkdays() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('usuarios')
+          .doc(uid)
+          .get();
+      final jornada = (doc.data()?['jornada'] ?? []) as List<dynamic>;
+
+      // Mapeia nomes da jornada para weekdays numéricos
+      final Map<String, int> diasSemana = {
+        'Segunda-feira': DateTime.monday,
+        'Terça-feira': DateTime.tuesday,
+        'Quarta-feira': DateTime.wednesday,
+        'Quinta-feira': DateTime.thursday,
+        'Sexta-feira': DateTime.friday,
+        'Sábado': DateTime.saturday,
+        'Domingo': DateTime.sunday,
+      };
+
+      setState(() {
+        _workWeekdays
+          ..clear()
+          ..addAll(
+            jornada
+                .map((d) => diasSemana[d.toString()])
+                .whereType<int>()
+                .toSet(),
+          );
+
+        // se não tiver jornada salva, padrão: segunda a sexta
+        if (_workWeekdays.isEmpty) {
+          _workWeekdays.addAll([
+            DateTime.monday,
+            DateTime.tuesday,
+            DateTime.wednesday,
+            DateTime.thursday,
+            DateTime.friday,
+          ]);
+        }
+      });
+    } catch (e) {
+      debugPrint('Erro ao carregar jornada: $e');
+    }
+  }
+
   Future<void> _openMaps(String endereco) async {
     if (endereco.trim().isEmpty || endereco == '—') return;
     final encoded = Uri.encodeComponent(endereco);
@@ -206,6 +254,12 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadWorkdays(); // carrega jornada do prestador
   }
 
   // =================== Build ===================
@@ -359,26 +413,35 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
   // =================== Widgets da Aba 1 ===================
   Widget _calendarCard() {
     const clrSel = Color(0xFF673AB7); // roxo da borda
+    final today = _today;
 
     DateTime ymdLocal(DateTime d) => DateTime(d.year, d.month, d.day);
 
     Color bgFor(DateTime day) {
       final ymd = ymdLocal(day);
-      if (_busyDays.contains(ymd)) {
-        return const Color.fromARGB(255, 255, 64, 77); // ocupado (vermelho)
-      }
-      if (_finalizedDays.contains(ymd)) {
-        return const Color.fromARGB(
-          255,
-          171,
-          120,
-          247,
-        ); // finalizado (roxo claro)
-      }
+
+      // 1️⃣ Fora da jornada: cinza claro
       if (!_isWorkday(day)) {
-        return const Color.fromARGB(255, 199, 190, 190); // fds (cinza)
+        return const Color.fromARGB(255, 199, 190, 190);
       }
-      return const Color.fromARGB(255, 109, 221, 140); // disponível (verde)
+
+      // 2️⃣ Finalizados: roxo claro (sempre, mesmo se antes de hoje)
+      if (_finalizedDays.contains(ymd)) {
+        return const Color.fromARGB(255, 171, 120, 247);
+      }
+
+      // 3️⃣ Dias anteriores a hoje (mas que não foram finalizados): cinza claro
+      if (ymd.isBefore(today)) {
+        return const Color.fromARGB(255, 199, 190, 190);
+      }
+
+      // 4️⃣ Ocupados (em andamento/aceitos): vermelho
+      if (_busyDays.contains(ymd)) {
+        return const Color(0xFFA0B9E6);
+      }
+
+      // 5️⃣ Disponíveis (futuro dentro da jornada): verde
+      return const Color.fromARGB(255, 109, 221, 140);
     }
 
     Widget cell(DateTime day, Color bg, {Border? border}) {
@@ -416,16 +479,15 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
         onDaySelected: (selected, focused) {
           setState(() {
             _selectedDay = _ymd(selected);
-            // virar automaticamente para o mês do dia clicado (se for fora do mês atual)
-            _focusedDay = (selected.month != _focusedDay.month) ? selected : focused;
+            _focusedDay = (selected.month != _focusedDay.month)
+                ? selected
+                : focused;
           });
         },
 
-        // MUITO IMPORTANTE: zera as decorações padrão
         calendarStyle: const CalendarStyle(
-          todayDecoration: BoxDecoration(), // sem círculo de "hoje"
-          selectedDecoration:
-              BoxDecoration(), // sem preenchimento do "selecionado"
+          todayDecoration: BoxDecoration(),
+          selectedDecoration: BoxDecoration(),
         ),
 
         headerStyle: const HeaderStyle(
@@ -434,16 +496,11 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
         ),
 
         calendarBuilders: CalendarBuilders(
-          // célula “normal”
           defaultBuilder: (context, day, _) => cell(day, bgFor(day)),
-
-          // fora do mês / desabilitado (opacidade menor)
           outsideBuilder: (context, day, _) =>
               Opacity(opacity: 0.5, child: cell(day, bgFor(day))),
           disabledBuilder: (context, day, _) =>
               Opacity(opacity: 0.5, child: cell(day, bgFor(day))),
-
-          // selecionado → SÓ borda roxa
           selectedBuilder: (context, day, _) => cell(
             day,
             bgFor(day),
@@ -451,27 +508,22 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
               BorderSide(color: clrSel, width: 2),
             ),
           ),
-
-          // hoje (quando NÃO é o selecionado) → preenchido roxo
           todayBuilder: (context, day, _) {
             final isSelected = isSameDay(day, _selectedDay);
             return Container(
               margin: const EdgeInsets.all(4),
               decoration: BoxDecoration(
-                color: const Color(0xFF673AB7), // roxo preenchido
+                color: const Color(0xFF673AB7),
                 borderRadius: BorderRadius.circular(8),
                 border: isSelected
-                    ? Border.all(
-                        color: Colors.black,
-                        width: 1,
-                      ) // opcional: destaque se também for selecionado
+                    ? Border.all(color: Colors.black, width: 1)
                     : null,
               ),
               alignment: Alignment.center,
               child: Text(
                 '${day.day}',
                 style: const TextStyle(
-                  color: Colors.white, // número branco para contraste
+                  color: Colors.white,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -482,35 +534,47 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
     );
   }
 
-  Widget _legenda() {
-    Widget chip(Color c, String t) => Row(
-      children: [
-        Container(
-          width: 14,
-          height: 14,
-          decoration: BoxDecoration(
-            color: c,
-            borderRadius: BorderRadius.circular(4),
-          ),
-        ),
-        const SizedBox(width: 6),
-        Text(t, style: const TextStyle(fontSize: 12)),
-      ],
-    );
-
-    return Padding(
-      padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
-      child: Row(
+Widget _legenda() {
+  Widget chip(Color c, String t) => Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          chip(const Color.fromARGB(255, 243, 46, 62), 'Indisponível'),
-          const SizedBox(width: 14),
-          chip(const Color.fromARGB(255, 93, 248, 137), 'Disponível'),
-          const SizedBox(width: 14),
-          chip(const Color.fromARGB(255, 132, 65, 233), 'Finalizado'),
+          Container(
+            width: 14,
+            height: 14,
+            decoration: BoxDecoration(
+              color: c,
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(t, style: const TextStyle(fontSize: 12)),
         ],
-      ),
-    );
-  }
+      );
+
+  return Padding(
+    padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8, top: 4),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            chip(const Color.fromARGB(255, 199, 190, 190), 'Indisponível'),
+            const SizedBox(width: 20),
+            chip(const Color.fromARGB(255, 93, 248, 137), 'Disponível'),
+            const SizedBox(width: 20),
+            chip(const Color.fromARGB(255, 171, 120, 247), 'Finalizado'),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Center(
+          child: chip(const Color(0xFFA0B9E6), 'Em andamento'),
+        ),
+      ],
+    ),
+  );
+}
+
 
   Widget _tituloServicosDoDia() {
     return Padding(

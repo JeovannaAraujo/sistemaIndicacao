@@ -34,7 +34,7 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
 
   final _formKey = GlobalKey<FormState>();
   final _descricaoCtl = TextEditingController();
-  final _quantCtl = TextEditingController(text: '0');
+  final _quantCtl = TextEditingController();
 
   DateTime? _dataDesejada;
   TimeOfDay? _horaDesejada;
@@ -87,6 +87,7 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
     _selectedUnidadeAbrev = (s['unidadeAbreviacao'] ?? '').toString().isEmpty
         ? null
         : (s['unidadeAbreviacao'] as String);
+
     _valorMedio = _parseValor(s['valorMedio']);
 
     if (mounted) {
@@ -225,6 +226,19 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
     // faz upload das imagens (se houver)
     final imagensUrls = await _uploadImagens(docRef.id);
 
+    // --- Garantir coerência entre unidades originais e selecionadas ---
+    final servUnidadeId = (serv['unidadeId'] ?? serv['unidade'] ?? '')
+        .toString();
+
+    final bool unidadeDiferente =
+        (_selectedUnidadeId != null &&
+        _selectedUnidadeId!.isNotEmpty &&
+        _selectedUnidadeId != servUnidadeId);
+
+    final unidadeSelecionadaIdFinal = unidadeDiferente
+        ? _selectedUnidadeId
+        : null;
+
     final doc = <String, dynamic>{
       'clienteId': auth.currentUser!.uid,
       'clienteNome': (cli['nome'] ?? '').toString(),
@@ -243,17 +257,15 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
       'servicoTitulo': (serv['titulo'] ?? serv['nome'] ?? '').toString(),
       'servicoDescricao': (serv['descricao'] ?? '').toString(),
       'servicoValorMedio': _valorMedio,
-      'servicoUnidadeId': (serv['unidadeId'] ?? serv['unidade'] ?? '')
-          .toString(),
-      'servicoUnidadeAbrev': (serv['unidadeAbreviacao'] ?? '').toString(),
+      'servicoUnidadeId': servUnidadeId, // 🔹 mantém só o ID original
+      if (unidadeSelecionadaIdFinal != null)
+        'unidadeSelecionadaId': unidadeSelecionadaIdFinal, // 🔹 se diferente
       'quantidade': double.tryParse(_quantCtl.text.replaceAll(',', '.')) ?? 0,
-      'unidadeSelecionadaId': _selectedUnidadeId ?? '',
-      'unidadeSelecionadaAbrev': _selectedUnidadeAbrev ?? '',
       'descricaoDetalhada': _descricaoCtl.text.trim(),
       'dataDesejada': dataHora != null ? Timestamp.fromDate(dataHora) : null,
       'estimativaValor': _estimativaValor,
       'status': 'pendente',
-      'imagens': imagensUrls, // URLs publicadas no Storage
+      'imagens': imagensUrls,
       'criadoEm': FieldValue.serverTimestamp(),
     };
 
@@ -451,13 +463,56 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
                     'Este campo é apenas informativo e não pode ser editado manualmente.',
                     style: TextStyle(fontSize: 12, color: Colors.black54),
                   ),
-                  if (_estimativaValor == null && (_selectedUnidadeId != null))
-                    const Padding(
-                      padding: EdgeInsets.only(top: 4),
-                      child: Text(
-                        'Observação: estimativa desativada porque a unidade selecionada é diferente da unidade do serviço.',
-                        style: TextStyle(fontSize: 12, color: Colors.black54),
-                      ),
+                  if (_selectedUnidadeId != null)
+                    Builder(
+                      builder: (context) {
+                        final s = _docServico?.data() ?? {};
+                        final unidadeServicoId =
+                            (s['unidadeId'] ?? s['unidade'] ?? '').toString();
+                        final diferente =
+                            unidadeServicoId.isNotEmpty &&
+                            _selectedUnidadeId != unidadeServicoId;
+
+                        if (diferente) {
+                          return Container(
+                            margin: const EdgeInsets.only(top: 8),
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: const Color(
+                                0xFFEDE7F6,
+                              ), // 💜 lilás clarinho de fundo
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: Colors.deepPurple.shade200,
+                              ),
+                            ),
+                            child: const Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(
+                                  Icons.info_outline,
+                                  size: 18,
+                                  color: Colors.deepPurple,
+                                ),
+                                SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Observação: a estimativa foi desativada porque a unidade selecionada é diferente da unidade do serviço.',
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      color: Colors.deepPurple,
+                                      fontWeight: FontWeight.w600,
+                                      height: 1.4,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        } else {
+                          return const SizedBox.shrink();
+                        }
+                      },
                     ),
                 ],
               ),
@@ -768,8 +823,11 @@ class _UnidadesDropdown extends StatelessWidget {
         .collection(_SolicitarOrcamentoScreenState.colUnidades)
         .orderBy('abreviacao');
 
-    return SizedBox(
-      width: 92,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(
+        minWidth: 80,
+        maxWidth: 120, // 🔹 largura segura e adaptável
+      ),
       child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: q.snapshots(),
         builder: (context, snap) {
@@ -777,14 +835,15 @@ class _UnidadesDropdown extends StatelessWidget {
             return DropdownButtonFormField<String>(
               items: const [],
               onChanged: null,
-              decoration: InputDecoration(
+              isDense: true,
+              decoration: const InputDecoration(
                 hintText: 'un.',
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.all(Radius.circular(12)),
                 ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 12,
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
                 ),
               ),
             );
@@ -796,7 +855,10 @@ class _UnidadesDropdown extends StatelessWidget {
             final abrev = (m['abreviacao'] ?? m['sigla'] ?? '').toString();
             return DropdownMenuItem<String>(
               value: d.id,
-              child: Text(abrev.isEmpty ? d.id : abrev),
+              child: Text(
+                abrev.isEmpty ? d.id : abrev,
+                overflow: TextOverflow.ellipsis,
+              ),
             );
           }).toList();
 
@@ -805,6 +867,8 @@ class _UnidadesDropdown extends StatelessWidget {
 
           return DropdownButtonFormField<String>(
             isDense: true,
+            isExpanded: true, // ✅ evita overflow
+            menuMaxHeight: 300,
             initialValue: hasSelected ? selectedId : null,
             items: items,
             onChanged: (v) {
@@ -820,8 +884,8 @@ class _UnidadesDropdown extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
               ),
               contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 12,
+                horizontal: 10,
+                vertical: 8,
               ),
             ),
           );

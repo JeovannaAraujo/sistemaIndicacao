@@ -8,14 +8,19 @@ import 'package:table_calendar/table_calendar.dart';
 Future<void> showAgendaPrestadorModal(
   BuildContext context, {
   required String prestadorId,
+  String? prestadorNome,
 }) {
   return showGeneralDialog(
     context: context,
     barrierDismissible: true,
     barrierLabel: 'Fechar',
     barrierColor: Colors.black.withOpacity(0.25),
-    pageBuilder: (_, __, ___) =>
-        Center(child: VisualizarAgendaPrestador(prestadorId: prestadorId)),
+    pageBuilder: (_, __, ___) => Center(
+      child: VisualizarAgendaPrestador(
+        prestadorId: prestadorId,
+        prestadorNome: prestadorNome, // 👈 passa aqui também
+      ),
+    ),
     transitionBuilder: (_, anim, __, child) {
       final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
       return FadeTransition(
@@ -31,7 +36,13 @@ Future<void> showAgendaPrestadorModal(
 
 class VisualizarAgendaPrestador extends StatefulWidget {
   final String prestadorId;
-  const VisualizarAgendaPrestador({super.key, required this.prestadorId});
+  final String? prestadorNome; // 👈 campo novo
+
+  const VisualizarAgendaPrestador({
+    super.key,
+    required this.prestadorId,
+    this.prestadorNome, // 👈 campo novo
+  });
 
   @override
   State<VisualizarAgendaPrestador> createState() =>
@@ -153,7 +164,25 @@ class _VisualizarAgendaPrestadorState extends State<VisualizarAgendaPrestador> {
                     padding: const EdgeInsets.only(bottom: 12),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
+
                       children: [
+                        // ===== Título com nome do prestador =====
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+                          child: Text(
+                            'Agenda do prestador ${widget.prestadorNome ?? ''}',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.deepPurple,
+                            ),
+                            softWrap: true, // 👈 permite quebra de linha
+                            overflow:
+                                TextOverflow.visible, // 👈 evita reticências
+                          ),
+                        ),
+
                         // ===== Único header (custom) =====
                         Padding(
                           padding: const EdgeInsets.fromLTRB(8, 12, 8, 0),

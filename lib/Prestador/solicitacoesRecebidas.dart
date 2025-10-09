@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'detalhesSolicitacao.dart';
+import 'visualizarResposta.dart';
 
 // >>> importa rotas e a BottomNav do prestador
 import 'rotasNavegacao.dart';
@@ -122,13 +123,16 @@ class _SolicitacoesRecebidasScreenState
           _ListaSolicitacoes(
             stream: _streamSolicitacoes(recebidas: true),
             moeda: _moeda,
+            recebidas: true,
           ),
           _ListaSolicitacoes(
             stream: _streamSolicitacoes(recebidas: false),
             moeda: _moeda,
+            recebidas: false,
           ),
         ],
       ),
+
       // <<< Bottom Navigation centralizada do Prestador
       bottomNavigationBar: const PrestadorBottomNav(selectedIndex: 1),
     );
@@ -138,8 +142,13 @@ class _SolicitacoesRecebidasScreenState
 class _ListaSolicitacoes extends StatelessWidget {
   final Stream<QuerySnapshot<Map<String, dynamic>>> stream;
   final NumberFormat moeda;
+  final bool recebidas;
 
-  const _ListaSolicitacoes({required this.stream, required this.moeda});
+  const _ListaSolicitacoes({
+    required this.stream,
+    required this.moeda,
+    required this.recebidas,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -199,16 +208,31 @@ class _ListaSolicitacoes extends StatelessWidget {
               estimativa: estimativa,
               status: (d['status'] ?? '').toString(),
               onVerDetalhes: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => DetalhesSolicitacaoScreen(docId: docId),
-                  ),
-                );
+                final status = (d['status'] ?? '').toString().toLowerCase();
+                if ([
+                  'respondida',
+                  'aceita',
+                  'recusada',
+                  'finalizada',
+                ].contains(status)) {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => VisualizarRespostaPrestadorScreen(
+                        docId: docId, // ✅ aqui está o ajuste
+                      ),
+                    ),
+                  );
+                } else {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => DetalhesSolicitacaoScreen(docId: docId),
+                    ),
+                  );
+                }
               },
-
-              // passa servicoId (regra principal) e um possível categoriaId de fallback
               servicoId: servicoId,
               categoriaIdFallback: categoriaIdFallback,
+              recebidas: recebidas, // 👈 novo
             );
           },
         );
@@ -323,12 +347,9 @@ class _SolicCard extends StatelessWidget {
   final String estimativa;
   final String status;
   final VoidCallback onVerDetalhes;
-
-  /// regra principal: buscar imagem via servicoId -> categoriaId -> imagemUrl
   final String servicoId;
-
-  /// fallback: caso a solicitação antiga traga diretamente a categoria
   final String categoriaIdFallback;
+  final bool recebidas; // 👈 novo
 
   const _SolicCard({
     required this.titulo,
@@ -340,6 +361,7 @@ class _SolicCard extends StatelessWidget {
     required this.status,
     required this.servicoId,
     required this.categoriaIdFallback,
+    required this.recebidas, // 👈 novo
   });
 
   @override
@@ -348,140 +370,168 @@ class _SolicCard extends StatelessWidget {
         ? _CategoriaThumbByServico.getUrlFromServico(servicoId)
         : _CategoriaThumbCache.getUrl(categoriaIdFallback);
 
+    final statusColor = _statusColor(status);
+
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFFF1EAFE), Colors.white],
+          colors: [Color(0xFFF3E9FF), Colors.white],
         ),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         boxShadow: const [
           BoxShadow(
-            color: Color(0x11000000),
-            blurRadius: 6,
-            offset: Offset(0, 2),
+            color: Color(0x22000000),
+            blurRadius: 8,
+            offset: Offset(0, 3),
           ),
         ],
       ),
-      padding: const EdgeInsets.all(12),
-      child: Row(
+
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // THUMB: imagem da CATEGORIA do serviço (resolvida via servicoId)
-          FutureBuilder<String>(
-            future: futureThumb,
-            builder: (context, snap) {
-              final url = snap.data ?? '';
-              return Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(8),
-                  image: url.isNotEmpty
-                      ? DecorationImage(
-                          image: NetworkImage(url),
-                          fit: BoxFit.cover,
-                        )
-                      : null,
+          // ======= STATUS NO TOPO =======
+          Align(
+            alignment: Alignment.topRight,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: statusColor.withOpacity(0.15),
+                border: Border.all(color: statusColor.withOpacity(0.4)),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                status.toUpperCase(),
+                style: TextStyle(
+                  color: statusColor,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 11.5,
                 ),
-                child: url.isEmpty
-                    ? const Icon(
-                        Icons.image_outlined,
-                        size: 22,
-                        color: Colors.white70,
-                      )
-                    : null,
-              );
-            },
+              ),
+            ),
           ),
-          const SizedBox(width: 12),
 
-          // conteúdo
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  titulo,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 16,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text('Cliente: $cliente', style: const TextStyle(fontSize: 13)),
-                const SizedBox(height: 2),
-                Text(
-                  'Data Desejada: $dataDesejada',
-                  style: const TextStyle(fontSize: 13),
-                ),
-                const SizedBox(height: 4),
-                Row(
+          // ======= THUMB + CONTEÚDO =======
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Imagem
+              FutureBuilder<String>(
+                future: futureThumb,
+                builder: (context, snap) {
+                  final url = snap.data ?? '';
+                  return Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(8),
+                      image: url.isNotEmpty
+                          ? DecorationImage(
+                              image: NetworkImage(url),
+                              fit: BoxFit.cover,
+                            )
+                          : null,
+                    ),
+                    child: url.isEmpty
+                        ? const Icon(
+                            Icons.image_outlined,
+                            size: 22,
+                            color: Colors.white70,
+                          )
+                        : null,
+                  );
+                },
+              ),
+              const SizedBox(width: 12),
+
+              // Texto
+              Expanded(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(
-                      Icons.location_on_outlined,
-                      size: 16,
-                      color: Colors.black54,
-                    ),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        endereco,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 12.5),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Estimativa: $estimativa',
-                        style: const TextStyle(
-                          color: Colors.deepPurple,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
                     Text(
-                      status.toUpperCase(),
-                      style: TextStyle(
-                        fontSize: 11,
+                      titulo,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
                         fontWeight: FontWeight.w700,
-                        color: _statusColor(status),
+                        fontSize: 16,
                       ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Cliente: $cliente',
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Data desejada: $dataDesejada',
+                      style: const TextStyle(fontSize: 13),
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: onVerDetalhes,
-                    style: TextButton.styleFrom(
-                      backgroundColor: Colors.deepPurple,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 8,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                    ),
-                    child: const Text('Ver detalhes'),
-                  ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 8),
+
+          // ======= ENDEREÇO ALINHADO À ESQUERDA =======
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(
+                Icons.location_on_outlined,
+                size: 16,
+                color: Colors.black54,
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  endereco,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12.5),
                 ),
-              ],
+              ),
+            ],
+          ),
+
+          // ======= ESTIMATIVA (só aparece se existir) =======
+          if (estimativa != '—' && estimativa.trim().isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Estimativa: $estimativa',
+              style: const TextStyle(
+                color: Colors.deepPurple,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 10),
+
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: onVerDetalhes,
+              style: TextButton.styleFrom(
+                backgroundColor: Colors.deepPurple,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
+              // 👇 troca automática
+              child: Text(recebidas ? 'Ver detalhes' : 'Ver resposta'),
             ),
           ),
         ],
@@ -495,7 +545,7 @@ class _SolicCard extends StatelessWidget {
         return Colors.orange.shade700;
       case 'respondida':
       case 'aceita':
-        return const Color.fromARGB(255, 45, 48, 45);
+        return const Color(0xFF4CAF50);
       case 'recusada':
       case 'cancelada':
         return Colors.red.shade700;

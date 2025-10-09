@@ -2,15 +2,14 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'visualizarAgendaPrestador.dart'; // contém showAgendaPrestadorModal
+import 'visualizarAgendaPrestador.dart';
 import 'solicitarOrcamento.dart';
-import '../Prestador/visualizarAvaliacoes.dart'; // ajuste o caminho conforme sua estrutura
+import '../Prestador/visualizarAvaliacoes.dart';
 
 class VisualizarPerfilPrestador extends StatelessWidget {
   final String prestadorId;
   const VisualizarPerfilPrestador({super.key, required this.prestadorId});
 
-  // Coleções (ajuste se necessário)
   static const String colUsuarios = 'usuarios';
   static const String colCategoriasProf = 'categoriasProfissionais';
   static const String colServicos = 'servicos';
@@ -44,7 +43,6 @@ class VisualizarPerfilPrestador extends StatelessWidget {
           final nome = (d['nome'] ?? '').toString();
           final email = (d['email'] ?? '').toString();
           final fotoUrl = (d['fotoUrl'] ?? '').toString();
-
           final categoriaId = (d['categoriaProfissionalId'] ?? '').toString();
           final tempoExp = (d['tempoExperiencia'] ?? '').toString();
           final descricao = (d['descricao'] ?? '').toString();
@@ -88,7 +86,6 @@ class VisualizarPerfilPrestador extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Cabeçalho
                     _Header(
                       nome: nome,
                       email: email,
@@ -100,13 +97,11 @@ class VisualizarPerfilPrestador extends StatelessWidget {
                       avaliacoes: avaliacoes,
                     ),
 
-                    // Descrição
                     if (descricao.isNotEmpty) ...[
                       const SizedBox(height: 12),
                       Text(descricao, style: const TextStyle(fontSize: 14)),
                     ],
 
-                    // Experiência
                     if (tempoExp.isNotEmpty) ...[
                       const SizedBox(height: 10),
                       RichText(
@@ -126,7 +121,6 @@ class VisualizarPerfilPrestador extends StatelessWidget {
                       ),
                     ],
 
-                    // Pagamentos
                     if (pagamentos.isNotEmpty) ...[
                       const SizedBox(height: 16),
                       const Text(
@@ -164,7 +158,6 @@ class VisualizarPerfilPrestador extends StatelessWidget {
                       ),
                     ],
 
-                    // Título + botão Agenda
                     const SizedBox(height: 20),
                     Row(
                       children: [
@@ -182,7 +175,7 @@ class VisualizarPerfilPrestador extends StatelessWidget {
                           onPressed: () async {
                             await showAgendaPrestadorModal(
                               context,
-                              prestadorId: prestadorId, // uid correto
+                              prestadorId: prestadorId,
                             );
                           },
                           style: OutlinedButton.styleFrom(
@@ -197,8 +190,6 @@ class VisualizarPerfilPrestador extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 8),
-
-                    // Lista de serviços do prestador
                     _ListaServicos(prestadorId: prestadorId),
                   ],
                 ),
@@ -211,13 +202,14 @@ class VisualizarPerfilPrestador extends StatelessWidget {
   }
 }
 
+// ================= CABEÇALHO =================
 class _Header extends StatelessWidget {
   final String nome;
   final String email;
   final String fotoUrl;
   final String categoria;
   final String cidade;
-  final String whatsapp; // apenas exibição
+  final String whatsapp;
   final double? nota;
   final int? avaliacoes;
 
@@ -275,7 +267,6 @@ class _Header extends StatelessWidget {
                     style: const TextStyle(color: Colors.black54, fontSize: 13),
                   ),
                 const SizedBox(height: 6),
-                // Categoria | Local
                 Row(
                   children: [
                     Flexible(
@@ -307,7 +298,6 @@ class _Header extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 6),
-                // WhatsApp (exibição)
                 if (whatsapp.isNotEmpty)
                   Row(
                     children: [
@@ -349,6 +339,7 @@ class _Header extends StatelessWidget {
   }
 }
 
+// ================= LISTA DE SERVIÇOS =================
 class _ListaServicos extends StatelessWidget {
   final String prestadorId;
   const _ListaServicos({required this.prestadorId});
@@ -393,7 +384,7 @@ class _ListaServicos extends StatelessWidget {
             final s = docs[i].data();
             return _ServicoItem(
               serviceId: docs[i].id,
-              prestadorId: prestadorId, // <<< passa o uid correto
+              prestadorId: prestadorId,
               data: s,
             );
           },
@@ -403,6 +394,7 @@ class _ListaServicos extends StatelessWidget {
   }
 }
 
+// ================= CARD DE SERVIÇO =================
 class _ServicoItem extends StatelessWidget {
   final String serviceId;
   final String prestadorId;
@@ -450,7 +442,6 @@ class _ServicoItem extends StatelessWidget {
     return (d['imagemUrl'] ?? '').toString();
   }
 
-  // === NOVO: calcular média/quantidade por serviço via coleção 'avaliacoes'
   Future<Map<String, num>> _mediaQtdDoServicoPorAvaliacoes() async {
     final fs = FirebaseFirestore.instance;
 
@@ -497,9 +488,16 @@ class _ServicoItem extends StatelessWidget {
     final titulo = (data['titulo'] ?? data['nome'] ?? '').toString();
     final descricao = (data['descricao'] ?? '').toString();
 
-    final valorMedio = data['valorMedio'];
+    final valorMin = data['valorMinimo'];
+    final valorMed = data['valorMedio'];
+    final valorMax = data['valorMaximo'];
+
     final unidadeId = (data['unidadeId'] ?? data['unidade'] ?? '').toString();
     final unidadeAbrevInline = (data['unidadeAbreviacao'] ?? '').toString();
+
+    final imagemInline = (data['imagemUrl'] ?? '').toString();
+    final categoriaServicoId =
+        (data['categoriaServicoId'] ?? data['categoriaId'] ?? '').toString();
 
     final nota = (data['nota'] is num)
         ? (data['nota'] as num).toDouble()
@@ -508,11 +506,7 @@ class _ServicoItem extends StatelessWidget {
         ? (data['avaliacoes'] as num).toInt()
         : null;
 
-    // imagem: 1) do serviço; 2) da categoria de serviço
-    final imagemInline = (data['imagemUrl'] ?? '').toString();
-    final categoriaServicoId =
-        (data['categoriaServicoId'] ?? data['categoriaId'] ?? '').toString();
-
+    // === FUNÇÕES INTERNAS DE IMAGEM ===
     Widget thumb(String? url) {
       return Container(
         width: 54,
@@ -524,204 +518,158 @@ class _ServicoItem extends StatelessWidget {
               ? DecorationImage(image: NetworkImage(url), fit: BoxFit.cover)
               : null,
         ),
+        child: (url == null || url.isEmpty)
+            ? const Icon(Icons.handyman, color: Colors.deepPurple)
+            : null,
+      );
+    }
+
+    Widget thumbComImagem() {
+      if (imagemInline.isNotEmpty) {
+        return thumb(imagemInline);
+      }
+      return FutureBuilder<String>(
+        future: _imagemDaCategoria(categoriaServicoId),
+        builder: (context, snap) {
+          final urlCategoria = snap.data ?? '';
+          if (urlCategoria.isNotEmpty) {
+            return thumb(urlCategoria);
+          }
+          return thumb('');
+        },
       );
     }
 
     return Card(
-      elevation: 0.2,
+      elevation: 0.5,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
+        padding: const EdgeInsets.fromLTRB(12, 16, 12, 14),
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            // THUMB: tenta a do serviço; se vazia, busca a da categoria
-            (imagemInline.isNotEmpty)
-                ? thumb(imagemInline)
-                : FutureBuilder<String>(
-                    future: _imagemDaCategoria(categoriaServicoId),
-                    builder: (context, snap) => thumb(snap.data),
-                  ),
-
-            const SizedBox(width: 12),
-
-            // Conteúdo
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Título + rating
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          titulo,
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => VisualizarAvaliacoesScreen(
+                        prestadorId: prestadorId,
+                        servicoId: serviceId,
+                        servicoTitulo: titulo,
                       ),
-
-                      // 1) Se o doc do serviço já tem nota/avaliacoes
-                      if (nota != null) ...[
-                        InkWell(
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => VisualizarAvaliacoesScreen(
-                                  prestadorId: prestadorId,
-                                  servicoId: serviceId,
-                                  servicoTitulo: titulo,
-                                ),
-                              ),
-                            );
-                          },
-                          borderRadius: BorderRadius.circular(8),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.star,
-                                size: 16,
-                                color: Colors.amber,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                nota.toStringAsFixed(1),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                '(${(avaliacoes ?? 0)} avaliações)',
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                              const SizedBox(width: 4),
-                              const Icon(
-                                Icons.chevron_right,
-                                size: 16,
-                                color: Colors.deepPurple,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-
-                      // 2) Fallback: calcula via coleção 'avaliacoes'
-                      if (nota == null || (avaliacoes ?? 0) == 0)
-                        FutureBuilder<Map<String, num>>(
-                          future: _mediaQtdDoServicoPorAvaliacoes(),
-                          builder: (context, snap) {
-                            if (snap.connectionState ==
-                                ConnectionState.waiting) {
-                              return const SizedBox.shrink();
-                            }
-                            final m = (snap.data?['media'] ?? 0).toDouble();
-                            final q = (snap.data?['qtd'] ?? 0).toInt();
-
-                            return InkWell(
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => VisualizarAvaliacoesScreen(
-                                      prestadorId: prestadorId,
-                                      servicoId: serviceId,
-                                      servicoTitulo: titulo,
-                                    ),
-                                  ),
-                                );
-                              },
-                              borderRadius: BorderRadius.circular(8),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(
-                                    Icons.star,
-                                    size: 16,
-                                    color: Colors.amber,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    m.toStringAsFixed(1),
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    '($q avaliações)',
-                                    style: const TextStyle(fontSize: 12),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  const Icon(
-                                    Icons.chevron_right,
-                                    size: 16,
-                                    color: Colors.deepPurple,
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
-                    ],
-                  ),
-
-                  if (descricao.isNotEmpty) ...[
-                    const SizedBox(height: 4),
+                    ),
+                  );
+                },
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.star, size: 16, color: Colors.amber),
+                    const SizedBox(width: 4),
                     Text(
-                      descricao,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                      (nota ?? 0).toStringAsFixed(1),
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '(${(avaliacoes ?? 0)} avaliações)',
+                      style: const TextStyle(fontSize: 12),
                     ),
                   ],
-                  const SizedBox(height: 8),
-
-                  // Preço + botão
-                  Row(
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                thumbComImagem(),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      FutureBuilder<String>(
-                        future: unidadeAbrevInline.isNotEmpty
-                            ? Future.value(unidadeAbrevInline)
-                            : _abreviacaoUnidade(unidadeId),
-                        builder: (context, abrevSnap) {
-                          final abrev = abrevSnap.data ?? '';
-                          final precoFmt = _formatPreco(valorMedio);
-                          final sufix = abrev.isNotEmpty ? '/$abrev' : '';
-                          return Text(
-                            '$precoFmt$sufix',
-                            style: const TextStyle(fontWeight: FontWeight.w600),
-                          );
-                        },
-                      ),
-                      const Spacer(),
-                      ElevatedButton(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => SolicitarOrcamentoScreen(
-                                prestadorId: prestadorId,
-                                servicoId: serviceId,
-                              ),
-                            ),
-                          );
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.deepPurple,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
+                      Text(
+                        titulo,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                          height: 1.2,
                         ),
-                        child: const Text(
-                          'Solicitar Orçamento',
-                          style: TextStyle(color: Colors.white),
-                        ),
+                        softWrap: true,
+                        maxLines: 2,
+                        overflow: TextOverflow.visible,
                       ),
+                      if (descricao.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          descricao,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                      ],
                     ],
                   ),
-                ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: FutureBuilder<String>(
+                future: unidadeAbrevInline.isNotEmpty
+                    ? Future.value(unidadeAbrevInline)
+                    : _abreviacaoUnidade(unidadeId),
+                builder: (context, snap) {
+                  final unidadeAbrev = snap.data ?? '';
+                  return Text(
+                    'Mín: ${_formatPreco(valorMin)}   '
+                    'Méd: ${_formatPreco(valorMed)}   '
+                    'Máx: ${_formatPreco(valorMax)}'
+                    '${unidadeAbrev.isNotEmpty ? '/$unidadeAbrev' : ''}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: Colors.deepPurple,
+                      fontSize: 12,
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: ElevatedButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => SolicitarOrcamentoScreen(
+                        prestadorId: prestadorId,
+                        servicoId: serviceId,
+                      ),
+                    ),
+                  );
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.deepPurple,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                child: const FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    'Solicitar Orçamento',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ),
               ),
             ),
           ],

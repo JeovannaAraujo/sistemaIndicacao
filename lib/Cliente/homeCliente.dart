@@ -20,6 +20,45 @@ class _HomeScreenState extends State<HomeScreen> {
   final user = FirebaseAuth.instance.currentUser;
   int _selectedIndex = 0;
 
+  static final categoriasFixas = [
+    {
+      'id': 'zONJ5iQBpjDNvWpSsQUS', // ID real do Firestore
+      'nome': 'Eletricista',
+      'icone': Icons.flash_on,
+      'cor': Colors.yellow,
+    },
+    {
+      'id': 'iaRfReLyzu25IbClqnUp',
+      'nome': 'Pedreiro',
+      'icone': Icons.construction,
+      'cor': Colors.green,
+    },
+    {
+      'id': '6ChBGIhb3hPbBUfhfwBU',
+      'nome': 'Encanador',
+      'icone': Icons.water_drop,
+      'cor': Colors.blue,
+    },
+    {
+      'id': '5HO4ZYeUMU4h4yjPIIaO',
+      'nome': 'Diarista',
+      'icone': Icons.cleaning_services,
+      'cor': Colors.grey,
+    },
+    {
+      'id': 'HBXIAmBdcBWIiQb46h0T',
+      'nome': 'Pintor',
+      'icone': Icons.format_paint,
+      'cor': Colors.purple,
+    },
+    {
+      'id': 'j5WKHDv9XMu9ZcVXjRf1',
+      'nome': 'Montador',
+      'icone': Icons.chair_alt,
+      'cor': Colors.orange,
+    },
+  ];
+
   static const String _categoriasCollection = 'categoriasProfissionais';
 
   void _onItemTapped(int index) {
@@ -314,43 +353,29 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 12),
 
-          StreamBuilder<QuerySnapshot>(
-            stream: categoriasQuery.snapshots(),
-            builder: (context, snap) {
-              if (snap.hasError) {
-                return const Text('Erro ao carregar categorias.');
-              }
-              if (!snap.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              final docs = snap.data!.docs;
-              if (docs.isEmpty) {
-                return const Text('Nenhuma categoria disponível no momento.');
-              }
-
-              return Wrap(
-                spacing: 16,
-                runSpacing: 16,
-                children: docs.map((doc) {
-                  final data = (doc.data() as Map<String, dynamic>?) ?? {};
-                  final nome = (data['nome'] ?? '').toString();
-                  final img = (data['imagemUrl'] ?? '').toString();
-                  final corHex = (data['corHex'] ?? '').toString();
-
-                  return _CategoriaItem(
-                    label: nome,
-                    imagemUrl: img,
-                    color: _fromHexOrDefault(corHex, Colors.deepPurple),
-                    iconData: _iconForCategory(nome),
-                    onTap: () => _abrirCategoria(doc.id, nome),
-                  );
-                }).toList(),
-              );
-            },
+          Center(
+            child: Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 24,
+              runSpacing: 24,
+              children: categoriasFixas.map((cat) {
+                return _CategoriaItem(
+                  label: cat['nome'].toString(),
+                  iconData: cat['icone'] as IconData,
+                  color: cat['cor'] as Color,
+                  onTap: () => _abrirCategoria(
+                    cat['id'].toString(),
+                    cat['nome'].toString(),
+                  ),
+                );
+              }).toList(),
+            ),
           ),
 
           const SizedBox(height: 24),
 
+
+          // ====== PROFISSIONAIS EM DESTAQUE ======
           const Text(
             'Profissionais em destaque',
             style: TextStyle(
@@ -360,10 +385,78 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          _buildProfissional('Lucas Fernandes', 'Mecânico', 5.0, 150),
-          _buildProfissional('Luna Mendes', 'Faxineira', 5.0, 100),
-          _buildProfissional('Eduardo Silva', 'Encanador', 5.0, 95),
-          _buildProfissional('Wesley Santos', 'Pedreiro', 5.0, 75),
+
+          StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('usuarios')
+                .where('tipoPerfil', isEqualTo: 'Prestador')
+                .where('ativo', isEqualTo: true)
+                .orderBy('mediaAvaliacoes', descending: true)
+                .limit(5)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                return const Text(
+                  'Nenhum profissional em destaque no momento.',
+                  style: TextStyle(color: Colors.grey),
+                );
+              }
+
+              final profissionais = snapshot.data!.docs;
+
+              return Column(
+                children: profissionais.map((doc) {
+                  final dados = doc.data() as Map<String, dynamic>;
+                  final nome = (dados['nome'] ?? 'Profissional sem nome')
+                      .toString();
+                  final categoria = (dados['categoriaProfissional'] ?? '')
+                      .toString();
+                  final fotoUrl = (dados['fotoUrl'] ?? '').toString();
+                  final media = (dados['mediaAvaliacoes'] ?? 0).toDouble();
+                  final totalAvaliacoes = (dados['totalAvaliacoes'] ?? 0)
+                      .toInt();
+
+                  return ListTile(
+                    leading: CircleAvatar(
+                      radius: 24,
+                      backgroundColor: Colors.deepPurple.shade100,
+                      backgroundImage: (fotoUrl.isNotEmpty)
+                          ? NetworkImage(fotoUrl)
+                          : null,
+                      child: (fotoUrl.isEmpty)
+                          ? const Icon(Icons.person, color: Colors.deepPurple)
+                          : null,
+                    ),
+                    title: Text(
+                      nome,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Row(
+                      children: [
+                        Text(
+                          categoria.isNotEmpty ? categoria : 'Sem categoria',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        const SizedBox(width: 8),
+                        const Icon(Icons.star, size: 16, color: Colors.amber),
+                        Text(
+                          ' ${media.toStringAsFixed(1)}  ',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          '($totalAvaliacoes avaliações)',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              );
+            },
+          ),
         ],
       ),
     );

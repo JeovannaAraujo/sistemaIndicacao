@@ -9,6 +9,7 @@ import 'editarServico.dart';
 import 'visualizarAvaliacoes.dart';
 import 'cadastroServicos.dart';
 import 'notificacoes.dart';
+import 'servicosFinalizados.dart';
 
 // >>> importe as rotas do Prestador
 import 'rotasNavegacao.dart';
@@ -44,9 +45,15 @@ class _HomePrestadorScreenState extends State<HomePrestadorScreen> {
         color: Colors.green,
         label: 'Finalizados',
         onTap: () {
-          // TODO: navegue para sua tela de serviços finalizados
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const ServicosFinalizadosPrestadorScreen(),
+            ),
+          );
         },
       ),
+
       _IconOnlyAtalho.withBadge(
         icon: Icons.assignment,
         color: Colors.orange,
@@ -259,7 +266,7 @@ class _HomePrestadorScreenState extends State<HomePrestadorScreen> {
         .collection('unidades')
         .doc(id)
         .get();
-    final nome = snap.data()?['nome'] as String?;
+    final nome = snap.data()?['abreviacao'] as String?;
     if (nome != null && nome.isNotEmpty) _unidadeCache[id] = nome;
     return nome;
   }
@@ -312,11 +319,6 @@ class _HomePrestadorScreenState extends State<HomePrestadorScreen> {
                     style: const TextStyle(fontWeight: FontWeight.w500),
                   ),
                   const SizedBox(width: 4),
-                  const Icon(
-                    Icons.chevron_right,
-                    size: 16,
-                    color: Colors.deepPurple,
-                  ),
                 ],
               ),
             ),
@@ -403,6 +405,7 @@ class _HomePrestadorScreenState extends State<HomePrestadorScreen> {
                   ativo: ativo,
                   docMedia: avServ,
                   docQtd: qtdAvServ,
+                  data: data,
                   onEditar: () {
                     Navigator.push(
                       context,
@@ -904,6 +907,7 @@ class _ServiceCard extends StatelessWidget {
   final bool ativo;
   final double docMedia;
   final int docQtd;
+  final Map<String, dynamic> data; // 👈 adicione isso aqui
 
   final VoidCallback onEditar;
   final Future<void> Function(bool) onToggleAtivo;
@@ -921,6 +925,7 @@ class _ServiceCard extends StatelessWidget {
     required this.ativo,
     required this.docMedia,
     required this.docQtd,
+    required this.data, // 👈 também adicione aqui
     required this.onEditar,
     required this.onToggleAtivo,
     required this.getNomeCategoria,
@@ -1011,32 +1016,43 @@ class _ServiceCard extends StatelessWidget {
                       },
                     ),
 
-                    // Preço / unidade
+                    // ======= Valores Min / Méd / Máx =======
+                    // ======= Valores Min / Méd / Máx =======
                     const SizedBox(height: 6),
-                    FutureBuilder<String?>(
-                      future: getNomeUnidade(unidadeId),
-                      builder: (context, uniSnap) {
-                        final unNome = (uniSnap.data ?? '').trim();
-                        final sufixo = unNome.isNotEmpty ? unNome : 'unidade';
-                        final s = preco
-                            .toDouble()
-                            .toStringAsFixed(2)
-                            .replaceAll('.', ',');
-                        return Text(
-                          'R\$ $s / $sufixo',
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        );
-                      },
-                    ),
                   ],
                 ),
               ),
             ],
           ),
+          FutureBuilder<String?>(
+            future: getNomeUnidade(unidadeId),
+            builder: (context, uniSnap) {
+              final abrev = (uniSnap.data ?? '').trim();
+              final unidadeAbrev = abrev.isNotEmpty ? abrev : 'un';
+              final vMin = (data['valorMinimo'] ?? 0) as num;
+              final vMed = (data['valorMedio'] ?? 0) as num;
+              final vMax = (data['valorMaximo'] ?? 0) as num;
 
+              String format(num n) =>
+                  n.toDouble().toStringAsFixed(2).replaceAll('.', ',');
+
+              return Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Min: R\$ ${format(vMin)}   '
+                  'Méd: R\$ ${format(vMed)}   '
+                  'Máx: R\$ ${format(vMax)} / $unidadeAbrev',
+                  textAlign: TextAlign.start,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: Colors.deepPurple,
+                    fontSize: 13,
+                    height: 1.2,
+                  ),
+                ),
+              );
+            },
+          ),
           const SizedBox(height: 12),
 
           // ====== Rodapé: Editar à esquerda | Ativo à direita

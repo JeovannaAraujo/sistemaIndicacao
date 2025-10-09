@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:myapp/Cliente/visualizarAgendaPrestador.dart';
 import 'visualizarPerfilPrestador.dart';
 
 class ProfissionaisPorCategoriaScreen extends StatelessWidget {
@@ -20,7 +21,7 @@ class ProfissionaisPorCategoriaScreen extends StatelessWidget {
         .where('tipoPerfil', isEqualTo: 'Prestador')
         .where('ativo', isEqualTo: true)
         .where('categoriaProfissionalId', isEqualTo: categoriaId);
-        // .orderBy('criadoEm', descending: true); // <- se quiser usar, crie índice composto
+    // .orderBy('criadoEm', descending: true); // <- se quiser usar, crie índice composto
 
     return Scaffold(
       appBar: AppBar(title: Text(categoriaNome)),
@@ -32,10 +33,7 @@ class ProfissionaisPorCategoriaScreen extends StatelessWidget {
             return Center(
               child: Padding(
                 padding: const EdgeInsets.all(24),
-                child: Text(
-                  'Erro: ${snap.error}',
-                  textAlign: TextAlign.center,
-                ),
+                child: Text('Erro: ${snap.error}', textAlign: TextAlign.center),
               ),
             );
           }
@@ -83,28 +81,29 @@ class ProfissionaisPorCategoriaScreen extends StatelessWidget {
                   (data['endereco'] as Map?)?.cast<String, dynamic>() ?? {};
 
               final nome = (data['nome'] ?? '').toString();
-              final areaAtendimento = (data['areaAtendimento'] ?? '').toString();
-              final cidade =
-                  (endereco['cidade'] ?? data['cidade'] ?? '').toString();
+              final areaAtendimento = (data['areaAtendimento'] ?? '')
+                  .toString();
+              final cidade = (endereco['cidade'] ?? data['cidade'] ?? '')
+                  .toString();
 
               final fotoUrl = (data['fotoUrl'] ?? '').toString();
-              final tempoExperiencia =
-                  (data['tempoExperiencia'] ?? '').toString(); // "5-10 anos"
+              final tempoExperiencia = (data['tempoExperiencia'] ?? '')
+                  .toString(); // "5-10 anos"
 
               // Campo de nota pode variar no seu app; aqui mantenho suporte ao que você usou.
               final double? nota = (data['nota'] is num)
                   ? (data['nota'] as num).toDouble()
                   : (data['avaliacao'] is num)
-                      ? (data['avaliacao'] as num).toDouble()
-                      : (data['rating'] is num)
-                          ? (data['rating'] as num).toDouble()
-                          : null;
+                  ? (data['avaliacao'] as num).toDouble()
+                  : (data['rating'] is num)
+                  ? (data['rating'] as num).toDouble()
+                  : null;
 
               final int? avaliacoes = (data['avaliacoes'] is num)
                   ? (data['avaliacoes'] as num).toInt()
                   : (data['qtdAvaliacoes'] is num)
-                      ? (data['qtdAvaliacoes'] as num).toInt()
-                      : null;
+                  ? (data['qtdAvaliacoes'] as num).toInt()
+                  : null;
 
               return _ProfessionalCard(
                 id: docs[i].id,
@@ -165,8 +164,12 @@ class _ProfessionalCard extends StatelessWidget {
             CircleAvatar(
               radius: 28,
               backgroundColor: Colors.grey.shade200,
-              backgroundImage: (fotoUrl.isNotEmpty) ? NetworkImage(fotoUrl) : null,
-              child: (fotoUrl.isEmpty) ? const Icon(Icons.person, size: 32) : null,
+              backgroundImage: (fotoUrl.isNotEmpty)
+                  ? NetworkImage(fotoUrl)
+                  : null,
+              child: (fotoUrl.isEmpty)
+                  ? const Icon(Icons.person, size: 32)
+                  : null,
             ),
             const SizedBox(width: 12),
 
@@ -224,9 +227,15 @@ class _ProfessionalCard extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      const Text('  |  ', style: TextStyle(color: Colors.black45)),
-                      const Icon(Icons.location_on_outlined,
-                          size: 16, color: Colors.black54),
+                      const Text(
+                        '  |  ',
+                        style: TextStyle(color: Colors.black45),
+                      ),
+                      const Icon(
+                        Icons.location_on_outlined,
+                        size: 16,
+                        color: Colors.black54,
+                      ),
                       const SizedBox(width: 4),
                       Flexible(
                         child: Text(
@@ -244,8 +253,11 @@ class _ProfessionalCard extends StatelessWidget {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.work_outline,
-                          size: 18, color: Colors.deepPurple),
+                      const Icon(
+                        Icons.work_outline,
+                        size: 18,
+                        color: Colors.deepPurple,
+                      ),
                       const SizedBox(width: 8),
                       Text(
                         tempoExperiencia.isEmpty
@@ -286,11 +298,10 @@ class _ProfessionalCard extends StatelessWidget {
                       Expanded(
                         child: ElevatedButton(
                           onPressed: () {
-                            // TODO: Navegar para Agenda do prestador
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Abrir Agenda (implementar rota)'),
-                              ),
+                            showAgendaPrestadorModal(
+                              context,
+                              prestadorId: id, // uid do prestador
+                              prestadorNome: nome,
                             );
                           },
                           style: ElevatedButton.styleFrom(

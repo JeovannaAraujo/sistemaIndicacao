@@ -54,8 +54,11 @@ class DetalhesSolicitacaoScreen extends StatelessWidget {
           final descricao = (d['descricaoDetalhada'] ?? '').toString();
 
           final quantidade = (d['quantidade'] is num)
-              ? (d['quantidade'] as num).toString()
+              ? ((d['quantidade'] as num) % 1 == 0
+                    ? (d['quantidade'] as num).toInt().toString()
+                    : NumberFormat("#.##", "pt_BR").format(d['quantidade']))
               : (d['quantidade']?.toString() ?? '');
+
           final unAbrev = (d['unidadeSelecionadaAbrev'] ?? '').toString();
 
           final ts = d['dataDesejada'] as Timestamp?;
@@ -105,30 +108,49 @@ class DetalhesSolicitacaoScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // Estimativa
+                // Estimativa
                 const _SectionTitle('Estimativa de Valor'),
                 const SizedBox(height: 6),
-                _ReadonlyField(
-                  controller: TextEditingController(text: estimativa),
-                ),
-                const SizedBox(height: 6),
-                const _HintBox(
-                  children: [
-                    Text(
-                      'Este valor é calculado automaticamente com base na quantidade informada e na média de preços do serviço.',
-                      style: TextStyle(fontSize: 12),
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      'Fórmula: Quantidade × Valor Médio por unidade.',
-                      style: TextStyle(fontSize: 12),
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      'Este campo é apenas informativo e não pode ser editado manualmente.',
-                      style: TextStyle(fontSize: 12, color: Colors.black54),
-                    ),
-                  ],
-                ),
+
+                // 🔹 Verifica se há estimativa válida
+                if (d['estimativaValor'] != null &&
+                    d['estimativaValor'] != 0) ...[
+                  _ReadonlyField(
+                    controller: TextEditingController(text: estimativa),
+                  ),
+                  const SizedBox(height: 6),
+                  const _HintBox(
+                    children: [
+                      Text(
+                        'Este valor é calculado automaticamente com base na quantidade informada e na média de preços do serviço.',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        'Fórmula: Quantidade × Valor Médio por unidade.',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        'Este campo é apenas informativo e não pode ser editado manualmente.',
+                        style: TextStyle(fontSize: 12, color: Colors.black54),
+                      ),
+                    ],
+                  ),
+                ] else ...[
+                  const _HintBox(
+                    children: [
+                      Text(
+                        'Não há estimativa de valor para esta solicitação, pois o cliente selecionou uma unidade de medida diferente da cadastrada para o serviço.',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: Colors.deepPurple,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 16),
 
                 // Serviço desejado
@@ -207,27 +229,62 @@ class DetalhesSolicitacaoScreen extends StatelessWidget {
                 const SizedBox(height: 20),
                 const _SectionTitle('Informações do cliente'),
                 const SizedBox(height: 10),
+
                 _LabelValue(label: 'Cliente', value: clienteNome),
                 const SizedBox(height: 10),
-                _LabelValue(label: 'Endereço', value: enderecoLinha()),
-                const SizedBox(height: 6),
-                Row(
+
+                // 🔹 Caixa unificada de endereço + WhatsApp
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const FaIcon(
-                      FontAwesomeIcons.whatsapp,
-                      size: 18,
-                      color: Color(0xFF25D366),
+                    const Text(
+                      'Endereço e Contato',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: Colors.deepPurple,
+                      ),
                     ),
-                    const SizedBox(width: 6),
-                    Text(
-                      clienteWhatsapp.isEmpty
-                          ? 'Sem WhatsApp'
-                          : clienteWhatsapp,
-                      style: const TextStyle(fontSize: 13.5),
+                    const SizedBox(height: 6),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.black12),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            enderecoLinha().isEmpty ? '—' : enderecoLinha(),
+                            style: const TextStyle(fontSize: 15),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              const FaIcon(
+                                FontAwesomeIcons.whatsapp,
+                                size: 16,
+                                color: Color(0xFF25D366),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                clienteWhatsapp.isEmpty
+                                    ? 'Sem WhatsApp'
+                                    : clienteWhatsapp,
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
-
                 const SizedBox(height: 24),
 
                 // Ações
@@ -432,7 +489,13 @@ class _LabelValue extends StatelessWidget {
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: Colors.black12),
           ),
-          child: Text(value.isEmpty ? '—' : value),
+          child: Text(
+            value.isEmpty ? '—' : value,
+            style: const TextStyle(
+              fontSize: 15, // 🔹 ajuste aqui o tamanho da fonte
+              color: Colors.black87,
+            ),
+          ),
         ),
       ],
     );

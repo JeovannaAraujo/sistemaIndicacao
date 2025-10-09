@@ -1,8 +1,5 @@
-// lib/Cliente/buscarServicos.dart
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:convert';
-import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -14,6 +11,7 @@ import 'visualizarPerfilPrestador.dart';
 import 'solicitarOrcamento.dart';
 import '../Prestador/visualizarAvaliacoes.dart';
 import '../Prestador/avaliacoesPrestador.dart';
+import 'package:geolocator/geolocator.dart';
 
 class BuscarServicosScreen extends StatefulWidget {
   const BuscarServicosScreen({super.key});
@@ -23,7 +21,6 @@ class BuscarServicosScreen extends StatefulWidget {
 }
 
 class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
-  // ====== Controllers
   final TextEditingController _buscaController = TextEditingController();
   final TextEditingController _minValueController = TextEditingController();
   final TextEditingController _maxValueController = TextEditingController();
@@ -32,7 +29,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
   final CustomInfoWindowController _customInfoWindowController =
       CustomInfoWindowController();
 
-  // ====== Filtros
   String? _categoriaSelecionadaId;
   String? _categoriaSelecNome;
   String? _profissionalSelecionadoId;
@@ -46,41 +42,32 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
   bool _filtrosExibidos = true;
   bool _exibirMapa = false;
 
-  // Resultado: decide automaticamente se mostra serviços ou prestadores
   bool _exibirProfissionais = false;
 
-  // ====== Google Maps
   GoogleMapController? _mapController;
   final Set<Marker> _marcadores = {};
-
-  // ====== Firestore refs
+  LatLng? _centroBusca;
+  Set<Circle> _circulos = {};
   static const String _colCategoriasServ = 'categoriasServicos';
   static const String _colCategoriasProf = 'categoriasProfissionais';
   static const String _colUnidades = 'unidades';
   static const String _colServicos = 'servicos';
   static const String _colUsuarios = 'usuarios';
   static const String _colAgenda = 'agendaPrestador';
-
-  // ====== Dados de dropdown
   List<_ItemRef> _categoriasServ = [];
   List<_ItemRef> _categoriasProf = [];
   List<String> _unidades = [];
 
-  // ====== Resultados
   List<Map<String, dynamic>> _resultados = [];
   bool _carregando = false;
 
-  // ====== Caches p/ enriquecer cards
   final Map<String, String> _cacheNomePrestador = {};
   final Map<String, String> _cacheImagemCategoria = {};
   final Map<String, String> _cacheUnidadeAbrev = {};
-
-  // ====== NOVOS CACHES (avaliações e categoria profissional)
   final Map<String, Map<String, num>> _cacheAvalsPrest = {};
   final Map<String, Map<String, num>> _cacheAvalsServ = {};
   final Map<String, String> _cacheCategoriaProfNome = {};
 
-  // === UI helpers / tema local ===
   final _gStart = const Color(0xFFB196FF);
   final _gEnd = const Color(0xFF6C3AF2);
   final _ink = const Color(0xFF1E1E24);
@@ -122,6 +109,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
   @override
   void initState() {
     super.initState();
+    _verificarPermissaoLocalizacao();
     _carregarFiltrosBase();
   }
 
@@ -174,6 +162,55 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     });
   }
 
+  Future<void> _verificarPermissaoLocalizacao() async {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Ative o GPS para buscar serviços próximos.'),
+        ),
+      );
+      return;
+    }
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+
+    if (permission == LocationPermission.deniedForever ||
+        permission == LocationPermission.denied) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Permissão de localização negada. Habilite nas configurações para usar o mapa.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    // ✅ pega localização atual
+    final pos = await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+    );
+
+    setState(() {
+      _centroBusca = LatLng(pos.latitude, pos.longitude);
+      _atualizarCirculo();
+    });
+
+    // centraliza o mapa
+    _mapController?.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(target: LatLng(pos.latitude, pos.longitude), zoom: 14),
+      ),
+    );
+
+    // já filtra por raio inicial
+    _filtrarPorRaio();
+  }
+
   Future<void> _buscar() async {
     setState(() {
       _filtrosExibidos = false;
@@ -193,22 +230,18 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     final fs = FirebaseFirestore.instance;
 
     try {
-      // ==================== Decide o tipo de busca ====================
       bool buscarServicos = true;
       if (_profissionalSelecionadoId != null &&
           _profissionalSelecionadoId!.isNotEmpty &&
           (_categoriaSelecionadaId == null ||
               _categoriaSelecionadaId!.isEmpty)) {
-        buscarServicos = false; // só profissionais
+        buscarServicos = false;
       }
-
-      // ==================== BUSCA SERVIÇOS ====================
       if (buscarServicos) {
         Query<Map<String, dynamic>> qs = fs
             .collection(_colServicos)
             .where('ativo', isEqualTo: true);
 
-        // filtros básicos
         if (_categoriaSelecionadaId?.isNotEmpty ?? false) {
           qs = qs.where('categoriaId', isEqualTo: _categoriaSelecionadaId);
         }
@@ -218,11 +251,8 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
             isEqualTo: _profissionalSelecionadoId,
           );
         }
-        // 🔹 Filtro por unidade de medida
         if (_unidadeSelecionada != null && _unidadeSelecionada!.isNotEmpty) {
           final unidadeAbrev = _unidadeSelecionada!.trim().toLowerCase();
-
-          // Busca o ID da unidade correspondente à abreviação
           final queryUnidade = await FirebaseFirestore.instance
               .collection(_colUnidades)
               .where('abreviacao', isEqualTo: unidadeAbrev)
@@ -232,10 +262,8 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
           if (queryUnidade.docs.isNotEmpty) {
             final unidadeId = queryUnidade.docs.first.id;
 
-            // Filtra os serviços por unidadeId correspondente
             qs = qs.where('unidadeId', isEqualTo: unidadeId);
           } else {
-            // Se não encontrar a unidade, não retorna nada
             qs = qs.where('unidadeId', isEqualTo: '__nao_existente__');
           }
         }
@@ -251,7 +279,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
           return m;
         }).toList();
 
-        // filtro de nome (texto)
         servicos = servicos.where((e) {
           final nome = (e['titulo'] ?? e['nome'] ?? '')
               .toString()
@@ -259,7 +286,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
           return termo.isEmpty || nome.contains(termo);
         }).toList();
 
-        // 🔹 filtro de preço mínimo/máximo (considera campos valorMinimo, valorMedio e valorMaximo)
         double? minVal = double.tryParse(
           _minValueController.text
               .replaceAll(RegExp(r'[^0-9,\.]'), '')
@@ -276,8 +302,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
             final minimo = (e['valorMinimo'] ?? 0).toDouble();
             final medio = (e['valorMedio'] ?? 0).toDouble();
             final maximo = (e['valorMaximo'] ?? 0).toDouble();
-
-            // usa o valor médio como referência principal
             final base = medio > 0 ? medio : ((minimo + maximo) / 2);
 
             if (minVal != null && base < minVal) return false;
@@ -286,7 +310,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
           }).toList();
         }
 
-        // filtro de avaliação mínima
         if (_avaliacaoMinima > 0) {
           List<Map<String, dynamic>> filtrados = [];
           for (final s in servicos) {
@@ -296,7 +319,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
           servicos = filtrados;
         }
 
-        // filtro de disponibilidade (caso exista data/hora)
         if (_disponibilidadeSelecionada != null &&
             _disponibilidadeSelecionada != 'Ignorar disponibilidade' &&
             _dataSelecionada != null) {
@@ -316,206 +338,12 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
           }
         }
 
-        // filtro de localização + raio
-        if (_localizacaoController.text.isNotEmpty) {
-          final cep = _localizacaoController.text.replaceAll('-', '').trim();
-          final localUser = await _buscarLatLngPorCEP(cep);
-          if (localUser != null) {
-            double raioKm = _raioDistancia;
-            List<Map<String, dynamic>> dentroRaio = [];
-
-            for (final s in servicos) {
-              final prestadorId = s['prestadorId'];
-              if (prestadorId == null) continue;
-
-              final docPrest = await fs
-                  .collection(_colUsuarios)
-                  .doc(prestadorId)
-                  .get();
-              if (!docPrest.exists) continue;
-
-              final geo = docPrest.data()?['geo'];
-              if (geo == null) continue;
-
-              LatLng? pos;
-              if (geo is GeoPoint) {
-                pos = LatLng(geo.latitude, geo.longitude);
-              } else if (geo is Map) {
-                final lat = (geo['latitude'] ?? geo['lat'])?.toDouble();
-                final lon = (geo['longitude'] ?? geo['lng'])?.toDouble();
-                if (lat != null && lon != null) pos = LatLng(lat, lon);
-              }
-
-              if (pos != null) {
-                final dist = _distanciaKm(
-                  localUser.latitude,
-                  localUser.longitude,
-                  pos.latitude,
-                  pos.longitude,
-                );
-                if (dist <= raioKm) dentroRaio.add(s);
-              }
-            }
-            servicos = dentroRaio;
-
-            // círculo no mapa
-            _marcadores.add(
-              Marker(
-                markerId: const MarkerId('raio'),
-                position: localUser,
-                icon: BitmapDescriptor.defaultMarkerWithHue(
-                  BitmapDescriptor.hueBlue,
-                ),
-              ),
-            );
-          }
+        // filtro de localização + raio baseado no GPS
+        if (_centroBusca != null) {
+          _atualizarCirculo();
+          await _filtrarPorRaio();
         }
-
-        servicos = await _enriquecerServicos(servicos);
-
-        // cria marcadores para serviços
-        final markers = <Marker>{};
-        final prestadoresUsados = <String>{};
-
-        for (final serv in servicos) {
-          final prestadorId = serv['prestadorId'];
-          if (prestadorId == null || prestadoresUsados.contains(prestadorId))
-            continue;
-          final docPrest = await fs
-              .collection(_colUsuarios)
-              .doc(prestadorId)
-              .get();
-          if (!docPrest.exists) continue;
-          final prestador = docPrest.data();
-          if (prestador == null || !prestador.containsKey('geo')) continue;
-
-          final geo = prestador['geo'];
-          LatLng? pos;
-          if (geo is GeoPoint) {
-            pos = LatLng(geo.latitude, geo.longitude);
-          } else if (geo is Map) {
-            final lat = (geo['latitude'] ?? geo['lat'])?.toDouble();
-            final lon = (geo['longitude'] ?? geo['lng'])?.toDouble();
-            if (lat != null && lon != null) pos = LatLng(lat, lon);
-          }
-
-          if (pos != null) {
-            prestadoresUsados.add(prestadorId);
-            markers.add(
-              Marker(
-                markerId: MarkerId(prestadorId),
-                position: pos,
-                icon: BitmapDescriptor.defaultMarkerWithHue(
-                  BitmapDescriptor.hueAzure,
-                ),
-                onTap: () async {
-                  // pega o nome do serviço atual que está sendo iterado no loop
-                  final nomeServico =
-                      (serv['titulo'] ?? serv['nome'] ?? 'Serviço').toString();
-                  final prestadorNome = (prestador['nome'] ?? '').toString();
-
-                  final cat = await _nomeCategoriaProf(
-                    prestador['categoriaProfissionalId'] ?? '',
-                  );
-                  final rating = await _ratingPrestador(prestadorId);
-
-                  _customInfoWindowController.addInfoWindow!(
-                    Container(
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF3F10D6),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      padding: const EdgeInsets.all(10),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          // nome do serviço
-                          Text(
-                            nomeServico,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 15,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-
-                          // nome do prestador
-                          Text(
-                            prestadorNome,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-
-                          // categoria + avaliação média
-                          Text(
-                            '$cat | ⭐ ${(rating['media'] ?? 0).toStringAsFixed(1)}',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 13,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-
-                          // botão de ver perfil
-                          ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 6,
-                              ),
-                            ),
-                            onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => VisualizarPerfilPrestador(
-                                    prestadorId: prestadorId,
-                                  ),
-                                ),
-                              );
-                            },
-                            child: const Text(
-                              'Perfil Prestador',
-                              style: TextStyle(
-                                color: Color(0xFF3F10D6),
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    pos!,
-                  );
-                },
-              ),
-            );
-          }
-        }
-
-        if (!mounted) return;
-        setState(() {
-          _resultados = servicos;
-          _marcadores.addAll(markers);
-          _exibirProfissionais = false;
-          _carregando = false;
-        });
-      }
-      // ==================== BUSCA PROFISSIONAIS ====================
-      else {
+      } else {
         Query<Map<String, dynamic>> qu = fs
             .collection(_colUsuarios)
             .where('ativo', isEqualTo: true)
@@ -541,7 +369,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
           return termo.isEmpty || nome.contains(termo);
         }).toList();
 
-        // adiciona marcadores de profissionais
         final markers = <Marker>{};
         for (final e in profissionais) {
           final geo = e['geo'];
@@ -642,7 +469,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
         });
       }
 
-      // ==================== CENTRALIZA MAPA ====================
       if (_mapController != null && _marcadores.isNotEmpty) {
         if (_marcadores.length == 1) {
           final pos = _marcadores.first.position;
@@ -657,7 +483,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
         _mapController?.animateCamera(
           CameraUpdate.newCameraPosition(
             const CameraPosition(
-              target: LatLng(-17.792765, -50.919582), // Rio Verde
+              target: LatLng(-17.792765, -50.919582),
               zoom: 13,
             ),
           ),
@@ -672,43 +498,109 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     }
   }
 
-  Future<LatLng?> _buscarLatLngPorCEP(String cep) async {
-    try {
-      final response = await http.get(
-        Uri.parse('https://viacep.com.br/ws/$cep/json/'),
-      );
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (data.containsKey('localidade')) {
-          // usa o nome da cidade pra buscar coordenadas
-          final endereco =
-              "${data['logradouro'] ?? ''}, "
-              "${data['bairro'] ?? ''}, "
-              "${data['localidade'] ?? ''}";
-          final geocodeUrl =
-              'https://nominatim.openstreetmap.org/search?q=$endereco&format=json&limit=1';
-
-          final geoResp = await http.get(Uri.parse(geocodeUrl));
-          if (geoResp.statusCode == 200) {
-            final results = json.decode(geoResp.body);
-            if (results.isNotEmpty) {
-              final lat = double.tryParse(results[0]['lat']);
-              final lon = double.tryParse(results[0]['lon']);
-              if (lat != null && lon != null) {
-                return LatLng(lat, lon);
-              }
-            }
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('Erro ao buscar coordenadas do CEP: $e');
-    }
-    return null;
+  void _atualizarCirculo() {
+    if (_centroBusca == null) return;
+    setState(() {
+      _circulos = {
+        Circle(
+          circleId: const CircleId('raio_busca'),
+          center: _centroBusca!,
+          radius: _raioDistancia * 1000,
+          fillColor: Colors.deepPurple.withOpacity(0.15),
+          strokeColor: Colors.deepPurple,
+          strokeWidth: 2,
+        ),
+      };
+    });
+    _filtrarPorRaio();
   }
 
-  // Helper para centralizar em vários marcadores
+  Future<void> _filtrarPorRaio() async {
+    if (_centroBusca == null) return;
+
+    final fs = FirebaseFirestore.instance;
+    final raioKm = _raioDistancia;
+
+    final snap = await fs
+        .collection('servicos')
+        .where('ativo', isEqualTo: true)
+        .get();
+    final todosServicos = snap.docs.map((d) {
+      final m = d.data();
+      m['id'] = d.id;
+      return m;
+    }).toList();
+
+    List<Map<String, dynamic>> dentroRaio = [];
+
+    for (final s in todosServicos) {
+      final prestadorId = s['prestadorId'];
+      if (prestadorId == null) continue;
+
+      final docPrest = await fs.collection('usuarios').doc(prestadorId).get();
+      if (!docPrest.exists) continue;
+
+      final geo = docPrest.data()?['geo'];
+      if (geo == null) continue;
+
+      double? lat;
+      double? lon;
+
+      if (geo is GeoPoint) {
+        lat = geo.latitude;
+        lon = geo.longitude;
+      } else if (geo is Map) {
+        lat = (geo['latitude'] ?? geo['lat'])?.toDouble();
+        lon = (geo['longitude'] ?? geo['lng'])?.toDouble();
+      } else if (geo is String) {
+        final regex = RegExp(r'([-0-9.]+)[^0-9.]+([-0-9.]+)');
+        final match = regex.firstMatch(geo);
+        if (match != null) {
+          lat = double.tryParse(match.group(1)!);
+          lon = double.tryParse(match.group(2)!);
+        }
+      }
+
+      if (lat == null || lon == null) continue;
+
+      final dist = _distanciaKm(
+        _centroBusca!.latitude,
+        _centroBusca!.longitude,
+        lat,
+        lon,
+      );
+
+      if (dist <= raioKm) {
+        dentroRaio.add(s);
+      }
+    }
+
+    setState(() {
+      _resultados = dentroRaio;
+      _marcadores.clear();
+
+      for (final s in dentroRaio) {
+        final prestadorId = s['prestadorId'];
+        final docPrest = fs.collection('usuarios').doc(prestadorId);
+        docPrest.get().then((p) {
+          final geo = p.data()?['geo'];
+          if (geo is GeoPoint) {
+            final pos = LatLng(geo.latitude, geo.longitude);
+            _marcadores.add(
+              Marker(
+                markerId: MarkerId(prestadorId),
+                position: pos,
+                icon: BitmapDescriptor.defaultMarkerWithHue(
+                  BitmapDescriptor.hueViolet,
+                ),
+              ),
+            );
+          }
+        });
+      }
+    });
+  }
+
   LatLngBounds _boundsFromMarkers(Set<Marker> markers) {
     final latitudes = markers.map((m) => m.position.latitude).toList();
     final longitudes = markers.map((m) => m.position.longitude).toList();
@@ -725,7 +617,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     return LatLngBounds(southwest: southwest, northeast: northeast);
   }
 
-  /// Enriquecer lista de serviços com nome prestador / imagem categoria / unidade
   Future<List<Map<String, dynamic>>> _enriquecerServicos(
     List<Map<String, dynamic>> servicos,
   ) async {
@@ -833,7 +724,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
       a.year == b.year && a.month == b.month && a.day == b.day;
 
   bool _validarHorarioDesejado() {
-    // nada pra validar se não tem data ou não tem horário
     if (_dataSelecionada == null || _horarioController.text.trim().isEmpty) {
       return true;
     }
@@ -903,7 +793,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     });
   }
 
-  // ======= Helpers de avaliações e categoria profissional =======
   Future<String> _nomeCategoriaProf(String id) async {
     if (id.isEmpty) return '';
     if (_cacheCategoriaProfNome.containsKey(id)) {
@@ -982,7 +871,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
       _cacheAvalsServ[servicoId] = r;
       return r;
     }
-    final fs = FirebaseFirestore.instance; // ✅ CORRIGIDO
+    final fs = FirebaseFirestore.instance;
     QuerySnapshot<Map<String, dynamic>> snap;
     try {
       snap = await fs
@@ -1013,7 +902,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     return res;
   }
 
-  // Mostra ⭐ média (N avaliações)
   Widget _ratingInline(
     Future<Map<String, num>> future, {
     bool showChevron = false,
@@ -1057,7 +945,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
           );
   }
 
-  // versão com navegação para a tela de avaliações de SERVIÇO
   Widget _ratingInlineLink({
     required String prestadorId,
     required String servicoId,
@@ -1081,26 +968,19 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     );
   }
 
-  // =================== UI ===================
-
-  // Topo com gradiente
   Widget _buildTopoComBusca() {
-    // antes: Container(... decoration: BoxDecoration(gradient: ...), child: Row(...))
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
       child: Row(
         children: [
-          // antes tinha style com fundo branco translúcido; pode remover:
           IconButton(
             icon: const Icon(Icons.arrow_back),
             onPressed: () {
-              // Se estiver nos Filtros E já houver resultados, volta para a lista
               if (_filtrosExibidos && _resultados.isNotEmpty) {
                 setState(() => _filtrosExibidos = false);
                 return;
               }
-              // Caso contrário, vai para a Home do Cliente
-              context.goHome(); // same as RotasNavegacao.irParaHome(context)
+              context.goHome();
             },
           ),
 
@@ -1132,7 +1012,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     );
   }
 
-  // Toggle Lista/Mapa com visual “pill”
   Widget _buildToggleListaMapa() {
     return Container(
       decoration: BoxDecoration(
@@ -1166,7 +1045,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     );
   }
 
-  // título com singular/plural
   String _tituloResultados(int total) {
     final base = _exibirProfissionais ? 'prestador' : 'serviço';
     final palavra = total == 1
@@ -1187,10 +1065,18 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
               _customInfoWindowController.googleMapController = controller;
             },
             markers: _marcadores,
-            onTap: (pos) => _customInfoWindowController.hideInfoWindow!(),
+            circles: _circulos,
+            onTap: (pos) {
+              _customInfoWindowController.hideInfoWindow!();
+              setState(() {
+                _centroBusca = pos;
+                _atualizarCirculo();
+              });
+              _filtrarPorRaio();
+            },
             onCameraMove: (pos) => _customInfoWindowController.onCameraMove!(),
             initialCameraPosition: const CameraPosition(
-              target: LatLng(-17.7960, -50.9220), // Rio Verde
+              target: LatLng(-17.7960, -50.9220),
               zoom: 13,
             ),
           ),
@@ -1204,8 +1090,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
       ),
     );
   }
-
-  // ---------------- CARDS ----------------
 
   Widget _buildServicoCard(Map<String, dynamic> e) {
     final servicoId = (e['id'] ?? '').toString();
@@ -1235,7 +1119,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     final imagemServico = (e['imagemUrl'] ?? '').toString();
     final imagemCateg = (e['categoriaImagemUrl'] ?? '').toString();
 
-    // ✅ Mantém a exibição original: se o serviço não tiver imagem, usa da categoria
     final imagemFinal = imagemServico.isNotEmpty ? imagemServico : imagemCateg;
 
     String formatPreco(dynamic v) {
@@ -1257,16 +1140,30 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
       elevation: 0.5,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.fromLTRB(12, 16, 12, 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize:
-              MainAxisSize.min, // 🔹 faz o card ajustar a altura ao conteúdo
+          mainAxisSize: MainAxisSize.min,
           children: [
+            Align(
+              alignment: Alignment.centerRight,
+              child: _ratingInlineLink(
+                prestadorId: prestadorId,
+                servicoId: servicoId,
+                servicoTitulo: titulo,
+                future: _ratingServico(
+                  servicoId,
+                  notaAgg: nota,
+                  qtdAgg: avaliacoes,
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 6),
+
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 🔹 Imagem
                 Container(
                   width: 54,
                   height: 54,
@@ -1284,42 +1181,23 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
                       ? const Icon(Icons.handyman, color: Colors.deepPurple)
                       : null,
                 ),
+
                 const SizedBox(width: 12),
 
-                // 🔹 Coluna de textos
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // 🔸 Título (agora quebra automaticamente)
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              titulo,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 15,
-                                height:
-                                    1.2, // 🔹 espaçamento entre linhas equilibrado
-                              ),
-                              softWrap: true, // 🔹 permite quebra
-                              maxLines: 2, // 🔹 no máximo 2 linhas
-                              overflow: TextOverflow.visible, // 🔹 sem "..."
-                            ),
-                          ),
-                          _ratingInlineLink(
-                            prestadorId: prestadorId,
-                            servicoId: servicoId,
-                            servicoTitulo: titulo,
-                            future: _ratingServico(
-                              servicoId,
-                              notaAgg: nota,
-                              qtdAgg: avaliacoes,
-                            ),
-                          ),
-                        ],
+                      Text(
+                        titulo,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                          height: 1.2,
+                        ),
+                        softWrap: true,
+                        maxLines: 2,
+                        overflow: TextOverflow.visible,
                       ),
 
                       if (descricao.isNotEmpty) ...[
@@ -1337,9 +1215,19 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
                         style: const TextStyle(fontSize: 13),
                         overflow: TextOverflow.ellipsis,
                       ),
+
                       if (cidade.isNotEmpty) ...[
                         const SizedBox(height: 2),
-                        Text(cidade, style: const TextStyle(fontSize: 13)),
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                cidade,
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                            ),
+                          ],
+                        ),
                       ],
                     ],
                   ),
@@ -1347,8 +1235,8 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
               ],
             ),
 
-            // 🔹 Linha de valores colada à esquerda e antes dos botões
             const SizedBox(height: 10),
+
             Align(
               alignment: Alignment.centerLeft,
               child: Text(
@@ -1364,9 +1252,8 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
               ),
             ),
 
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
 
-            // 🔹 Botões
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -1459,7 +1346,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            // ⭐ Avaliação no topo
             Align(
               alignment: Alignment.centerRight,
               child: _ratingInline(
@@ -1478,11 +1364,9 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
 
             const SizedBox(height: 4),
 
-            // 🔹 Linha principal: Avatar + informações
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Foto do prestador
                 CircleAvatar(
                   radius: 30,
                   backgroundColor: Colors.grey.shade200,
@@ -1499,12 +1383,10 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
                 ),
                 const SizedBox(width: 12),
 
-                // 🔸 Coluna de informações
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Nome do prestador
                       Text(
                         nome,
                         style: const TextStyle(
@@ -1519,7 +1401,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
 
                       const SizedBox(height: 4),
 
-                      // Categoria
                       FutureBuilder<String>(
                         future: _nomeCategoriaProf(catProfId),
                         builder: (_, snapCat) {
@@ -1540,7 +1421,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
 
                       const SizedBox(height: 4),
 
-                      // 📍 Cidade
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -1568,7 +1448,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
 
                       const SizedBox(height: 4),
 
-                      // 💼 Experiência
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -1599,7 +1478,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
 
             const SizedBox(height: 14),
 
-            // 🔹 Botões
             Row(
               children: [
                 Expanded(
@@ -1701,7 +1579,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     );
   }
 
-  // ======= Filtro UI =======
   Widget _buildFiltro() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1765,7 +1642,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
           decoration: _input(''),
         ),
 
-        // --- Valor por unidade ---
         _sectionTitle('Valor por unidade'),
         Row(
           children: [
@@ -1773,9 +1649,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
               child: TextField(
                 controller: _minValueController,
                 keyboardType: TextInputType.number,
-                inputFormatters: [
-                  _MoedaPtBrInputFormatter(), // ⬅️ máscara pt-BR (R$ 1.234,56)
-                ],
+                inputFormatters: [_MoedaPtBrInputFormatter()],
                 decoration: _input('Mínimo', hint: 'R\$ 0,00'),
               ),
             ),
@@ -1784,21 +1658,18 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
               child: TextField(
                 controller: _maxValueController,
                 keyboardType: TextInputType.number,
-                inputFormatters: [
-                  _MoedaPtBrInputFormatter(), // ⬅️ máscara pt-BR (R$ 1.234,56)
-                ],
+                inputFormatters: [_MoedaPtBrInputFormatter()],
                 decoration: _input('Máximo', hint: 'R\$ 0,00'),
               ),
             ),
           ],
         ),
 
-        // --- Avaliação mínima (sem checkmark e com toggle) ---
         _sectionTitle('Avaliação mínima'),
         LayoutBuilder(
           builder: (context, constraints) {
-            const numberSize = 16.0; // ajuste se quiser maior
-            const starSize = 22.0; // ajuste se quiser maior
+            const numberSize = 16.0;
+            const starSize = 22.0;
             const chipHPad = 12.0;
             const chipVPad = 8.0;
 
@@ -1815,7 +1686,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
                     showCheckmark: false,
                     selected: selected,
                     onSelected: (_) => setState(() {
-                      _avaliacaoMinima = selected ? 0 : v; // toggle
+                      _avaliacaoMinima = selected ? 0 : v;
                     }),
                     label: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -1858,28 +1729,16 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
         ),
         const SizedBox(height: 12),
 
-        _sectionTitle('Localização'),
-        TextField(
-          controller: _localizacaoController,
-          keyboardType: TextInputType.number,
-          inputFormatters: [
-            FilteringTextInputFormatter.digitsOnly,
-            _CepInputFormatter(), // máscara 00000-000
-          ],
-          decoration: _input(
-            '',
-            hint: 'Informe seu CEP',
-            prefixIcon: const Icon(Icons.location_on_outlined),
-          ),
-        ),
-
         _sectionTitle('Raio de distância (km)'),
         Row(
           children: [
             Expanded(
               child: Slider(
                 value: _raioDistancia,
-                onChanged: (v) => setState(() => _raioDistancia = v),
+                onChanged: (v) {
+                  setState(() => _raioDistancia = v);
+                  _atualizarCirculo();
+                },
                 min: 1,
                 max: 50,
                 divisions: 49,
@@ -1916,7 +1775,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
         ),
         const SizedBox(height: 12),
 
-        // Data desejada (campo inteiro, embaixo)
         TextField(
           readOnly: true,
           controller: TextEditingController(
@@ -1937,13 +1795,12 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
         ),
         const SizedBox(height: 12),
 
-        // Horário desejado (campo inteiro, embaixo) + MÁSCARA HH:mm
         TextField(
           controller: _horarioController,
           keyboardType: TextInputType.number,
           inputFormatters: [
             FilteringTextInputFormatter.digitsOnly,
-            _HoraInputFormatter(), // máscara HH:mm
+            _HoraInputFormatter(),
           ],
           decoration: _input(
             'Horário desejado',
@@ -1987,10 +1844,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
         ),
         title: Text(
           label,
-          style: const TextStyle(
-            fontSize: 16, // ajuste se quiser
-            fontWeight: FontWeight.w600,
-          ),
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),
         controlAffinity: ListTileControlAffinity.leading,
         contentPadding: const EdgeInsets.symmetric(horizontal: 12),
@@ -2036,7 +1890,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
                         padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                         child: Row(
                           children: [
-                            // === Buscar (igual ao "Solicitar Orçamento") ===
                             Expanded(
                               child: ElevatedButton(
                                 onPressed: _buscar,
@@ -2063,7 +1916,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
 
                             const SizedBox(width: 12),
 
-                            // === Limpar Filtros (igual ao "Perfil Prestador") ===
                             Expanded(
                               child: OutlinedButton(
                                 onPressed: _limparFiltros,
@@ -2103,7 +1955,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
 }
 
 class _CepInputFormatter extends TextInputFormatter {
-  // Aplica máscara 00000-000 e limita a 8 dígitos
   @override
   TextEditingValue formatEditUpdate(
     TextEditingValue oldValue,
@@ -2124,7 +1975,6 @@ class _CepInputFormatter extends TextInputFormatter {
   }
 }
 
-/// Formatter de moeda pt-BR: “R$ 1.234,56”
 class _MoedaPtBrInputFormatter extends TextInputFormatter {
   final NumberFormat _nf = NumberFormat.currency(
     locale: 'pt_BR',
@@ -2154,7 +2004,6 @@ class _MoedaPtBrInputFormatter extends TextInputFormatter {
 }
 
 class _HoraInputFormatter extends TextInputFormatter {
-  // Aplica máscara HH:mm enquanto digita (limita a 4 dígitos -> 00:00)
   @override
   TextEditingValue formatEditUpdate(
     TextEditingValue oldValue,
@@ -2175,7 +2024,6 @@ class _HoraInputFormatter extends TextInputFormatter {
   }
 }
 
-// ======== Botões customizados ========
 class _GradientButton extends StatelessWidget {
   final String text;
   final VoidCallback onPressed;
@@ -2226,7 +2074,6 @@ class _GhostButton extends StatelessWidget {
   }
 }
 
-// ======== Modelo simples de item ========
 class _ItemRef {
   final String id;
   final String nome;

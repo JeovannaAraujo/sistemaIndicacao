@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:myapp/Cliente/visualizarSolicitacao.dart';
 import 'rotasNavegacao.dart';
 
 class SolicitacoesEnviadasScreen extends StatelessWidget {
@@ -46,7 +47,30 @@ class SolicitacoesEnviadasScreen extends StatelessWidget {
                 if (!snap.hasData) {
                   return const Center(child: CircularProgressIndicator());
                 }
-                final docs = snap.data!.docs;
+                final now = DateTime.now();
+                final docs = snap.data!.docs.where((doc) {
+                  final d = doc.data();
+                  final status = (d['status'] ?? 'pendente')
+                      .toString()
+                      .toLowerCase();
+
+                  // 🔹 Se for ACEITA -> não mostra mais
+                  if (status == 'aceita') return false;
+
+                  // 🔹 Se for RECUSADA -> mostra por 1 dia (24h)
+                  if (status.contains('recusad')) {
+                    final criadoEm = (d['criadoEm'] as Timestamp?)?.toDate();
+                    if (criadoEm != null) {
+                      final diff = now.difference(criadoEm).inHours;
+                      return diff < 24;
+                    }
+                    return false;
+                  }
+
+                  // 🔹 Se for PENDENTE ou outro -> mantém
+                  return true;
+                }).toList();
+
                 if (docs.isEmpty) {
                   return const Center(
                     child: Text('Você ainda não fez nenhuma solicitação.'),
@@ -157,23 +181,24 @@ class _CardEnviada extends StatelessWidget {
   final String docId;
   const _CardEnviada({required this.dados, required this.docId});
 
-  String _fmtMoeda(num? v) =>
-      v == null ? '—' : NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$').format(v);
-  String _fmtTs(Timestamp? ts) =>
-      ts == null ? '—' : DateFormat('dd/MM/yyyy').format(ts.toDate());
+  String _fmtDataHora(DateTime? dt) {
+    if (dt == null) return '—';
+    final df = DateFormat('dd/MM/yyyy \'às\' HH:mm');
+    return df.format(dt);
+  }
 
-  (String, Color) _statusView(String s) {
-    switch (s.toLowerCase()) {
-      case 'respondida':
-        return ('Respondida', const Color(0xFF7E57C2));
-      case 'aceita':
-        return ('Aceita', const Color(0xFF4CAF50));
-      case 'recusada':
-      case 'recusadacliente':
-        return ('Recusada', const Color(0xFFE53935));
-      case 'pendente':
-      default:
-        return ('Pendente', const Color(0xFF757575));
+  Future<String> _buscarAbrevUnidade(String unidadeId) async {
+    if (unidadeId.isEmpty) return '';
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('unidades')
+          .doc(unidadeId)
+          .get();
+      final data = doc.data();
+      if (data == null) return '';
+      return (data['abreviacao'] ?? data['sigla'] ?? '').toString();
+    } catch (_) {
+      return '';
     }
   }
 
@@ -181,27 +206,43 @@ class _CardEnviada extends StatelessWidget {
   Widget build(BuildContext context) {
     final fs = FirebaseFirestore.instance;
 
-    // IDs
     final prestadorId = (dados['prestadorId'] ?? '').toString();
-
-    // Status + campos enviados pelo CLIENTE
-    final status = (dados['status'] ?? 'pendente').toString();
     final servico = (dados['servicoTitulo'] ?? '').toString();
-    final servicoDesc = (dados['servicoDescricao'] ?? '').toString();
+    final descricao = (dados['descricaoDetalhada'] ?? '').toString();
+    final quantidade = (dados['quantidade'] is num)
+        ? (dados['quantidade'] as num).toString().replaceAll('.0', '')
+        : (dados['quantidade'] ?? '').toString();
 
-    final estimativaValor =
-        (dados['estimativaValor'] is num) ? dados['estimativaValor'] as num : null;
+    final unidadeId =
+        (dados['unidadeSelecionadaId'] ?? '').toString().isNotEmpty
+        ? dados['unidadeSelecionadaId'].toString()
+        : (dados['servicoUnidadeId'] ?? '').toString();
 
-    final quantidade =
-        (dados['quantidade'] is num) ? dados['quantidade'] as num : null;
-    final unidadeAbrev = (dados['unidadeSelecionadaAbrev'] ??
-            dados['servicoUnidadeAbrev'] ??
-            '')
-        .toString();
+    final criadoEm = (dados['criadoEm'] as Timestamp?)?.toDate();
 
-    final tsDesejada = dados['dataDesejada'] as Timestamp?;
+    // ===== STATUS =====
+    final status = (dados['status'] ?? 'pendente').toString().toLowerCase();
+    String statusTexto = 'Pendente';
+    Color statusCor = Colors.grey;
 
-    final (labelStatus, colorStatus) = _statusView(status);
+    switch (status) {
+      case 'respondida':
+        statusTexto = 'Respondida';
+        statusCor = const Color(0xFF7E57C2);
+        break;
+      case 'aceita':
+        statusTexto = 'Aceita';
+        statusCor = const Color(0xFF4CAF50);
+        break;
+      case 'recusada':
+      case 'recusadacliente':
+        statusTexto = 'Recusada';
+        statusCor = const Color(0xFFE53935);
+        break;
+      default:
+        statusTexto = 'Pendente';
+        statusCor = Colors.grey;
+    }
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -213,12 +254,13 @@ class _CardEnviada extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ---------- Cabeçalho: foto, nome, categoria • local + chip status ----------
+          // ====== Cabeçalho: Imagem, nome do prestador, categoria e cidade ======
           FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
             future: fs.collection('usuarios').doc(prestadorId).get(),
             builder: (context, snap) {
               final u = snap.data?.data() ?? const <String, dynamic>{};
-              final nome = (u['nome'] ?? dados['prestadorNome'] ?? 'Prestador').toString();
+              final nome = (u['nome'] ?? dados['prestadorNome'] ?? 'Prestador')
+                  .toString();
               final fotoUrl = (u['fotoUrl'] ?? '').toString();
 
               final end = (u['endereco'] is Map)
@@ -233,10 +275,15 @@ class _CardEnviada extends StatelessWidget {
               }
 
               final catId =
-                  (u['categoriaProfissionalId'] ?? dados['categoriaProfissionalId'] ?? '').toString();
+                  (u['categoriaProfissionalId'] ??
+                          dados['categoriaProfissionalId'] ??
+                          '')
+                      .toString();
 
               return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Foto
                   ClipRRect(
                     borderRadius: BorderRadius.circular(10),
                     child: Container(
@@ -245,53 +292,93 @@ class _CardEnviada extends StatelessWidget {
                       color: Colors.grey.shade300,
                       child: (fotoUrl.isNotEmpty)
                           ? Image.network(fotoUrl, fit: BoxFit.cover)
-                          : const Icon(Icons.person, size: 28, color: Colors.white70),
+                          : const Icon(
+                              Icons.person,
+                              size: 28,
+                              color: Colors.white70,
+                            ),
                     ),
                   ),
                   const SizedBox(width: 12),
+
+                  // Nome, categoria e cidade
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          nome,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.black87,
-                          ),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                nome,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: statusCor.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: statusCor.withOpacity(0.4),
+                                ),
+                              ),
+                              child: Text(
+                                statusTexto,
+                                style: TextStyle(
+                                  color: statusCor,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                         const SizedBox(height: 2),
                         FutureBuilder<String>(
                           future: _CategoriaRepo.nome(catId),
                           builder: (context, s2) {
-                            final profissao =
-                                (s2.data?.isNotEmpty == true) ? s2.data! : '';
+                            final profissao = (s2.data?.isNotEmpty == true)
+                                ? s2.data!
+                                : '';
                             return Row(
-                              mainAxisSize: MainAxisSize.min,
                               children: [
                                 Flexible(
                                   child: Text(
                                     profissao,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontSize: 13, color: Colors.black54),
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      color: Colors.black54,
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(width: 6),
-                                const Text('•', style: TextStyle(color: Colors.black26)),
-                                const SizedBox(width: 6),
-                                const Icon(Icons.location_on_outlined,
-                                    size: 14, color: Colors.black45),
+                                const Icon(
+                                  Icons.location_on_outlined,
+                                  size: 14,
+                                  color: Colors.black45,
+                                ),
                                 const SizedBox(width: 3),
                                 Flexible(
                                   child: Text(
                                     local.isEmpty ? '—' : local,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontSize: 13, color: Colors.black54),
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      color: Colors.black54,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -301,87 +388,133 @@ class _CardEnviada extends StatelessWidget {
                       ],
                     ),
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: colorStatus.withOpacity(0.14),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: colorStatus.withOpacity(0.4)),
-                    ),
-                    child: Text(
-                      labelStatus,
-                      style: TextStyle(
-                        color: colorStatus,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
                 ],
               );
             },
           ),
 
-          const SizedBox(height: 12),
-
-          // ---------- Corpo (somente dados do CLIENTE) ----------
-          _kv('Serviço:', servico.isEmpty ? '—' : servico, boldValue: true),
-          if (servicoDesc.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: Text(servicoDesc,
-                  style: const TextStyle(fontSize: 13.5, color: Colors.black87)),
-            ),
-          _kv('Valor Total Proposto:', _fmtMoeda(estimativaValor)),
-          _kv(
-            'Quantidade:',
-            (quantidade == null)
-                ? '—'
-                : unidadeAbrev.isEmpty
-                    ? quantidade.toString().replaceAll('.0', '')
-                    : '${quantidade.toString().replaceAll('.0', '')} $unidadeAbrev',
-          ),
-          _kv('Data desejada:', _fmtTs(tsDesejada)),
-          _kv('Data de início:', '—'), // definido na resposta do prestador
-          _kv('Data final:', '—'),     // definido na resposta do prestador
-
           const SizedBox(height: 10),
 
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => VisualizarSolicitacaoEnviadaPage(
-                      docId: docId,
-                      dados: dados,
+          // ====== Nome do serviço ======
+          if (servico.isNotEmpty)
+            Text(
+              servico,
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                color: Colors.deepPurple,
+                fontSize: 15,
+              ),
+            ),
+
+          const SizedBox(height: 3),
+
+          // ====== Descrição, Quantidade, Data ======
+          RichText(
+            text: TextSpan(
+              style: const TextStyle(fontSize: 13.5, color: Colors.black87),
+              children: [
+                const TextSpan(
+                  text: 'Descrição: ',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                  ), // só isso em negrito
+                ),
+                TextSpan(
+                  text: descricao, // texto normal
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 3),
+
+          FutureBuilder<String>(
+            future: _buscarAbrevUnidade(unidadeId),
+            builder: (context, snap) {
+              final abrev = (snap.hasData && snap.data!.isNotEmpty)
+                  ? snap.data!
+                  : '';
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  RichText(
+                    text: TextSpan(
+                      style: const TextStyle(
+                        fontSize: 13.5,
+                        color: Colors.black87,
+                      ),
+                      children: [
+                        const TextSpan(
+                          text: 'Quantidade: ',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                          ), // 💪 só o rótulo em negrito
+                        ),
+                        TextSpan(
+                          text:
+                              '$quantidade${abrev.isNotEmpty ? ' $abrev' : ''}', // valor normal
+                        ),
+                      ],
                     ),
                   ),
-                );
-              },
-              child: const Text('Ver solicitação'),
+
+                  if (criadoEm != null) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      'Enviada em: ${_fmtDataHora(criadoEm)}',
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        color: Colors.black54,
+                      ),
+                    ),
+                  ],
+                ],
+              );
+            },
+          ),
+
+          const SizedBox(height: 14),
+
+          // ====== Botão Ver Solicitação ======
+          GestureDetector(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => VisualizarSolicitacaoScreen(docId: docId),
+                ),
+              );
+            },
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF7C4DFF), Color(0xFF651FFF)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x22000000),
+                    blurRadius: 6,
+                    offset: Offset(0, 3),
+                  ),
+                ],
+              ),
+              alignment: Alignment.center,
+              child: const Text(
+                'Ver solicitação',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                ),
+              ),
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _kv(String k, String v, {bool boldValue = false}) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: RichText(
-        text: TextSpan(
-          style: const TextStyle(color: Colors.black87, fontSize: 13.5),
-          children: [
-            TextSpan(text: '$k ', style: const TextStyle(fontWeight: FontWeight.w700)),
-            TextSpan(
-              text: v,
-              style: TextStyle(fontWeight: boldValue ? FontWeight.w700 : FontWeight.w400),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -400,75 +533,173 @@ class VisualizarSolicitacaoEnviadaPage extends StatelessWidget {
 
   String _fmtTs(Timestamp? ts) =>
       ts == null ? '—' : DateFormat('dd/MM/yyyy').format(ts.toDate());
-  String _fmtMoeda(num? v) =>
-      v == null ? '—' : NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$').format(v);
+  String _fmtMoeda(num? v) => v == null
+      ? '—'
+      : NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$').format(v);
 
   @override
   Widget build(BuildContext context) {
-    final endereco =
-        (dados['clienteEndereco'] is Map) ? (dados['clienteEndereco'] as Map).cast<String, dynamic>() : <String, dynamic>{};
+    final fs = FirebaseFirestore.instance;
 
-    final linhaEnd = [
-      endereco['rua'],
-      (endereco['numero']?.toString().isNotEmpty == true) ? 'nº ${endereco['numero']}' : null,
-      endereco['bairro'],
-      endereco['cidade'],
-      endereco['estado'] ?? endereco['uf'],
-    ].where((e) => (e?.toString().isNotEmpty ?? false)).join(', ');
+    final prestadorId = (dados['prestadorId'] ?? '').toString();
+    final servico = (dados['servicoTitulo'] ?? '').toString();
+    final descricaoSolic = (dados['descricaoDetalhada'] ?? '').toString();
+    final quantidade = (dados['quantidade'] is num)
+        ? (dados['quantidade'] as num).toString().replaceAll('.0', '')
+        : (dados['quantidade'] ?? '').toString();
+    final unidadeAbrev =
+        (dados['unidadeSelecionadaAbrev'] ?? dados['servicoUnidadeAbrev'] ?? '')
+            .toString();
 
-    final imagens = (dados['imagens'] is List) ? List<String>.from(dados['imagens']) : <String>[];
+    // ====== STATUS ======
+    final status = (dados['status'] ?? 'pendente').toString().toLowerCase();
+    Color statusCor;
+    String statusTexto;
+    switch (status) {
+      case 'respondida':
+        statusTexto = 'Respondida';
+        statusCor = const Color(0xFF7E57C2);
+        break;
+      case 'aceita':
+        statusTexto = 'Aceita';
+        statusCor = const Color(0xFF4CAF50);
+        break;
+      case 'recusada':
+      case 'recusadacliente':
+        statusTexto = 'Recusada';
+        statusCor = const Color(0xFFE53935);
+        break;
+      default:
+        statusTexto = 'Pendente';
+        statusCor = Colors.grey;
+    }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Solicitação enviada'),
-        backgroundColor: Colors.white,
-        elevation: 0.3,
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.black12),
       ),
-      backgroundColor: const Color(0xFFF9F6FF),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _kv('Serviço', (dados['servicoTitulo'] ?? '—').toString(), big: true),
-            const SizedBox(height: 8),
-            _kv('Descrição detalhada', (dados['descricaoDetalhada'] ?? '—').toString()),
-            const SizedBox(height: 8),
-            _kv('Quantidade', (() {
-              final q = dados['quantidade'];
-              final abrev = (dados['unidadeSelecionadaAbrev'] ?? dados['servicoUnidadeAbrev'] ?? '').toString();
-              if (q is num) {
-                final qq = q.toString().replaceAll('.0', '');
-                return abrev.isEmpty ? qq : '$qq $abrev';
-              }
-              return '—';
-            })()),
-            const SizedBox(height: 8),
-            _kv('Valor total proposto', _fmtMoeda(dados['estimativaValor'] as num?)),
-            _kv('Data desejada', _fmtTs(dados['dataDesejada'] as Timestamp?)),
-            const SizedBox(height: 8),
-            _kv('Endereço do serviço', linhaEnd.isEmpty ? '—' : linhaEnd),
-            if ((endereco['cep'] ?? '').toString().isNotEmpty)
-              _kv('CEP', (endereco['cep'] ?? '').toString()),
-            if ((dados['clienteWhatsapp'] ?? '').toString().isNotEmpty)
-              _kv('Whatsapp', (dados['clienteWhatsapp'] ?? '').toString()),
-            const SizedBox(height: 16),
-            if (imagens.isNotEmpty) ...[
-              const Text('Imagens anexadas', style: TextStyle(fontWeight: FontWeight.w700)),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: imagens.map((url) {
-                  return ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.network(url, width: 100, height: 100, fit: BoxFit.cover),
-                  );
-                }).toList(),
-              ),
-            ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          // ---------- Cabeçalho: Foto e nome do prestador + STATUS ----------
+          FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+            future: fs.collection('usuarios').doc(prestadorId).get(),
+            builder: (context, snap) {
+              final u = snap.data?.data() ?? const <String, dynamic>{};
+              final nome = (u['nome'] ?? dados['prestadorNome'] ?? 'Prestador')
+                  .toString();
+              final fotoUrl = (u['fotoUrl'] ?? '').toString();
+
+              return Row(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      width: 56,
+                      height: 56,
+                      color: Colors.grey.shade300,
+                      child: (fotoUrl.isNotEmpty)
+                          ? Image.network(fotoUrl, fit: BoxFit.cover)
+                          : const Icon(
+                              Icons.person,
+                              size: 28,
+                              color: Colors.white70,
+                            ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      nome,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.black87,
+                        height: 1.0,
+                      ),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: statusCor.withOpacity(0.15),
+                      border: Border.all(color: statusCor.withOpacity(0.4)),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      statusTexto,
+                      style: TextStyle(
+                        color: statusCor,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+
+          const SizedBox(height: 12),
+
+          // ---------- Corpo: informações da solicitação ----------
+          Text(
+            servico.isEmpty ? 'Serviço sem título' : servico,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+              color: Colors.deepPurple,
+            ),
+          ),
+          if (descricaoSolic.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              descricaoSolic,
+              style: const TextStyle(fontSize: 14, color: Colors.black87),
+            ),
           ],
-        ),
+          const SizedBox(height: 8),
+          Text(
+            'Quantidade: $quantidade${unidadeAbrev.isNotEmpty ? ' $unidadeAbrev' : ''}',
+            style: const TextStyle(fontSize: 13.5, color: Colors.black54),
+          ),
+
+          const SizedBox(height: 12),
+
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton.tonal(
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFEDE7F6),
+                foregroundColor: Colors.deepPurple,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => VisualizarSolicitacaoScreen(docId: docId),
+                  ),
+                );
+              },
+              child: const Text('Ver solicitação'),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -482,7 +713,10 @@ class VisualizarSolicitacaoEnviadaPage extends StatelessWidget {
           height: 1.25,
         ),
         children: [
-          TextSpan(text: '$k: ', style: const TextStyle(fontWeight: FontWeight.w700)),
+          TextSpan(
+            text: '$k: ',
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
           TextSpan(text: v),
         ],
       ),
