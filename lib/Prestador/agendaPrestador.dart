@@ -71,6 +71,18 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
     return null;
   }
 
+  int _countWorkdays(DateTime start, DateTime end) {
+    int count = 0;
+    DateTime d = _ymd(start);
+    while (!d.isAfter(_ymd(end))) {
+      if (_isWorkday(d)) {
+        count++;
+      }
+      d = d.add(const Duration(days: 1));
+    }
+    return count;
+  }
+
   // marca como indisponíveis os dias previstos (status "aceita")
   void _markBusyFromDoc(Map<String, dynamic> data) {
     final tsInicio = data['dataInicioSugerida'];
@@ -724,36 +736,32 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
                         ),
 
                       Text('Endereço: $endereco', softWrap: true),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 8),
 
                       // 🔹 Botão WhatsApp só se não for finalizado
-                      if (!status.startsWith('finaliz'))
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            ElevatedButton.icon(
-                              onPressed: (whatsapp == '—')
-                                  ? null
-                                  : () => _openWhatsApp(whatsapp),
-                              icon: const Icon(
+                      // 🔹 Exibe número do WhatsApp apenas se NÃO estiver finalizado
+                      if (!status.startsWith('finaliz') && whatsapp != '—')
+                        InkWell(
+                          onTap: () => _openWhatsApp(whatsapp),
+                          child: Row(
+                            children: [
+                              const Icon(
                                 FontAwesomeIcons.whatsapp,
-                                size: 16,
+                                color: Color(
+                                  0xFF25D366,
+                                ), // cor oficial do WhatsApp
+                                size: 18,
                               ),
-                              label: const Text('WhatsApp'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.green,
-                                foregroundColor: Colors.white,
-                                minimumSize: const Size(0, 40),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
+                              const SizedBox(width: 6),
+                              Text(
+                                whatsapp,
+                                style: const TextStyle(
+                                  color: Color.fromARGB(255, 0, 0, 0),
+                                  fontSize: 13.5,
                                 ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                     ],
                   ),

@@ -139,7 +139,6 @@ class _ServicosAgendadosScreenState extends State<ServicosAgendadosScreen> {
   // ================== UI helpers ==================
 
   Widget _statusChip(String status) {
-    // 🔹 Normaliza o texto do status (remove espaços extras e minúsculas)
     final s = status.replaceAll(RegExp(r'[_\s]+'), ' ').trim().toLowerCase();
 
     Color bg;
@@ -151,19 +150,15 @@ class _ServicosAgendadosScreenState extends State<ServicosAgendadosScreen> {
       fg = const Color(0xFF5E35B1);
       label = 'Finalizado';
     } else if (s.contains('andamento')) {
-      // cobre "em andamento" e "em_andamento"
       bg = const Color(0xFFE3F2FD);
-      fg = const Color(0xFF1565C0);
+      fg = Colors.blue;
       label = 'Em andamento';
     } else if (s.startsWith('cancel')) {
       bg = const Color(0xFFFFEBEE);
       fg = const Color(0xFFC62828);
       label = 'Cancelado';
-    } else if (s.contains('aguardando')) {
-      bg = const Color(0xFFFFF8E1);
-      fg = const Color(0xFF8D6E63);
-      label = 'Aguardando início';
-    } else if (s.contains('aceit') ||
+    } else if (s.contains('aguardando') ||
+        s.contains('aceit') ||
         s.contains('nao iniciado') ||
         s.contains('não iniciado')) {
       bg = const Color(0xFFFFF8E1);
@@ -181,26 +176,9 @@ class _ServicosAgendadosScreenState extends State<ServicosAgendadosScreen> {
         color: bg,
         borderRadius: BorderRadius.circular(999),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            s.contains('finaliz')
-                ? Icons.check_circle
-                : s.contains('andamento')
-                ? Icons.autorenew
-                : s.contains('cancel')
-                ? Icons.cancel
-                : Icons.schedule,
-            size: 16,
-            color: fg,
-          ),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(color: fg, fontWeight: FontWeight.w700),
-          ),
-        ],
+      child: Text(
+        label,
+        style: TextStyle(color: fg, fontWeight: FontWeight.w700),
       ),
     );
   }
@@ -356,7 +334,6 @@ class _ServicosAgendadosScreenState extends State<ServicosAgendadosScreen> {
             'aceita',
             'em andamento',
             'em_andamento',
-            'finalizada',
             'cancelada',
             'não iniciado',
             'nao iniciado',
@@ -431,10 +408,6 @@ class _ServicosAgendadosScreenState extends State<ServicosAgendadosScreen> {
             );
             final whatsapp = _pickWhatsApp(d);
 
-            print(
-              '>>> STATUS DOC: "${d['status']}"  | effective: "$effectiveStatus"',
-            );
-
             return Card(
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -468,23 +441,25 @@ class _ServicosAgendadosScreenState extends State<ServicosAgendadosScreen> {
                     Text('Data de início: $dataInicio'),
                     Row(
                       children: [
-                        const Text('Duração estimada: '),
-                        if (valor > 0)
-                          InkWell(
-                            onTap: () {}, // apenas visual
-                            child: Text(
-                              estimativa,
-                              style: const TextStyle(
-                                decoration: TextDecoration.underline,
-                                color: Colors.blueAccent,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          )
-                        else
-                          const Text('—'),
+                        const Text(
+                          'Duração estimada: ',
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        Text(
+                          valor > 0
+                              ? '$valor ${valor == 1 ? "dia" : "dias"}'
+                              : '—',
+                          style: const TextStyle(
+                            fontSize: 13.5,
+                            color: Colors.black87,
+                          ),
+                        ),
                       ],
                     ),
+
                     Text('Endereço: $endereco'),
                     const SizedBox(height: 8),
 
@@ -493,22 +468,27 @@ class _ServicosAgendadosScreenState extends State<ServicosAgendadosScreen> {
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        ElevatedButton.icon(
-                          onPressed: (whatsapp == '—')
-                              ? null
-                              : () => _openWhatsApp(whatsapp),
-                          icon: const Icon(FontAwesomeIcons.whatsapp, size: 16),
-                          label: const Text('WhatsApp'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green,
-                            foregroundColor: Colors.white,
-                            minimumSize: const Size(0, 40),
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
+                        if (whatsapp != '—')
+                          InkWell(
+                            onTap: () => _openWhatsApp(whatsapp),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  FontAwesomeIcons.whatsapp,
+                                  color: Color(0xFF25D366),
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  whatsapp,
+                                  style: const TextStyle(
+                                    color: Color.fromARGB(255, 0, 0, 0),
+                                    fontSize: 13.5,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        ),
                       ],
                     ),
                     const SizedBox(height: 10),
