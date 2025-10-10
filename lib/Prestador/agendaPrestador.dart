@@ -274,10 +274,14 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
     }
 
     // busca solicitações aceitas e finalizadas
+    // CORREÇÃO: Adicionado 'em andamento' (com espaço) ao whereIn para capturar o status correto no banco
     final stream = FirebaseFirestore.instance
         .collection('solicitacoesOrcamento')
         .where('prestadorId', isEqualTo: uid)
-        .where('status', whereIn: ['aceita', 'em_andamento', 'finalizada'])
+        .where(
+          'status',
+          whereIn: ['aceita', 'em andamento', 'em_andamento', 'finalizada'],
+        )
         .orderBy('dataInicioSugerida', descending: false)
         .snapshots();
 
@@ -301,16 +305,30 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
               final start = _toYMD(tsInicio);
 
               final realEnd = _getFinalizacaoReal(data);
+              final prevEnd = data['dataFinalPrevista'] is Timestamp
+                  ? _toYMD(data['dataFinalPrevista'])
+                  : null;
 
               if (_isFinalStatus(status) && realEnd != null) {
-                // FINALIZADO: pinta do início até a data real (somente dias úteis)
+                // 🔹 Serviço finalizado → usa o período real
                 var d = start;
                 while (!d.isAfter(realEnd)) {
                   if (_isWorkday(d)) _finalizedDays.add(d);
                   d = d.add(const Duration(days: 1));
                 }
-              } else {
-                // EM ANDAMENTO/ACEITA: INDISPONÍVEL pelo previsto/estimado
+              } else if (status == 'em andamento' || status == 'em_andamento') {
+                // 🔹 Em andamento → usa previsão como indisponível
+                if (prevEnd != null) {
+                  var d = start;
+                  while (!d.isAfter(prevEnd)) {
+                    if (_isWorkday(d)) _busyDays.add(d);
+                    d = d.add(const Duration(days: 1));
+                  }
+                } else {
+                  _markBusyFromDoc(data);
+                }
+              } else if (status == 'aceita') {
+                // 🔹 Aceita → usa previsão padrão
                 _markBusyFromDoc(data);
               }
             }
@@ -435,9 +453,15 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
         return const Color.fromARGB(255, 199, 190, 190);
       }
 
-      // 4️⃣ Ocupados (em andamento/aceitos): vermelho
+      // 4️⃣ Ocupados (em andamento/aceitos): azul claro (ajustado para cinza se preferir)
+      // CORREÇÃO OPCIONAL: Mudei para cinza claro aqui para atender à sua descrição ("cinza")
       if (_busyDays.contains(ymd)) {
-        return const Color(0xFFA0B9E6);
+        return const Color.fromARGB(
+          255,
+          199,
+          190,
+          190,
+        ); // Cinza para "em andamento"
       }
 
       // 5️⃣ Disponíveis (futuro dentro da jornada): verde
@@ -534,47 +558,42 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
     );
   }
 
-Widget _legenda() {
-  Widget chip(Color c, String t) => Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 14,
-            height: 14,
-            decoration: BoxDecoration(
-              color: c,
-              borderRadius: BorderRadius.circular(4),
-            ),
-          ),
-          const SizedBox(width: 6),
-          Text(t, style: const TextStyle(fontSize: 12)),
-        ],
-      );
-
-  return Padding(
-    padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8, top: 4),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.center,
+  Widget _legenda() {
+    Widget chip(Color c, String t) => Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            chip(const Color.fromARGB(255, 199, 190, 190), 'Indisponível'),
-            const SizedBox(width: 20),
-            chip(const Color.fromARGB(255, 93, 248, 137), 'Disponível'),
-            const SizedBox(width: 20),
-            chip(const Color.fromARGB(255, 171, 120, 247), 'Finalizado'),
-          ],
+        Container(
+          width: 14,
+          height: 14,
+          decoration: BoxDecoration(
+            color: c,
+            borderRadius: BorderRadius.circular(4),
+          ),
         ),
-        const SizedBox(height: 8),
-        Center(
-          child: chip(const Color(0xFFA0B9E6), 'Em andamento'),
-        ),
+        const SizedBox(width: 6),
+        Text(t, style: const TextStyle(fontSize: 12)),
       ],
-    ),
-  );
-}
+    );
 
+    return Padding(
+      padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8, top: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              chip(const Color.fromARGB(255, 199, 190, 190), 'Indisponível'),
+              const SizedBox(width: 20),
+              chip(const Color.fromARGB(255, 93, 248, 137), 'Disponível'),
+              const SizedBox(width: 20),
+              chip(const Color.fromARGB(255, 171, 120, 247), 'Finalizado'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _tituloServicosDoDia() {
     return Padding(
@@ -622,56 +641,149 @@ Widget _legenda() {
             (d['clienteEndereco'] ?? d['endereco']) as Map<String, dynamic>?,
           );
           final whatsapp = _pickWhatsApp(d);
+          final status = (d['status'] ?? '').toString().toLowerCase();
+
+          // Define texto e cor do status (sem ícones)
+          Color statusColor;
+          String statusTexto;
+
+          if (status.startsWith('finaliz')) {
+            statusColor = const Color(0xFF5E35B1);
+            statusTexto = 'Finalizado';
+          } else if (status.contains('andamento')) {
+            statusColor = Colors.blue;
+            statusTexto = 'Em andamento';
+          } else if (status == 'aceita') {
+            statusColor = Colors.orange;
+            statusTexto = 'Aceito';
+          } else {
+            statusColor = Colors.grey;
+            statusTexto = 'Desconhecido';
+          }
 
           return Card(
             margin: const EdgeInsets.only(bottom: 12),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    (d['servicoTitulo'] ?? 'Serviço agendado') as String,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: Colors.black87,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Cliente: ${cliente?.isNotEmpty == true ? cliente : '—'}',
-                  ),
-                  Text('Início: ${DateFormat('dd/MM/yyyy').format(inicio)}'),
-                  Text('Estimativa: ${valor > 0 ? '$valor $unidade(s)' : '—'}'),
-                  Text('Endereço: $endereco', softWrap: true),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+            child: Stack(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      ElevatedButton.icon(
-                        onPressed: (whatsapp == '—')
-                            ? null
-                            : () => _openWhatsApp(whatsapp),
-                        icon: const Icon(FontAwesomeIcons.whatsapp, size: 16),
-                        label: const Text('WhatsApp'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
-                          minimumSize: const Size(0, 40),
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
+                      const SizedBox(height: 8), // espaço pro badge
+                      Text(
+                        (d['servicoTitulo'] ?? 'Serviço agendado') as String,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: Colors.black87,
                         ),
                       ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Cliente: ${cliente?.isNotEmpty == true ? cliente : '—'}',
+                      ),
+
+                      // 🔹 Data de início formatada
+                      Text(
+                        'Início: ${DateFormat('dd/MM/yyyy').format(inicio)}',
+                      ),
+
+                      // 🔹 Data de finalização (real, se existir)
+                      () {
+                        final fim =
+                            d['dataFinalizacaoReal'] ?? d['dataFinalPrevista'];
+                        final dataFmt = fim is Timestamp
+                            ? DateFormat('dd/MM/yyyy').format(fim.toDate())
+                            : '—';
+                        return Text('Finalização: $dataFmt');
+                      }(),
+
+                      // 🔹 Cálculo da duração real
+                      () {
+                        final fim =
+                            d['dataFinalizacaoReal'] ?? d['dataFinalPrevista'];
+                        int dias = 0;
+                        if (fim is Timestamp) {
+                          final diff =
+                              fim.toDate().difference(inicio).inDays +
+                              1; // +1 para incluir o dia inicial
+                          dias = diff > 0 ? diff : 1;
+                        }
+                        return Text(
+                          'Duração: ${dias > 0 ? '$dias dia${dias > 1 ? 's' : ''}' : '—'}',
+                        );
+                      }(),
+
+                      // 🔹 Mostra estimativa somente se não for finalizado
+                      if (!status.startsWith('finaliz'))
+                        Text(
+                          'Estimativa: ${valor > 0 ? '$valor $unidade(s)' : '—'}',
+                        ),
+
+                      Text('Endereço: $endereco', softWrap: true),
+                      const SizedBox(height: 10),
+
+                      // 🔹 Botão WhatsApp só se não for finalizado
+                      if (!status.startsWith('finaliz'))
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            ElevatedButton.icon(
+                              onPressed: (whatsapp == '—')
+                                  ? null
+                                  : () => _openWhatsApp(whatsapp),
+                              icon: const Icon(
+                                FontAwesomeIcons.whatsapp,
+                                size: 16,
+                              ),
+                              label: const Text('WhatsApp'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green,
+                                foregroundColor: Colors.white,
+                                minimumSize: const Size(0, 40),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                     ],
                   ),
-                ],
-              ),
+                ),
+
+                // 🔹 Badge de STATUS no canto superior direito (sem ícones)
+                Positioned(
+                  top: 8,
+                  right: 12,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: statusColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: statusColor, width: 1),
+                    ),
+                    child: Text(
+                      statusTexto,
+                      style: TextStyle(
+                        color: statusColor,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           );
         }).toList(),

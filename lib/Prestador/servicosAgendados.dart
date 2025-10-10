@@ -121,7 +121,8 @@ class _ServicosAgendadosScreenState extends State<ServicosAgendadosScreen> {
   /// Atualiza para "em andamento" na virada do horário (uma única vez)
   Future<void> _autoStartIfNeeded(String docId, Map<String, dynamic> d) async {
     if (!_shouldAutoStart(d)) return;
-    if (d['iniciadaEm'] != null) return; // já marcou início antes
+    if (d['iniciadaEm'] != null) return;
+
     await FirebaseFirestore.instance
         .collection(_colSolicitacoes)
         .doc(docId)
@@ -130,12 +131,17 @@ class _ServicosAgendadosScreenState extends State<ServicosAgendadosScreen> {
           'iniciadaEm': FieldValue.serverTimestamp(),
           'atualizadoEm': FieldValue.serverTimestamp(),
         });
+
+    // 🔹 Força rebuild local pra cor atualizar logo
+    if (mounted) setState(() {});
   }
 
   // ================== UI helpers ==================
 
   Widget _statusChip(String status) {
-    final s = status.toLowerCase();
+    // 🔹 Normaliza o texto do status (remove espaços extras e minúsculas)
+    final s = status.replaceAll(RegExp(r'[_\s]+'), ' ').trim().toLowerCase();
+
     Color bg;
     Color fg;
     String label;
@@ -144,7 +150,8 @@ class _ServicosAgendadosScreenState extends State<ServicosAgendadosScreen> {
       bg = const Color(0xFFEDE7F6);
       fg = const Color(0xFF5E35B1);
       label = 'Finalizado';
-    } else if (s == 'em andamento' || s == 'em_andamento') {
+    } else if (s.contains('andamento')) {
+      // cobre "em andamento" e "em_andamento"
       bg = const Color(0xFFE3F2FD);
       fg = const Color(0xFF1565C0);
       label = 'Em andamento';
@@ -152,7 +159,13 @@ class _ServicosAgendadosScreenState extends State<ServicosAgendadosScreen> {
       bg = const Color(0xFFFFEBEE);
       fg = const Color(0xFFC62828);
       label = 'Cancelado';
-    } else if (s == 'aguardando_inicio') {
+    } else if (s.contains('aguardando')) {
+      bg = const Color(0xFFFFF8E1);
+      fg = const Color(0xFF8D6E63);
+      label = 'Aguardando início';
+    } else if (s.contains('aceit') ||
+        s.contains('nao iniciado') ||
+        s.contains('não iniciado')) {
       bg = const Color(0xFFFFF8E1);
       fg = const Color(0xFF8D6E63);
       label = 'Aguardando início';
@@ -172,11 +185,11 @@ class _ServicosAgendadosScreenState extends State<ServicosAgendadosScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            s.startsWith('finaliz')
+            s.contains('finaliz')
                 ? Icons.check_circle
-                : (s == 'em andamento' || s == 'em_andamento')
+                : s.contains('andamento')
                 ? Icons.autorenew
-                : s.startsWith('cancel')
+                : s.contains('cancel')
                 ? Icons.cancel
                 : Icons.schedule,
             size: 16,
@@ -390,10 +403,14 @@ class _ServicosAgendadosScreenState extends State<ServicosAgendadosScreen> {
 
             // Status "efetivo" para a UI
             final effectiveStatus =
-                (rawStatus == 'aceita' ||
-                    rawStatus == 'não iniciado' ||
-                    rawStatus == 'nao iniciado')
-                ? (passouDaHora ? 'em_andamento' : 'aguardando_inicio')
+                (rawStatus == 'em andamento' ||
+                    rawStatus == 'em_andamento' ||
+                    rawStatus == 'aceita' && passouDaHora)
+                ? 'em andamento'
+                : (rawStatus == 'aceita' ||
+                      rawStatus == 'não iniciado' ||
+                      rawStatus == 'nao iniciado')
+                ? 'aguardando_inicio'
                 : rawStatus;
 
             final titulo = (d['servicoTitulo'] ?? 'Serviço') as String;
@@ -413,6 +430,10 @@ class _ServicosAgendadosScreenState extends State<ServicosAgendadosScreen> {
               (d['clienteEndereco'] ?? d['endereco']) as Map<String, dynamic>?,
             );
             final whatsapp = _pickWhatsApp(d);
+
+            print(
+              '>>> STATUS DOC: "${d['status']}"  | effective: "$effectiveStatus"',
+            );
 
             return Card(
               shape: RoundedRectangleBorder(
