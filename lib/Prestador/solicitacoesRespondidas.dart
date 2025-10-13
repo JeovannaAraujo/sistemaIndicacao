@@ -4,19 +4,19 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'detalhesSolicitacao.dart';
 import 'visualizarResposta.dart';
-import 'solicitacoesRespondidas.dart';
+import 'solicitacoesRecebidas.dart';
 import 'rotasNavegacao.dart';
 
-class SolicitacoesRecebidasScreen extends StatefulWidget {
-  const SolicitacoesRecebidasScreen({super.key});
+class SolicitacoesRespondidasScreen extends StatefulWidget {
+  const SolicitacoesRespondidasScreen({super.key});
 
   @override
-  State<SolicitacoesRecebidasScreen> createState() =>
-      _SolicitacoesRecebidasScreenState();
+  State<SolicitacoesRespondidasScreen> createState() =>
+      _SolicitacoesRespondidasScreenState();
 }
 
-class _SolicitacoesRecebidasScreenState
-    extends State<SolicitacoesRecebidasScreen>
+class _SolicitacoesRespondidasScreenState
+    extends State<SolicitacoesRespondidasScreen>
     with SingleTickerProviderStateMixin {
   static const String colSolicitacoes = 'solicitacoesOrcamento';
   late final String _prestadorId;
@@ -27,13 +27,13 @@ class _SolicitacoesRecebidasScreenState
   void initState() {
     super.initState();
     _prestadorId = FirebaseAuth.instance.currentUser!.uid;
-    _tabController = TabController(length: 2, vsync: this, initialIndex: 0);
+    _tabController = TabController(length: 2, vsync: this, initialIndex: 1);
     _tabController.addListener(() {
-      if (_tabController.index == 1) {
+      if (_tabController.index == 0) {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (_) => const SolicitacoesRespondidasScreen(),
+            builder: (_) => const SolicitacoesRecebidasScreen(),
           ),
         );
       }
@@ -44,7 +44,16 @@ class _SolicitacoesRecebidasScreenState
     return FirebaseFirestore.instance
         .collection(colSolicitacoes)
         .where('prestadorId', isEqualTo: _prestadorId)
-        .where('status', isEqualTo: 'pendente')
+        .where(
+          'status',
+          whereIn: [
+            'respondida',
+            'aceita',
+            'recusada',
+            'cancelada',
+            'finalizada',
+          ],
+        )
         .orderBy('criadoEm', descending: true)
         .snapshots();
   }
@@ -77,14 +86,14 @@ class _SolicitacoesRecebidasScreenState
       body: _ListaSolicitacoes(
         stream: _streamSolicitacoes(),
         moeda: _moeda,
-        recebidas: true,
+        recebidas: false,
       ),
       bottomNavigationBar: const PrestadorBottomNav(selectedIndex: 1),
     );
   }
 }
 
-// ======== COMPONENTES AUXILIARES (idênticos) ========
+// ======== COMPONENTES AUXILIARES (idênticos ao arquivo anterior) ========
 
 class _ListaSolicitacoes extends StatelessWidget {
   final Stream<QuerySnapshot<Map<String, dynamic>>> stream;
@@ -120,9 +129,18 @@ class _ListaSolicitacoes extends StatelessWidget {
             final titulo = (d['servicoTitulo'] ?? '').toString();
             final cliente = (d['clienteNome'] ?? '').toString();
             final status = (d['status'] ?? '').toString();
-            final estimativa = (d['estimativaValor'] is num)
-                ? moeda.format((d['estimativaValor'] as num).toDouble())
-                : '—';
+
+            String estimativa;
+            if (status == 'finalizada') {
+              final valorProposto = (d['valorProposto'] is num)
+                  ? moeda.format((d['valorProposto'] as num).toDouble())
+                  : '—';
+              estimativa = valorProposto;
+            } else {
+              estimativa = (d['estimativaValor'] is num)
+                  ? moeda.format((d['estimativaValor'] as num).toDouble())
+                  : '—';
+            }
 
             final dataDesejada = (d['dataDesejada'] is Timestamp)
                 ? DateFormat(
@@ -134,13 +152,14 @@ class _ListaSolicitacoes extends StatelessWidget {
             final enderecoStr = _enderecoLinha(endereco);
 
             return _SolicCard(
+              docId: docId,
               titulo: titulo,
               cliente: cliente,
               dataDesejada: dataDesejada,
               endereco: enderecoStr,
               estimativa: estimativa,
               status: status,
-              recebidas: true,
+              recebidas: false,
               servicoId: (d['servicoId'] ?? '').toString(),
               categoriaIdFallback:
                   (d['categoriaId'] ?? d['servicoCategoriaId'] ?? '')
@@ -148,7 +167,8 @@ class _ListaSolicitacoes extends StatelessWidget {
               onVerDetalhes: () {
                 Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (_) => DetalhesSolicitacaoScreen(docId: docId),
+                    builder: (_) =>
+                        VisualizarRespostaPrestadorScreen(docId: docId),
                   ),
                 );
               },
@@ -170,8 +190,6 @@ class _ListaSolicitacoes extends StatelessWidget {
     return partes.join(', ');
   }
 }
-
-// === Thumbs e Card (iguais ao original) ===
 
 class _CategoriaThumbCache {
   static final Map<String, String> _cache = {};
@@ -221,12 +239,14 @@ class _CategoriaThumbByServico {
 }
 
 class _SolicCard extends StatelessWidget {
+  final String docId;
   final String titulo, cliente, dataDesejada, endereco, estimativa, status;
   final bool recebidas;
   final String servicoId, categoriaIdFallback;
   final VoidCallback onVerDetalhes;
 
   const _SolicCard({
+    required this.docId,
     required this.titulo,
     required this.cliente,
     required this.dataDesejada,
@@ -386,9 +406,41 @@ class _SolicCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               ElevatedButton(
-                onPressed: onVerDetalhes,
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          VisualizarRespostaPrestadorScreen(docId: docId),
+                    ),
+                  );
+                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF5B2EFF),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+                child: const Text(
+                  'Ver orçamento',
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => DetalhesSolicitacaoScreen(docId: docId),
+                    ),
+                  );
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF7B4CFF),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),

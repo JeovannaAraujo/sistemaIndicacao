@@ -3,8 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:myapp/Prestador/avaliacoesPrestador.dart';
 import 'editarPerfilPrestador.dart';
 import 'rotasNavegacao.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../Cliente/homeCliente.dart';
 
 class PerfilPrestador extends StatefulWidget {
   final String userId;
@@ -240,30 +243,46 @@ class _PerfilPrestadorState extends State<PerfilPrestador> {
                               widget.userId,
                             ),
                             builder: (context, s) {
-                              final media =
-                                  (s.data?['media'] ??
-                                          avaliacaoDoc) // fallback enquanto carrega
-                                      .toDouble();
-                              final qtd =
-                                  (s.data?['qtd'] ??
-                                          qtdAvaliacoesDoc) // fallback
-                                      .toInt();
+                              if (!s.hasData) {
+                                return const SizedBox.shrink(); // retorna algo vazio enquanto carrega
+                              }
 
-                              return Row(
-                                children: [
-                                  const Icon(
-                                    Icons.star,
-                                    color: Colors.amber,
-                                    size: 16,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    '${media.toStringAsFixed(1)} ($qtd avaliações)',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w500,
+                              final media = (s.data?['media'] ?? avaliacaoDoc)
+                                  .toDouble();
+                              final qtd = (s.data?['qtd'] ?? qtdAvaliacoesDoc)
+                                  .toInt();
+
+                              return InkWell(
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          VisualizarAvaliacoesPrestador(
+                                            prestadorId: widget.userId,
+                                          ),
                                     ),
-                                  ),
-                                ],
+                                  );
+                                },
+                                child: Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.star,
+                                      color: Colors.amber,
+                                      size: 16,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      '${media.toStringAsFixed(1)} ($qtd avaliações)',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w500,
+                                        color: Colors.black87, // 🔹 cor preta
+                                        decoration: TextDecoration
+                                            .none, // 🔹 remove sublinhado
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               );
                             },
                           ),
@@ -308,36 +327,125 @@ class _PerfilPrestadorState extends State<PerfilPrestador> {
                   'Formas de Pagamento:',
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
+                const SizedBox(height: 6),
                 if (meiosDyn.isEmpty)
                   const Text('-')
                 else
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: -8,
-                    children: meiosDyn
-                        .map((p) => Chip(label: Text('$p')))
-                        .toList(),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 8,
+                      horizontal: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border.all(color: Colors.black12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: meiosDyn.map((p) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.circle,
+                                size: 6,
+                                color: Colors.deepPurple,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                p.toString(),
+                                style: const TextStyle(fontSize: 15),
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ),
                   ),
 
                 const SizedBox(height: 12),
 
                 // ---------- Jornada ----------
+                const SizedBox(height: 16),
                 const Text(
-                  'Jornada:',
+                  'Jornada de Trabalho:',
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
+                const SizedBox(height: 6),
                 if (jornadaDyn.isEmpty)
                   const Text('-')
                 else
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: -8,
-                    children: jornadaDyn
-                        .map((d) => Chip(label: Text('$d')))
-                        .toList(),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 8,
+                      horizontal: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border.all(color: Colors.black12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: jornadaDyn.map((dia) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.access_time,
+                                size: 16,
+                                color: Colors.deepPurple,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                dia.toString(),
+                                style: const TextStyle(fontSize: 15),
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ),
                   ),
 
                 const SizedBox(height: 20),
+
+                // Botão trocar perfil (para quem é ambos)
+                if ((dados['tipoPerfil'] ?? '') == 'Ambos') ...[
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.setString('perfilAtivo', 'Cliente');
+                        if (mounted) {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const HomeScreen(),
+                            ),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.swap_horiz),
+                      label: const Text('Trocar para Cliente'),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        side: const BorderSide(color: Colors.deepPurple),
+                        foregroundColor: Colors.deepPurple,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
 
                 // ---------- Botão Editar Perfil ----------
                 SizedBox(

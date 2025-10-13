@@ -1,4 +1,3 @@
-// lib/Prestador/visualizarResposta.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -51,105 +50,160 @@ class _VisualizarRespostaPrestadorScreenState
           }
 
           final d = snap.data!.data() ?? {};
-
           final servicoTitulo = (d['servicoTitulo'] ?? '').toString();
-          final descricao = (d['descricaoDetalhada'] ?? '').toString();
           final quantidade = (d['quantidade'] ?? '').toString();
           final valorProposto = (d['valorProposto'] as num?)?.toDouble();
           final dataInicio = _fmtData(d['dataInicioSugerida']);
           final dataFim = _fmtData(d['dataFinalPrevista']);
-          final clienteNome = (d['clienteNome'] ?? '').toString();
-          final clienteEndereco = (d['clienteEndereco']?['cidade'] ?? '').toString();
-          final clienteWhats = (d['clienteEndereco']?['whatsapp'] ?? '').toString();
           final tempoValor = (d['tempoEstimadoValor'] ?? '').toString();
           final tempoUnidade = (d['tempoEstimadoUnidade'] ?? '').toString();
+          final servicoId = (d['servicoId'] ?? '').toString();
+          final clienteNome = (d['clienteNome'] ?? '').toString();
+          final clienteWhats = (d['clienteWhatsapp'] ?? '').toString();
 
-          return SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // ===== Cabeçalho (Cliente) =====
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFFB388FF), Color(0xFF7C4DFF)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
+          // 🔹 Unidade (id e abreviação)
+          final unidadeSelecionadaId =
+              (d['unidadeSelecionadaId'] ?? '').toString();
+          final servicoUnidadeId =
+              (d['servicoUnidadeId'] ?? '').toString(); // fallback
+          final unidadeIdUsar = unidadeSelecionadaId.isNotEmpty
+              ? unidadeSelecionadaId
+              : servicoUnidadeId;
+
+          final clienteEndereco =
+              (d['clienteEndereco'] ?? {}) as Map<String, dynamic>;
+          final rua = (clienteEndereco['rua'] ?? '').toString();
+          final numero = (clienteEndereco['numero'] ?? '').toString();
+          final bairro = (clienteEndereco['bairro'] ?? '').toString();
+          final cidade = (clienteEndereco['cidade'] ?? '').toString();
+          final complemento = (clienteEndereco['complemento'] ?? '').toString();
+
+          final enderecoCompleto = [
+            if (rua.isNotEmpty) rua,
+            if (numero.isNotEmpty) 'Nº $numero',
+            if (bairro.isNotEmpty) bairro,
+            if (cidade.isNotEmpty) cidade,
+            if (complemento.isNotEmpty) complemento,
+          ].join(', ');
+
+          return FutureBuilder<Map<String, dynamic>>(
+            future: _getInfo(servicoId, unidadeIdUsar),
+            builder: (context, snapInfo) {
+              if (!snapInfo.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              final info = snapInfo.data!;
+              final imagemUrl = info['imagemUrl'] ?? '';
+              final valorMin = info['valorMin'];
+              final valorMed = info['valorMed'];
+              final valorMax = info['valorMax'];
+              final unidadeAbrev = info['unidadeAbrev'] ?? '';
+              final categoriaNome = info['categoriaNome'] ?? '';
+              final descricaoServ = info['descricaoServ'] ?? '';
+
+              final whatsapp = clienteWhats;
+
+              return SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _ServicoResumoCard(
+                      titulo: servicoTitulo,
+                      descricao: descricaoServ,
+                      imagemUrl: imagemUrl,
+                      categoriaNome: categoriaNome,
+                      cidade: cidade,
+                      valorMin: valorMin,
+                      valorMed: valorMed,
+                      valorMax: valorMax,
+                      unidadeAbrev: unidadeAbrev,
                     ),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Solicitação do Cliente',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 17,
-                        ),
+
+                    const SizedBox(height: 20),
+                    const _SectionTitle('Quantidade ou dimensão'),
+                    _ReadonlyBox(
+                      '${quantidade.replaceAll('.0', '')} ${unidadeAbrev.isNotEmpty ? unidadeAbrev : ''}'
+                          .trim(),
+                    ),
+
+                    const SizedBox(height: 16),
+                    const _SectionTitle('Data de início sugerida'),
+                    _ReadonlyBox(dataInicio),
+
+                    const SizedBox(height: 16),
+                    const _SectionTitle('Data final prevista'),
+                    _ReadonlyBox(dataFim),
+
+                    const SizedBox(height: 16),
+                    const _SectionTitle('Estimativa de valor'),
+                    _ReadonlyBox(moeda.format(valorProposto ?? 0)),
+
+                    const SizedBox(height: 16),
+                    const _SectionTitle('Tempo estimado de execução'),
+                    _ReadonlyBox(_formatTempo(tempoValor, tempoUnidade)),
+
+                    const SizedBox(height: 20),
+                    const _SectionTitle('Informações do Cliente'),
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.black12),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        clienteNome.isEmpty ? 'Cliente não identificado' : clienteNome,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Nome: $clienteNome',
+                              style: const TextStyle(fontSize: 14)),
+                          const SizedBox(height: 4),
+                          Text('Endereço: $enderecoCompleto',
+                              style: const TextStyle(fontSize: 14)),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Icon(
+                                FontAwesomeIcons.whatsapp,
+                                size: 16,
+                                color: whatsapp.isEmpty
+                                    ? Colors.grey
+                                    : Colors.green,
+                              ),
+                              const SizedBox(width: 6),
+                              Flexible(
+                                child: Text(
+                                  whatsapp.isEmpty ? 'Sem WhatsApp' : whatsapp,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: whatsapp.isEmpty
+                                        ? Colors.grey
+                                        : Colors.black87,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        clienteEndereco.isEmpty ? '—' : clienteEndereco,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-
-                const SizedBox(height: 20),
-                const _SectionTitle('Serviço solicitado'),
-                _ReadonlyBox(servicoTitulo.isEmpty ? '—' : servicoTitulo),
-
-                const SizedBox(height: 16),
-                const _SectionTitle('Descrição detalhada da solicitação'),
-                _ReadonlyBox(descricao.isEmpty ? '—' : descricao, multiline: true),
-
-                const SizedBox(height: 16),
-                const _SectionTitle('Quantidade ou dimensão'),
-                _ReadonlyBox(quantidade.replaceAll('.0', '')),
-
-                const SizedBox(height: 16),
-                const _SectionTitle('Data de início sugerida'),
-                _ReadonlyBox(dataInicio),
-
-                const SizedBox(height: 16),
-                const _SectionTitle('Data final prevista'),
-                _ReadonlyBox(dataFim),
-
-                const SizedBox(height: 16),
-                const _SectionTitle('Estimativa de valor'),
-                _ReadonlyBox(moeda.format(valorProposto ?? 0)),
-
-                const SizedBox(height: 16),
-                const _SectionTitle('Tempo estimado de execução'),
-                _ReadonlyBox(_formatTempo(tempoValor, tempoUnidade)),
-
-                const SizedBox(height: 16),
-                const _SectionTitle('Contato do cliente'),
-                _ContatoBox(clienteWhats),
-              ],
-            ),
+              );
+            },
           );
         },
       ),
     );
   }
+
+  // ==============================================================
+  // 🔹 Funções auxiliares
+  // ==============================================================
 
   static String _fmtData(dynamic ts) {
     if (ts is! Timestamp) return '—';
@@ -165,16 +219,190 @@ class _VisualizarRespostaPrestadorScreenState
     }
     return '$valor $unidadeFmt'.trim();
   }
+
+  Future<Map<String, dynamic>> _getInfo(
+    String servicoId,
+    String unidadeIdUsar,
+  ) async {
+    String imagemUrl = '';
+    String categoriaNome = '';
+    double? valorMin, valorMed, valorMax;
+    String unidadeAbrev = '';
+    String descricaoServ = '';
+
+    try {
+      // 🔹 Busca dados do serviço
+      if (servicoId.isNotEmpty) {
+        final servico = await FirebaseFirestore.instance
+            .collection('servicos')
+            .doc(servicoId)
+            .get();
+        if (servico.exists) {
+          final s = servico.data()!;
+          descricaoServ = (s['descricao'] ?? '').toString();
+          valorMin = (s['valorMinimo'] as num?)?.toDouble();
+          valorMed = (s['valorMedio'] as num?)?.toDouble();
+          valorMax = (s['valorMaximo'] as num?)?.toDouble();
+
+          final categoriaId = (s['categoriaId'] ?? '').toString();
+          if (categoriaId.isNotEmpty) {
+            final cat = await FirebaseFirestore.instance
+                .collection('categoriasServicos')
+                .doc(categoriaId)
+                .get();
+            final catData = cat.data();
+            imagemUrl = (catData?['imagemUrl'] ?? '').toString();
+            categoriaNome = (catData?['nome'] ?? '').toString();
+          }
+        }
+      }
+
+      // 🔹 Busca unidade de medida
+      if (unidadeIdUsar.isNotEmpty) {
+        final unidadeDoc = await FirebaseFirestore.instance
+            .collection('unidades')
+            .doc(unidadeIdUsar)
+            .get();
+        if (unidadeDoc.exists) {
+          unidadeAbrev = (unidadeDoc.data()?['abreviacao'] ?? '').toString();
+        }
+      }
+    } catch (e) {
+      debugPrint('Erro ao buscar info: $e');
+    }
+
+    return {
+      'imagemUrl': imagemUrl,
+      'descricaoServ': descricaoServ,
+      'valorMin': valorMin,
+      'valorMed': valorMed,
+      'valorMax': valorMax,
+      'unidadeAbrev': unidadeAbrev,
+      'categoriaNome': categoriaNome,
+    };
+  }
 }
 
 /* =======================================================
-   COMPONENTES REUTILIZADOS
+   COMPONENTES
    ======================================================= */
+
+class _ServicoResumoCard extends StatelessWidget {
+  final String titulo;
+  final String descricao;
+  final String imagemUrl;
+  final String categoriaNome;
+  final String cidade;
+  final double? valorMin;
+  final double? valorMed;
+  final double? valorMax;
+  final String unidadeAbrev;
+
+  const _ServicoResumoCard({
+    required this.titulo,
+    required this.descricao,
+    required this.imagemUrl,
+    required this.categoriaNome,
+    required this.cidade,
+    required this.valorMin,
+    required this.valorMed,
+    required this.valorMax,
+    required this.unidadeAbrev,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final moeda = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x22000000),
+            blurRadius: 6,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              width: 54,
+              height: 54,
+              color: Colors.grey.shade200,
+              child: imagemUrl.isEmpty
+                  ? const Icon(
+                      Icons.image_outlined,
+                      color: Colors.deepPurple,
+                      size: 28,
+                    )
+                  : Image.network(imagemUrl, fit: BoxFit.cover),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  titulo,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  descricao.isEmpty ? '—' : descricao,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.black54, fontSize: 13),
+                ),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.location_on_outlined,
+                      size: 15,
+                      color: Colors.black54,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      cidade.isEmpty ? '—' : cidade,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Colors.black54,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${moeda.format(valorMin ?? 0)} – ${moeda.format(valorMed ?? 0)} – ${moeda.format(valorMax ?? 0)}'
+                  '${unidadeAbrev.isNotEmpty ? '/$unidadeAbrev' : ''}',
+                  style: const TextStyle(
+                    color: Colors.deepPurple,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _SectionTitle extends StatelessWidget {
   final String text;
   const _SectionTitle(this.text);
-
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -195,7 +423,6 @@ class _ReadonlyBox extends StatelessWidget {
   final String text;
   final bool multiline;
   const _ReadonlyBox(this.text, {this.multiline = false});
-
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -207,43 +434,7 @@ class _ReadonlyBox extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.black12),
       ),
-      child: Text(
-        text,
-        style: const TextStyle(fontSize: 14),
-      ),
-    );
-  }
-}
-
-class _ContatoBox extends StatelessWidget {
-  final String whatsapp;
-  const _ContatoBox(this.whatsapp);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: Colors.black12),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          const FaIcon(
-            FontAwesomeIcons.whatsapp,
-            color: Color(0xFF25D366),
-            size: 20,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              whatsapp.isEmpty ? 'Sem WhatsApp' : whatsapp,
-              style: const TextStyle(fontSize: 14),
-            ),
-          ),
-        ],
-      ),
+      child: Text(text, style: const TextStyle(fontSize: 14)),
     );
   }
 }

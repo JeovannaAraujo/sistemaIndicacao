@@ -102,7 +102,6 @@ class _VisualizarRespostaScreenState extends State<VisualizarRespostaScreen> {
                     _ServicoResumoCard(
                       titulo: (d['servicoTitulo'] ?? '').toString(),
                       descricao: (d['servicoDescricao'] ?? '').toString(),
-                      prestadorNome: prestadorNome,
                       cidade: cidade,
                       imagemUrl: imagemUrl,
                       valorMin: valorMin,
@@ -334,7 +333,6 @@ class _VisualizarRespostaScreenState extends State<VisualizarRespostaScreen> {
 class _ServicoResumoCard extends StatelessWidget {
   final String titulo;
   final String descricao;
-  final String prestadorNome;
   final String cidade;
   final String imagemUrl;
   final double? valorMin;
@@ -345,7 +343,6 @@ class _ServicoResumoCard extends StatelessWidget {
   const _ServicoResumoCard({
     required this.titulo,
     required this.descricao,
-    required this.prestadorNome,
     required this.cidade,
     required this.imagemUrl,
     required this.valorMin,
@@ -353,11 +350,9 @@ class _ServicoResumoCard extends StatelessWidget {
     required this.valorMax,
     required this.unidadeAbrev,
   });
-
   @override
   Widget build(BuildContext context) {
     final moeda = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
-
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -409,10 +404,6 @@ class _ServicoResumoCard extends StatelessWidget {
                   style: const TextStyle(color: Colors.black54, fontSize: 13),
                 ),
                 const SizedBox(height: 6),
-                Text(
-                  'Prestador: $prestadorNome',
-                  style: const TextStyle(fontSize: 13.5),
-                ),
                 Row(
                   children: [
                     const Icon(

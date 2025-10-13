@@ -4,6 +4,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'rotasNavegacao.dart';
 import 'editarPerfilCliente.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../Prestador/homePrestador.dart';
 
 class PerfilCliente extends StatefulWidget {
   final String userId;
@@ -186,6 +188,37 @@ class _PerfilClienteState extends State<PerfilCliente> {
                 ),
 
                 const SizedBox(height: 20),
+
+                if ((data['tipoPerfil'] ?? '') == 'Ambos') ...[
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.setString('perfilAtivo', 'Prestador');
+                        if (mounted) {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const HomePrestadorScreen(),
+                            ),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.swap_horiz),
+                      label: const Text('Trocar para Prestador'),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        side: const BorderSide(color: Colors.deepPurple),
+                        foregroundColor: Colors.deepPurple,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
 
                 // ===== Botão: Editar Perfil =====
                 SizedBox(

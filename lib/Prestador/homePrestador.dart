@@ -10,8 +10,6 @@ import 'visualizarAvaliacoes.dart';
 import 'cadastroServicos.dart';
 import 'notificacoes.dart';
 import 'servicosFinalizados.dart';
-
-// >>> importe as rotas do Prestador
 import 'rotasNavegacao.dart';
 
 class HomePrestadorScreen extends StatefulWidget {
@@ -1039,14 +1037,14 @@ class _ServiceCard extends StatelessWidget {
               return Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  'Min: R\$ ${format(vMin)}   '
-                  'Méd: R\$ ${format(vMed)}   '
-                  'Máx: R\$ ${format(vMax)} / $unidadeAbrev',
+                  'Min: R\$${format(vMin)}   '
+                  'Méd: R\$${format(vMed)}   '
+                  'Máx: R\$${format(vMax)}/$unidadeAbrev',
                   textAlign: TextAlign.start,
                   style: const TextStyle(
                     fontWeight: FontWeight.w700,
                     color: Colors.deepPurple,
-                    fontSize: 13,
+                    fontSize: 12,
                     height: 1.2,
                   ),
                 ),

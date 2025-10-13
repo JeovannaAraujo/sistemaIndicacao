@@ -47,6 +47,9 @@ class DetalhesSolicitacaoScreen extends StatelessWidget {
           }
 
           final d = snap.data!.data()!;
+          final status = (d['status'] ?? '')
+              .toString()
+              .toLowerCase(); // 🔹 Obtém o status
           final estimativa = (d['estimativaValor'] is num)
               ? moeda.format((d['estimativaValor'] as num).toDouble())
               : 'R\$0,00';
@@ -102,12 +105,20 @@ class DetalhesSolicitacaoScreen extends StatelessWidget {
             return partes.join('. ');
           }
 
+          // 🔹 Verifica se os botões devem ser desativados (status processado)
+          final bool isProcessada = [
+            'respondida',
+            'aceita',
+            'recusada',
+            'cancelada',
+            'finalizada',
+          ].contains(status);
+
           return SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Estimativa
                 // Estimativa
                 const _SectionTitle('Estimativa de Valor'),
                 const SizedBox(height: 6),
@@ -287,51 +298,56 @@ class DetalhesSolicitacaoScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 24),
 
-                // Ações
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  EnviarOrcamentoScreen(solicitacaoId: docId),
+                // Ações (desativadas se status processado)
+                if (!isProcessada) ...[
+                  // Botão Enviar Orçamento (ativo apenas se pendente)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    EnviarOrcamentoScreen(solicitacaoId: docId),
+                              ),
+                            );
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.deepPurple,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
                             ),
-                          );
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.deepPurple,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
                           ),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          child: const Text('Enviar Orçamento'),
                         ),
-                        child: const Text('Enviar Orçamento'),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: FilledButton.tonal(
-                        onPressed: () => _abrirDialogoRecusar(context),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFFE9D7FF),
-                          foregroundColor: Colors.deepPurple,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  // Botão Recusar (ativo apenas se pendente)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.tonal(
+                          onPressed: () => _abrirDialogoRecusar(context),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFFE9D7FF),
+                            foregroundColor: Colors.deepPurple,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
                           ),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          child: const Text('Recusar Solicitação'),
                         ),
-                        child: const Text('Recusar Solicitação'),
                       ),
-                    ),
-                  ],
-                ),
+                    ],
+                  ),
+                ] else
+                  ...[],
               ],
             ),
           );
@@ -412,7 +428,7 @@ class _ReadonlyField extends StatelessWidget {
     required this.controller,
     this.centered = false,
     this.trailingIcon,
-  }) : multiline = false; // ✅ inicializa o final
+  }) : multiline = false;
 
   const _ReadonlyField.multiline({required this.controller})
     : multiline = true,
@@ -432,7 +448,22 @@ class _ReadonlyField extends StatelessWidget {
         filled: true,
         fillColor: Colors.white,
         hintText: '—',
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Colors.black12),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Colors.black26),
+        ),
+        disabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Colors.black12),
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Colors.black12),
+        ),
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 12,
           vertical: 12,

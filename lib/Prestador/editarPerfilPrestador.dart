@@ -38,6 +38,7 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
   String tempoExperiencia = '';
   final List<String> meiosPagamento = [];
   final List<String> jornada = [];
+  final List<String> areaAtendimento = [];
 
   // foto de perfil
   String? _fotoUrl; // URL pública salva no Firestore (usuarios/{uid}.fotoUrl)
@@ -87,7 +88,9 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
         }
         return;
       }
+
       final d = doc.data()!;
+
       nomeCtrl.text = (d['nome'] ?? '') as String;
       emailCtrl.text = (d['email'] ?? '') as String;
 
@@ -113,6 +116,14 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
       (d['jornada'] as List?)?.forEach((e) {
         final s = '$e';
         if (!jornada.contains(s)) jornada.add(s);
+      });
+
+      // foto
+      _fotoUrl = (d['fotoUrl'] ?? '') as String?;
+      _fotoPath = (d['fotoPath'] ?? '') as String?;
+      (d['areasAtendimento'] as List?)?.forEach((e) {
+        final s = '$e';
+        if (!areaAtendimento.contains(s)) areaAtendimento.add(s);
       });
 
       // foto
@@ -245,7 +256,7 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
         'categoriaProfissionalId': categoriaProfId,
         'descricao': descricaoCtrl.text.trim(),
         'tempoExperiencia': tempoExperiencia,
-        'areaAtendimento': areaAtendimentoCtrl.text.trim(),
+        'areasAtendimento': areaAtendimento.toSet().toList(),
         'meiosPagamento': meiosPagamento.toSet().toList(),
         'jornada': jornada.toSet().toList(),
         'endereco': {
@@ -374,355 +385,492 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Editar perfil')),
-      body: carregando
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // ===== CABEÇALHO COM AVATAR + BOTÃO CÂMERA =====
-                    Center(
-                      child: Stack(
-                        alignment: Alignment.bottomRight,
-                        children: [
-                          CircleAvatar(
-                            radius: 48,
-                            backgroundColor: Colors.deepPurple.shade50,
-                            backgroundImage:
-                                (_fotoUrl != null && _fotoUrl!.isNotEmpty)
-                                ? NetworkImage(_fotoUrl!)
-                                : null,
-                            child: (_fotoUrl == null || _fotoUrl!.isEmpty)
-                                ? const Icon(
-                                    Icons.person,
-                                    size: 48,
-                                    color: Colors.deepPurple,
-                                  )
-                                : null,
-                          ),
-                          Positioned(
-                            right: -4,
-                            bottom: -4,
-                            child: ElevatedButton(
-                              onPressed: _enviandoFoto
-                                  ? null
-                                  : _selecionarFotoPerfil,
-                              style: ElevatedButton.styleFrom(
-                                padding: const EdgeInsets.all(10),
-                                shape: const CircleBorder(),
-                                backgroundColor: Colors.deepPurple,
-                              ),
-                              child: _enviandoFoto
-                                  ? const SizedBox(
-                                      height: 16,
-                                      width: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
+    final inputDecoration = const InputDecorationTheme(
+      border: OutlineInputBorder(
+        borderSide: BorderSide(color: Colors.black12),
+        borderRadius: BorderRadius.all(Radius.circular(12)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderSide: BorderSide(color: Colors.black12),
+        borderRadius: BorderRadius.all(Radius.circular(12)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderSide: BorderSide(color: Colors.deepPurple),
+        borderRadius: BorderRadius.all(Radius.circular(12)),
+      ),
+      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+    );
+
+    return Theme(
+      data: Theme.of(context).copyWith(inputDecorationTheme: inputDecoration),
+      child: Scaffold(
+        appBar: AppBar(title: const Text('Editar perfil')),
+        body: carregando
+            ? const Center(child: CircularProgressIndicator())
+            : SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // ===== CABEÇALHO COM AVATAR + BOTÃO CÂMERA =====
+                      Center(
+                        child: Stack(
+                          alignment: Alignment.bottomRight,
+                          children: [
+                            CircleAvatar(
+                              radius: 48,
+                              backgroundColor: Colors.deepPurple.shade50,
+                              backgroundImage:
+                                  (_fotoUrl != null && _fotoUrl!.isNotEmpty)
+                                  ? NetworkImage(_fotoUrl!)
+                                  : null,
+                              child: (_fotoUrl == null || _fotoUrl!.isEmpty)
+                                  ? const Icon(
+                                      Icons.person,
+                                      size: 48,
+                                      color: Colors.deepPurple,
+                                    )
+                                  : null,
+                            ),
+                            Positioned(
+                              right: -4,
+                              bottom: -4,
+                              child: ElevatedButton(
+                                onPressed: _enviandoFoto
+                                    ? null
+                                    : _selecionarFotoPerfil,
+                                style: ElevatedButton.styleFrom(
+                                  padding: const EdgeInsets.all(10),
+                                  shape: const CircleBorder(),
+                                  backgroundColor: Colors.deepPurple,
+                                ),
+                                child: _enviandoFoto
+                                    ? const SizedBox(
+                                        height: 16,
+                                        width: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : const Icon(
+                                        Icons.camera_alt,
+                                        size: 18,
                                         color: Colors.white,
                                       ),
-                                    )
-                                  : const Icon(
-                                      Icons.camera_alt,
-                                      size: 18,
-                                      color: Colors.white,
-                                    ),
+                              ),
                             ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Center(
+                        child: Text(
+                          nomeCtrl.text.isNotEmpty ? nomeCtrl.text : 'Seu nome',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                      if (_fotoUrl != null && _fotoUrl!.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Center(
+                          child: TextButton.icon(
+                            onPressed: _removerFotoPerfil,
+                            icon: const Icon(Icons.delete_outline),
+                            label: const Text('Remover foto'),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 8),
+
+                      // ===== FIM CABEÇALHO =====
+                      _secTitle('Informações Pessoais'),
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<String>(
+                        value:
+                            (tipoPerfil.isEmpty ||
+                                ![
+                                  'Cliente',
+                                  'Prestador',
+                                  'Ambos',
+                                ].contains(tipoPerfil))
+                            ? 'Cliente'
+                            : tipoPerfil,
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'Cliente',
+                            child: Text('Cliente'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'Prestador',
+                            child: Text('Prestador'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'Ambos',
+                            child: Text('Ambos'),
                           ),
                         ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Center(
-                      child: Text(
-                        nomeCtrl.text.isNotEmpty ? nomeCtrl.text : 'Seu nome',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                    if (_fotoUrl != null && _fotoUrl!.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Center(
-                        child: TextButton.icon(
-                          onPressed: _removerFotoPerfil,
-                          icon: const Icon(Icons.delete_outline),
-                          label: const Text('Remover foto'),
+                        onChanged: (v) {
+                          if (v != null) setState(() => tipoPerfil = v);
+                        },
+                        decoration: const InputDecoration(
+                          labelText: 'Tipo de perfil',
+                          border: OutlineInputBorder(
+                            borderSide: BorderSide(color: Colors.black12),
+                            borderRadius: BorderRadius.all(Radius.circular(12)),
+                          ),
                         ),
                       ),
-                    ],
-                    const SizedBox(height: 8),
-
-                    // ===== FIM CABEÇALHO =====
-                    _secTitle('Informações Pessoais'),
-                    DropdownButtonFormField<String>(
-                      initialValue: tipoPerfil,
-                      items: const ['Prestador', 'Ambos']
-                          .map(
-                            (e) => DropdownMenuItem(value: e, child: Text(e)),
-                          )
-                          .toList(),
-                      onChanged: (v) =>
-                          setState(() => tipoPerfil = v ?? 'Prestador'),
-                      decoration: const InputDecoration(
-                        labelText: 'Tipo de perfil',
+                      const SizedBox(height: 15),
+                      TextFormField(
+                        controller: nomeCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Nome completo',
+                        ),
+                        validator: (v) => (v == null || v.trim().isEmpty)
+                            ? 'Obrigatório'
+                            : null,
+                        onChanged: (_) =>
+                            setState(() {}), // atualiza o cabeçalho com o nome
                       ),
-                    ),
-                    TextFormField(
-                      controller: nomeCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Nome completo',
+                      const SizedBox(height: 15),
+                      TextFormField(
+                        controller: emailCtrl,
+                        readOnly: true,
+                        decoration: const InputDecoration(labelText: 'E-mail'),
                       ),
-                      validator: (v) => (v == null || v.trim().isEmpty)
-                          ? 'Obrigatório'
-                          : null,
-                      onChanged: (_) =>
-                          setState(() {}), // atualiza o cabeçalho com o nome
-                    ),
-                    TextFormField(
-                      controller: emailCtrl,
-                      readOnly: true,
-                      decoration: const InputDecoration(labelText: 'E-mail'),
-                    ),
-
-                    _secTitle('Endereço e contato'),
-                    TextFormField(
-                      controller: whatsappCtrl,
-                      decoration: const InputDecoration(labelText: 'WhatsApp'),
-                      validator: (v) => (v == null || v.trim().isEmpty)
-                          ? 'Obrigatório'
-                          : null,
-                    ),
-                    TextFormField(
-                      controller: cepCtrl,
-                      decoration: const InputDecoration(labelText: 'CEP'),
-                    ),
-                    TextFormField(
-                      controller: cidadeCtrl,
-                      decoration: const InputDecoration(labelText: 'Cidade'),
-                      validator: (v) => (v == null || v.trim().isEmpty)
-                          ? 'Obrigatório'
-                          : null,
-                    ),
-                    TextFormField(
-                      controller: ruaCtrl,
-                      decoration: const InputDecoration(labelText: 'Rua'),
-                    ),
-                    TextFormField(
-                      controller: numeroCtrl,
-                      decoration: const InputDecoration(labelText: 'Número'),
-                    ),
-                    TextFormField(
-                      controller: bairroCtrl,
-                      decoration: const InputDecoration(labelText: 'Bairro'),
-                    ),
-                    TextFormField(
-                      controller: complementoCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Complemento',
+                      const SizedBox(height: 15),
+                      _secTitle('Endereço e contato'),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: whatsappCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'WhatsApp',
+                        ),
+                        validator: (v) => (v == null || v.trim().isEmpty)
+                            ? 'Obrigatório'
+                            : null,
                       ),
-                    ),
+                      const SizedBox(height: 15),
+                      TextFormField(
+                        controller: cepCtrl,
+                        decoration: const InputDecoration(labelText: 'CEP'),
+                      ),
+                      const SizedBox(height: 15),
+                      TextFormField(
+                        controller: cidadeCtrl,
+                        decoration: const InputDecoration(labelText: 'Cidade'),
+                        validator: (v) => (v == null || v.trim().isEmpty)
+                            ? 'Obrigatório'
+                            : null,
+                      ),
+                      const SizedBox(height: 15),
+                      TextFormField(
+                        controller: ruaCtrl,
+                        decoration: const InputDecoration(labelText: 'Rua'),
+                      ),
+                      const SizedBox(height: 15),
+                      TextFormField(
+                        controller: numeroCtrl,
+                        decoration: const InputDecoration(labelText: 'Número'),
+                      ),
+                      const SizedBox(height: 15),
+                      TextFormField(
+                        controller: bairroCtrl,
+                        decoration: const InputDecoration(labelText: 'Bairro'),
+                      ),
+                      const SizedBox(height: 15),
+                      TextFormField(
+                        controller: complementoCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Complemento',
+                        ),
+                      ),
 
-                    _secTitle('Informações Profissionais'),
-                    StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                      stream: _categoriasStream,
-                      builder: (context, snap) {
-                        if (snap.connectionState == ConnectionState.waiting) {
+                      _secTitle('Informações Profissionais'),
+                      const SizedBox(height: 8),
+                      StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                        stream: _categoriasStream,
+                        builder: (context, snap) {
+                          if (snap.connectionState == ConnectionState.waiting) {
+                            return DropdownButtonFormField<String>(
+                              items: const [],
+                              onChanged: null,
+                              decoration: const InputDecoration(
+                                labelText: 'Categoria profissional',
+                              ),
+                              hint: const Text('Carregando categorias...'),
+                            );
+                          }
+                          if (snap.hasError) {
+                            return const Text(
+                              'Erro ao carregar categorias ativas.',
+                            );
+                          }
+                          final docs = snap.data?.docs ?? [];
+                          if (docs.isEmpty) {
+                            return const Text(
+                              'Nenhuma categoria ativa disponível.',
+                              style: TextStyle(color: Colors.red),
+                            );
+                          }
+
+                          final itens = docs.map((d) {
+                            final id = d.id;
+                            final nome = (d.data()['nome'] ?? '') as String;
+                            return DropdownMenuItem<String>(
+                              value: id,
+                              child: Text(nome),
+                            );
+                          }).toList();
+
+                          if (categoriaProfId != null &&
+                              !docs.any((d) => d.id == categoriaProfId)) {
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              setState(() => categoriaProfId = null);
+                            });
+                          }
+
                           return DropdownButtonFormField<String>(
-                            items: const [],
-                            onChanged: null,
+                            initialValue: categoriaProfId,
+                            items: itens,
+                            onChanged: (v) =>
+                                setState(() => categoriaProfId = v),
                             decoration: const InputDecoration(
                               labelText: 'Categoria profissional',
                             ),
-                            hint: const Text('Carregando categorias...'),
+                            hint: const Text('Selecione sua categoria'),
                           );
-                        }
-                        if (snap.hasError) {
-                          return const Text(
-                            'Erro ao carregar categorias ativas.',
-                          );
-                        }
-                        final docs = snap.data?.docs ?? [];
-                        if (docs.isEmpty) {
-                          return const Text(
-                            'Nenhuma categoria ativa disponível.',
-                            style: TextStyle(color: Colors.red),
-                          );
-                        }
-
-                        final itens = docs.map((d) {
-                          final id = d.id;
-                          final nome = (d.data()['nome'] ?? '') as String;
-                          return DropdownMenuItem<String>(
-                            value: id,
-                            child: Text(nome),
-                          );
-                        }).toList();
-
-                        if (categoriaProfId != null &&
-                            !docs.any((d) => d.id == categoriaProfId)) {
-                          WidgetsBinding.instance.addPostFrameCallback((_) {
-                            setState(() => categoriaProfId = null);
-                          });
-                        }
-
-                        return DropdownButtonFormField<String>(
-                          initialValue: categoriaProfId,
-                          items: itens,
-                          onChanged: (v) => setState(() => categoriaProfId = v),
-                          decoration: const InputDecoration(
-                            labelText: 'Categoria profissional',
+                        },
+                      ),
+                      const SizedBox(height: 15),
+                      TextFormField(
+                        controller: descricaoCtrl,
+                        maxLines: 4,
+                        decoration: const InputDecoration(
+                          labelText: 'Descrição do profissional',
+                          hintText: 'Fale um pouco sobre seus serviços',
+                          border: OutlineInputBorder(
+                            borderSide: BorderSide(color: Colors.black12),
+                            borderRadius: BorderRadius.all(Radius.circular(12)),
                           ),
-                          hint: const Text('Selecione sua categoria'),
-                        );
-                      },
-                    ),
-
-                    TextFormField(
-                      controller: descricaoCtrl,
-                      maxLines: 4,
-                      decoration: const InputDecoration(
-                        labelText:
-                            'Descrição do profissional (mín. 100 caracteres)',
+                        ),
+                        // ❌ Removemos o limite de 100 caracteres
+                        validator: (v) => (v == null || v.trim().isEmpty)
+                            ? 'Campo obrigatório'
+                            : null,
                       ),
-                      validator: (v) => (v == null || v.trim().length < 100)
-                          ? 'Mínimo 100 caracteres'
-                          : null,
-                    ),
-
-                    DropdownButtonFormField<String>(
-                      initialValue: tempoExperiencia.isEmpty ? null : tempoExperiencia,
-                      items: experiencias
-                          .map(
-                            (e) => DropdownMenuItem(value: e, child: Text(e)),
-                          )
-                          .toList(),
-                      onChanged: (v) =>
-                          setState(() => tempoExperiencia = v ?? ''),
-                      decoration: const InputDecoration(
-                        labelText: 'Tempo de experiência',
+                      const SizedBox(height: 15),
+                      DropdownButtonFormField<String>(
+                        initialValue: tempoExperiencia.isEmpty
+                            ? null
+                            : tempoExperiencia,
+                        items: experiencias
+                            .map(
+                              (e) => DropdownMenuItem(value: e, child: Text(e)),
+                            )
+                            .toList(),
+                        onChanged: (v) =>
+                            setState(() => tempoExperiencia = v ?? ''),
+                        decoration: const InputDecoration(
+                          labelText: 'Tempo de experiência',
+                        ),
+                        validator: (_) =>
+                            tempoExperiencia.isEmpty ? 'Obrigatório' : null,
                       ),
-                      validator: (_) =>
-                          tempoExperiencia.isEmpty ? 'Obrigatório' : null,
-                    ),
-
-                    TextFormField(
-                      controller: areaAtendimentoCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Cidade / Área de atendimento',
-                        hintText: 'Ex: Rio Verde',
+                      const SizedBox(height: 15),
+                      // ===== ÁREA DE ATENDIMENTO (múltiplas cidades) =====
+                      _secTitle('Cidade / Área de atendimento'),
+                      TextField(
+                        controller: areaAtendimentoCtrl,
+                        decoration: InputDecoration(
+                          hintText: 'Ex: Rio Verde',
+                          suffixIcon: IconButton(
+                            icon: const Icon(Icons.add),
+                            onPressed: () {
+                              final txt = areaAtendimentoCtrl.text.trim();
+                              if (txt.isEmpty) return;
+                              final normalizado =
+                                  txt[0].toUpperCase() +
+                                  txt.substring(1).toLowerCase();
+                              if (!areaAtendimento.contains(normalizado)) {
+                                setState(
+                                  () => areaAtendimento.add(normalizado),
+                                );
+                              }
+                              areaAtendimentoCtrl.clear();
+                            },
+                          ),
+                          border: const OutlineInputBorder(
+                            borderRadius: BorderRadius.all(Radius.circular(12)),
+                          ),
+                        ),
+                        onSubmitted: (_) {
+                          final txt = areaAtendimentoCtrl.text.trim();
+                          if (txt.isEmpty) return;
+                          final normalizado =
+                              txt[0].toUpperCase() +
+                              txt.substring(1).toLowerCase();
+                          if (!areaAtendimento.contains(normalizado)) {
+                            setState(() => areaAtendimento.add(normalizado));
+                          }
+                          areaAtendimentoCtrl.clear();
+                        },
                       ),
-                      validator: (v) => (v == null || v.trim().isEmpty)
-                          ? 'Obrigatório'
-                          : null,
-                    ),
-
-                    const Padding(
-                      padding: EdgeInsets.only(top: 16.0, bottom: 4.0),
-                      child: Text(
-                        'Meios de pagamento aceitos',
-                        style: TextStyle(fontWeight: FontWeight.bold),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Informe todas as cidades e áreas onde você atende.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.deepPurple,
+                        ),
                       ),
-                    ),
-                    const Text(
-                      'Os meios de pagamento servem apenas para informativo; o app não processa pagamentos.',
-                      style: TextStyle(fontSize: 12, color: Colors.deepPurple),
-                    ),
-                    ...['Dinheiro', 'Pix', 'Cartão de crédito/débito'].map(
-                      (e) => CheckboxListTile(
-                        title: Text(e),
-                        value: meiosPagamento.contains(e),
-                        onChanged: (v) => setState(() {
-                          if (v == true) {
-                            if (!meiosPagamento.contains(e)) {
-                              meiosPagamento.add(e);
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: -6,
+                        children: areaAtendimento.map((c) {
+                          return Chip(
+                            label: Text(c),
+                            deleteIcon: const Icon(Icons.close),
+                            onDeleted: () =>
+                                setState(() => areaAtendimento.remove(c)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            side: const BorderSide(color: Colors.deepPurple),
+                          );
+                        }).toList(),
+                      ),
+
+                      // ===== MEIOS DE PAGAMENTO =====
+                      _secTitle('Meios de pagamento aceitos'),
+                      const Text(
+                        'Os meios de pagamento servem apenas para informativo; o app não processa pagamentos.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.deepPurple,
+                        ),
+                      ),
+                      ...['Dinheiro', 'Pix', 'Cartão de crédito/débito'].map(
+                        (e) => CheckboxListTile(
+                          title: Text(e),
+                          value: meiosPagamento.contains(e),
+                          onChanged: (v) => setState(() {
+                            if (v == true) {
+                              if (!meiosPagamento.contains(e)) {
+                                meiosPagamento.add(e);
+                              }
+                            } else {
+                              meiosPagamento.remove(e);
                             }
-                          } else {
-                            meiosPagamento.remove(e);
-                          }
-                        }),
+                          }),
+                        ),
                       ),
-                    ),
 
-                    const Padding(
-                      padding: EdgeInsets.only(top: 16.0, bottom: 4.0),
-                      child: Text(
-                        'Jornada de trabalho',
-                        style: TextStyle(fontWeight: FontWeight.bold),
+                      // ===== JORNADA =====
+                      _secTitle('Jornada de trabalho'),
+                      const Text(
+                        'Informe os dias em que você está disponível para prestar serviços.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.deepPurple,
+                        ),
                       ),
-                    ),
-                    const Text(
-                      'Informe os dias em que você está disponível para prestar serviços.',
-                      style: TextStyle(fontSize: 12, color: Colors.deepPurple),
-                    ),
-                    ...diasSemana.map(
-                      (e) => CheckboxListTile(
-                        title: Text(e),
-                        value: jornada.contains(e),
-                        onChanged: (v) => setState(() {
-                          if (v == true) {
-                            if (!jornada.contains(e)) jornada.add(e);
-                          } else {
-                            jornada.remove(e);
-                          }
-                        }),
+                      ...diasSemana.map(
+                        (e) => CheckboxListTile(
+                          title: Text(e),
+                          value: jornada.contains(e),
+                          onChanged: (v) => setState(() {
+                            if (v == true) {
+                              if (!jornada.contains(e)) jornada.add(e);
+                            } else {
+                              jornada.remove(e);
+                            }
+                          }),
+                        ),
                       ),
-                    ),
 
-                    const SizedBox(height: 20),
-                    ElevatedButton(
-                      onPressed: _salvar,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.deepPurple,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 40,
-                          vertical: 16,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(24),
-                        ),
-                      ),
-                      child: const Text('Salvar'),
-                    ),
-                    const SizedBox(height: 10),
-                    OutlinedButton(
-                      onPressed: () => Navigator.pop(context),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 40,
-                          vertical: 16,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(24),
+                      const SizedBox(height: 30),
+
+                      // ===== BOTÕES PADRONIZADOS =====
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: _salvar,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.deepPurple,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          child: const Text(
+                            'Salvar',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white, // 🔹 texto branco
+                            ),
+                          ),
                         ),
                       ),
-                      child: const Text('Cancelar'),
-                    ),
-                    const SizedBox(height: 10),
-                    ElevatedButton(
-                      onPressed: _excluirConta,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red.shade600,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 40,
-                          vertical: 16,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(24),
+                      const SizedBox(height: 12),
+
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(context),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            side: const BorderSide(color: Colors.deepPurple),
+                            foregroundColor: Colors.deepPurple,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          child: const Text(
+                            'Cancelar',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
                       ),
-                      child: const Text('Excluir Conta'),
-                    ),
-                  ],
+                      const SizedBox(height: 12),
+
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: _excluirConta,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red.shade600,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          child: const Text(
+                            'Excluir Conta',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white, // 🔹 texto branco
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
+      ),
     );
   }
 }

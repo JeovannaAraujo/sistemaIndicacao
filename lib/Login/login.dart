@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'cadastroUsuarios.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../Cliente/homeCliente.dart';
+import '../Prestador/homePrestador.dart';
+import 'recuperarSenha.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -131,6 +135,39 @@ class _LoginScreenState extends State<LoginScreen> {
       // Migra se necessário (cria/ajusta usuarios/{uid}).
       await _migrarUsuarioSeNecessario(uid: uid, email: email);
 
+      // Depois do login
+      final doc = await FirebaseFirestore.instance
+          .collection('usuarios')
+          .doc(uid)
+          .get();
+      final tipo = (doc['tipoPerfil'] ?? 'cliente').toString().toLowerCase();
+
+      final prefs = await SharedPreferences.getInstance();
+      String perfilAtivo = tipo;
+
+      if (tipo == 'ambos') {
+        perfilAtivo =
+            prefs.getString('perfilAtivo') ?? 'cliente'; // default cliente
+        await prefs.setString('perfilAtivo', perfilAtivo);
+      } else {
+        await prefs.setString('perfilAtivo', tipo);
+      }
+
+      // Redireciona conforme o perfil ativo
+      if (mounted) {
+        if (perfilAtivo == 'prestador') {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const HomePrestadorScreen()),
+          );
+        } else {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const HomeScreen()),
+          );
+        }
+      }
+
       // 🚀 Não faz mais Navigator.pushReplacement aqui
       // O StreamBuilder no main.dart cuida do redirecionamento.
     } on FirebaseAuthException catch (e) {
@@ -196,8 +233,24 @@ class _LoginScreenState extends State<LoginScreen> {
                 validator: (v) =>
                     (v == null || v.trim().isEmpty) ? 'Informe a senha' : null,
               ),
+              TextButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const RecuperarSenhaScreen(),
+                    ),
+                  );
+                },
+                child: const Text(
+                  'Esqueci minha senha',
+                  style: TextStyle(color: Colors.deepPurple),
+                ),
+              ),
+
               const SizedBox(height: 20),
               ElevatedButton(onPressed: _login, child: const Text('Entrar')),
+
               TextButton(
                 onPressed: () => Navigator.push(
                   context,
