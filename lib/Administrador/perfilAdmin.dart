@@ -27,7 +27,7 @@ class PerfilAdminScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 24),
-          _buildTile(
+          buildTile(
             context,
             icon: Icons.category,
             title: 'Unidades de Medida',
@@ -40,7 +40,7 @@ class PerfilAdminScreen extends StatelessWidget {
               );
             },
           ),
-          _buildTile(
+          buildTile(
             context,
             icon: Icons.category,
             title: 'Categorias de Serviço',
@@ -52,7 +52,7 @@ class PerfilAdminScreen extends StatelessWidget {
               );
             },
           ),
-          _buildTile(
+          buildTile(
             context,
             icon: Icons.category,
             title: 'Categorias de Profissionais',
@@ -64,7 +64,7 @@ class PerfilAdminScreen extends StatelessWidget {
               );
             },
           ),
-          _buildTile(
+          buildTile(
             context,
             icon: Icons.group,
             title: 'Visualizar Usuários',
@@ -76,7 +76,7 @@ class PerfilAdminScreen extends StatelessWidget {
               );
             },
           ),
-          _buildTile(
+          buildTile(
             context,
             icon: Icons.settings,
             title: 'Configurações Gerais',
@@ -110,7 +110,7 @@ class PerfilAdminScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildTile(
+  Widget buildTile(
     BuildContext context, {
     required IconData icon,
     required String title,

@@ -6,7 +6,7 @@ import 'package:intl/intl.dart';
 class MinhasAvaliacoesTab extends StatelessWidget {
   const MinhasAvaliacoesTab({super.key});
 
-  String _fmtData(dynamic ts) {
+  String fmtData(dynamic ts) {
     if (ts is! Timestamp) return '—';
     final d = ts.toDate();
     return DateFormat('dd/MM/yyyy').format(d);
@@ -15,7 +15,7 @@ class MinhasAvaliacoesTab extends StatelessWidget {
   /// Tenta montar um texto de duração:
   /// - Se houver tempoEstimadoValor/unidade -> "6 dias", "3 horas", etc.
   /// - Senão, diferença entre dataInicioSugerida e dataFinalizacaoReal/Prevista.
-  String _duracaoFromSolic(Map<String, dynamic>? s) {
+  String duracaoFromSolic(Map<String, dynamic>? s) {
     if (s == null) return '—';
     final num? v = (s['tempoEstimadoValor'] as num?);
     final un = (s['tempoEstimadoUnidade'] ?? '').toString().trim();
@@ -45,11 +45,12 @@ class MinhasAvaliacoesTab extends StatelessWidget {
 
   /// ✅ NOVO: garante que a solicitação ligada à avaliação esteja marcada como "avaliada"
   /// e registra no histórico (executa uma única vez por doc).
-  Future<void> _marcarAvaliadaSeNecessario({
+  Future<void> marcarAvaliadaSeNecessario({
     required String solicitacaoId,
     required String clienteUid,
     required double nota,
     required String comentario,
+    FirebaseFirestore? firestore,
   }) async {
     if (solicitacaoId.isEmpty) return;
     final fs = FirebaseFirestore.instance;
@@ -174,16 +175,16 @@ class MinhasAvaliacoesTab extends StatelessWidget {
 
                   final sdata = s?.data();
                   if (sdata != null) {
-                    final ini = _fmtData(sdata['dataInicioSugerida']);
-                    final fim = _fmtData(
+                    final ini = fmtData(sdata['dataInicioSugerida']);
+                    final fim = fmtData(
                       sdata['dataFinalizacaoReal'] ??
                           sdata['dataFinalPrevista'],
                     );
                     if (ini != '—' || fim != '—') periodo = '$ini – $fim';
-                    duracao = _duracaoFromSolic(sdata);
+                    duracao = duracaoFromSolic(sdata);
 
                     // ✅ NOVO: ao exibir a avaliação, garante status "avaliada" + histórico
-                    _marcarAvaliadaSeNecessario(
+                    marcarAvaliadaSeNecessario(
                       solicitacaoId: solicitacaoId,
                       clienteUid: uid,
                       nota: nota,
@@ -262,7 +263,7 @@ class MinhasAvaliacoesTab extends StatelessWidget {
                       ],
 
                       const SizedBox(height: 8),
-                      _StarsReadOnly(rating: nota),
+                      StarsReadOnly(rating: nota),
 
                       const SizedBox(height: 6),
                       Text(
@@ -292,9 +293,9 @@ class MinhasAvaliacoesTab extends StatelessWidget {
 
 /* ===================== WIDGET DE APOIO (somente leitura) ===================== */
 
-class _StarsReadOnly extends StatelessWidget {
+class StarsReadOnly extends StatelessWidget {
   final double rating;
-  const _StarsReadOnly({required this.rating});
+  const StarsReadOnly({required this.rating});
 
   @override
   Widget build(BuildContext context) {

@@ -5,26 +5,40 @@ import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 
 class CategServ extends StatefulWidget {
-  const CategServ({super.key});
+  final FirebaseFirestore? firestore;
+  final FirebaseStorage? storage;
+
+  const CategServ({super.key, this.firestore, this.storage});
 
   @override
   State<CategServ> createState() => _CategServState();
 }
 
 class _CategServState extends State<CategServ> {
-  final CollectionReference categoriasRef = FirebaseFirestore.instance
-      .collection('categoriasServicos');
+  late final CollectionReference categoriasRef;
+  late final FirebaseStorage storage;
+
+  @override
+  void initState() {
+    super.initState();
+
+    final firestoreInstance = widget.firestore ?? FirebaseFirestore.instance;
+    categoriasRef = firestoreInstance.collection('categoriasServicos');
+    storage = widget.storage ?? FirebaseStorage.instance;
+  }
 
   void _abrirDialogo({DocumentSnapshot? categoria}) {
+    final data = categoria?.data() as Map<String, dynamic>? ?? {};
+
     final TextEditingController nomeCtrl = TextEditingController(
-      text: categoria?['nome'] ?? '',
+      text: data['nome'] ?? '',
     );
     final TextEditingController descCtrl = TextEditingController(
-      text: categoria?['descricao'] ?? '',
+      text: data['descricao'] ?? '',
     );
     final bool isEdicao = categoria != null;
 
-    String? imagemUrl = categoria?['imagemUrl'];
+    String? imagemUrl = data['imagemUrl'] ?? '';
     File? imagemSelecionada;
 
     showDialog(
@@ -64,9 +78,7 @@ class _CategServState extends State<CategServ> {
                       final File file = File(imagem.path);
                       final nomeArquivo =
                           'categorias/${DateTime.now().millisecondsSinceEpoch}.jpg';
-                      final ref = FirebaseStorage.instance.ref().child(
-                        nomeArquivo,
-                      );
+                      final ref = storage.ref().child(nomeArquivo);
                       await ref.putFile(file);
                       final url = await ref.getDownloadURL();
                       setDialogState(() {
@@ -142,7 +154,7 @@ class _CategServState extends State<CategServ> {
                         'imagemUrl': imagemUrl ?? '',
                       };
                       if (isEdicao) {
-                        categoriasRef.doc(categoria.id).update(data);
+                        categoriasRef.doc(categoria!.id).update(data);
                       } else {
                         categoriasRef.add(data);
                       }

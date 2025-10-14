@@ -2,35 +2,38 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class UnidadeMedScreen extends StatefulWidget {
-  const UnidadeMedScreen({super.key});
+  final FirebaseFirestore? firestore; // 🔹 injeta o Firestore fake nos testes
+
+  const UnidadeMedScreen({super.key, this.firestore});
 
   @override
   State<UnidadeMedScreen> createState() => _UnidadeMedScreenState();
 }
 
 class _UnidadeMedScreenState extends State<UnidadeMedScreen> {
-  final CollectionReference unidadesRef = FirebaseFirestore.instance.collection(
-    'unidades',
-  );
+  late final CollectionReference unidadesRef;
+
+  @override
+  void initState() {
+    super.initState();
+    unidadesRef =
+        (widget.firestore ?? FirebaseFirestore.instance).collection('unidades');
+  }
 
   void _abrirDialogo({DocumentSnapshot? unidade}) {
-    final TextEditingController nomeCtrl = TextEditingController(
-      text: unidade?['nome'] ?? '',
-    );
-    final TextEditingController abrevCtrl = TextEditingController(
-      text: unidade?['abreviacao'] ?? '',
-    );
+    final TextEditingController nomeCtrl =
+        TextEditingController(text: unidade?['nome'] ?? '');
+    final TextEditingController abrevCtrl =
+        TextEditingController(text: unidade?['abreviacao'] ?? '');
     final bool isEdicao = unidade != null;
 
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        title: Text(
-          isEdicao
-              ? 'Alteração de unidade de medida'
-              : 'Nova unidade de Medida',
-        ),
+        title: Text(isEdicao
+            ? 'Alteração de unidade de medida'
+            : 'Nova unidade de Medida'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -58,14 +61,15 @@ class _UnidadeMedScreenState extends State<UnidadeMedScreen> {
                   'ativo': true,
                 };
                 if (isEdicao) {
-                  unidadesRef.doc(unidade.id).update(data);
+                  unidadesRef.doc(unidade!.id).update(data);
                 } else {
                   unidadesRef.add(data);
                 }
                 Navigator.pop(context);
               }
             },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple),
+            style:
+                ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple),
             child: const Text('Salvar'),
           ),
         ],
@@ -128,7 +132,7 @@ class _UnidadeMedScreenState extends State<UnidadeMedScreen> {
                 icon: const Icon(Icons.add, color: Colors.white),
                 label: const Text(
                   'Nova Unidade',
-                  style: TextStyle(color: Colors.white), // texto branco
+                  style: TextStyle(color: Colors.white),
                 ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.deepPurple,
@@ -152,7 +156,7 @@ class _UnidadeMedScreenState extends State<UnidadeMedScreen> {
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                 ),
-                SizedBox(width: 80), // Espaço para botão + switch
+                SizedBox(width: 80),
               ],
             ),
             const SizedBox(height: 8),
@@ -161,10 +165,12 @@ class _UnidadeMedScreenState extends State<UnidadeMedScreen> {
                 stream: unidadesRef.snapshots(),
                 builder: (context, snapshot) {
                   if (snapshot.hasError) {
-                    return const Center(child: Text('Erro ao carregar dados'));
+                    return const Center(
+                        child: Text('Erro ao carregar dados'));
                   }
                   if (!snapshot.hasData) {
-                    return const Center(child: CircularProgressIndicator());
+                    return const Center(
+                        child: CircularProgressIndicator());
                   }
                   final docs = snapshot.data!.docs;
                   if (docs.isEmpty) {

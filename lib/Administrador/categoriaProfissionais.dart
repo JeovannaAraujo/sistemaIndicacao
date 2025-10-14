@@ -2,15 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class CategProf extends StatefulWidget {
-  const CategProf({super.key});
+  final FirebaseFirestore? firestore; 
+
+  const CategProf({super.key, this.firestore});
 
   @override
   State<CategProf> createState() => _CategProfState();
 }
 
 class _CategProfState extends State<CategProf> {
-  final CollectionReference categoriasRef =
-      FirebaseFirestore.instance.collection('categoriasProfissionais');
+  late final CollectionReference categoriasRef;
+
+  @override
+  void initState() {
+    super.initState();
+    final fs = widget.firestore ?? FirebaseFirestore.instance;
+    categoriasRef = fs.collection('categoriasProfissionais');
+  }
 
   void _abrirDialogo({DocumentSnapshot? categoria}) {
     final TextEditingController nomeCtrl =

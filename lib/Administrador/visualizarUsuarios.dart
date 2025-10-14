@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class VisualizarUsuarios extends StatefulWidget {
-  const VisualizarUsuarios({super.key});
+  final FirebaseFirestore? firestore; // 🔹 permite injetar o Firestore fake nos testes
+  const VisualizarUsuarios({super.key, this.firestore});
 
   @override
   State<VisualizarUsuarios> createState() => _VisualizarUsuariosState();
@@ -10,7 +11,11 @@ class VisualizarUsuarios extends StatefulWidget {
 
 class _VisualizarUsuariosState extends State<VisualizarUsuarios> {
   String _filtroSelecionado = 'todos';
-  final usuariosRef = FirebaseFirestore.instance.collection('usuarios');
+
+  // 🔹 usa o firestore injetado nos testes, ou o real no app
+  CollectionReference<Map<String, dynamic>> get usuariosRef =>
+      (widget.firestore ?? FirebaseFirestore.instance)
+          .collection('usuarios');
 
   Query<Map<String, dynamic>> _buildQuery() {
     final base = usuariosRef;
@@ -20,7 +25,6 @@ class _VisualizarUsuariosState extends State<VisualizarUsuarios> {
       case 'Cliente':
       case 'Prestador':
       case 'Administrador':
-        // filtro simples por tipoPerfil (compatível com suas rules e evita erros de OR)
         return base
             .where('tipoPerfil', isEqualTo: _filtroSelecionado)
             .orderBy('nome');
@@ -66,14 +70,8 @@ class _VisualizarUsuariosState extends State<VisualizarUsuarios> {
               items: const [
                 DropdownMenuItem(value: 'todos', child: Text('Todos')),
                 DropdownMenuItem(value: 'Cliente', child: Text('Clientes')),
-                DropdownMenuItem(
-                  value: 'Prestador',
-                  child: Text('Prestadores'),
-                ),
-                DropdownMenuItem(
-                  value: 'Administrador',
-                  child: Text('Administradores'),
-                ),
+                DropdownMenuItem(value: 'Prestador', child: Text('Prestadores')),
+                DropdownMenuItem(value: 'Administrador', child: Text('Administradores')),
               ],
             ),
             const SizedBox(height: 16),
@@ -117,13 +115,12 @@ class _VisualizarUsuariosState extends State<VisualizarUsuarios> {
                       final user = usuarios[index].data();
                       final nome = (user['nome'] ?? '-') as String;
                       final email = (user['email'] ?? '-') as String;
-                      final tipoPerfil =
-                          (user['tipoPerfil'] ?? 'Cliente') as String;
+                      final tipoPerfil = (user['tipoPerfil'] ?? 'Cliente') as String;
                       final ativo = user['ativo'] == true;
 
                       return ListTile(
                         leading: const Icon(
-                          Icons.person_outline,
+                          Icons.person,
                           color: Colors.deepPurple,
                         ),
                         title: Text(nome),
