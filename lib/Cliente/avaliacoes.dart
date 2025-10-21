@@ -4,7 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 class MinhasAvaliacoesTab extends StatelessWidget {
-  const MinhasAvaliacoesTab({super.key});
+  final FirebaseFirestore? firestore;
+  final FirebaseAuth? auth;
+
+  const MinhasAvaliacoesTab({
+    super.key,
+    this.firestore,
+    this.auth,
+  });
 
   String fmtData(dynamic ts) {
     if (ts is! Timestamp) return '—';
@@ -12,9 +19,6 @@ class MinhasAvaliacoesTab extends StatelessWidget {
     return DateFormat('dd/MM/yyyy').format(d);
   }
 
-  /// Tenta montar um texto de duração:
-  /// - Se houver tempoEstimadoValor/unidade -> "6 dias", "3 horas", etc.
-  /// - Senão, diferença entre dataInicioSugerida e dataFinalizacaoReal/Prevista.
   String duracaoFromSolic(Map<String, dynamic>? s) {
     if (s == null) return '—';
     final num? v = (s['tempoEstimadoValor'] as num?);
@@ -26,16 +30,8 @@ class MinhasAvaliacoesTab extends StatelessWidget {
     final ini = s['dataInicioSugerida'];
     final fim = s['dataFinalizacaoReal'] ?? s['dataFinalPrevista'];
     if (ini is Timestamp && fim is Timestamp) {
-      final d1 = DateTime(
-        ini.toDate().year,
-        ini.toDate().month,
-        ini.toDate().day,
-      );
-      final d2 = DateTime(
-        fim.toDate().year,
-        fim.toDate().month,
-        fim.toDate().day,
-      );
+      final d1 = DateTime(ini.toDate().year, ini.toDate().month, ini.toDate().day);
+      final d2 = DateTime(fim.toDate().year, fim.toDate().month, fim.toDate().day);
       final dias = d2.difference(d1).inDays.abs();
       final total = (dias <= 0) ? 1 : dias + 1;
       return '$total ${total == 1 ? "dia" : "dias"}';
@@ -43,8 +39,6 @@ class MinhasAvaliacoesTab extends StatelessWidget {
     return '—';
   }
 
-  /// ✅ NOVO: garante que a solicitação ligada à avaliação esteja marcada como "avaliada"
-  /// e registra no histórico (executa uma única vez por doc).
   Future<void> marcarAvaliadaSeNecessario({
     required String solicitacaoId,
     required String clienteUid,
@@ -53,7 +47,7 @@ class MinhasAvaliacoesTab extends StatelessWidget {
     FirebaseFirestore? firestore,
   }) async {
     if (solicitacaoId.isEmpty) return;
-    final fs = FirebaseFirestore.instance;
+    final fs = firestore ?? FirebaseFirestore.instance;
     final ref = fs.collection('solicitacoesOrcamento').doc(solicitacaoId);
 
     await fs.runTransaction((tx) async {
@@ -62,7 +56,6 @@ class MinhasAvaliacoesTab extends StatelessWidget {
       final data = (snap.data() ?? {});
       final statusAtual = (data['status'] ?? '').toString();
 
-      // só transiciona finalizada -> avaliada
       if (statusAtual == 'finalizada') {
         tx.update(ref, {
           'status': 'avaliada',
@@ -72,12 +65,9 @@ class MinhasAvaliacoesTab extends StatelessWidget {
 
         final histRef = ref.collection('historico').doc();
         tx.set(histRef, {
-          // chaves compatíveis com seu padrão anterior
           'tipo': 'avaliada_cliente',
           'quando': FieldValue.serverTimestamp(),
           'por': clienteUid,
-
-          // chaves novas padronizadas
           'em': FieldValue.serverTimestamp(),
           'porUid': clienteUid,
           'porRole': 'Cliente',
@@ -93,9 +83,11 @@ class MinhasAvaliacoesTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final fs = firestore ?? FirebaseFirestore.instance;
+    final fa = auth ?? FirebaseAuth.instance;
+    final uid = fa.currentUser!.uid;
 
-    final stream = FirebaseFirestore.instance
+    final stream = fs
         .collection('avaliacoes')
         .where('clienteId', isEqualTo: uid)
         .orderBy('criadoEm', descending: true)
@@ -128,28 +120,20 @@ class MinhasAvaliacoesTab extends StatelessWidget {
             final nota = (av['nota'] as num?)?.toDouble() ?? 0;
             final comentario = (av['comentario'] ?? '').toString();
             final criadoEm = av['criadoEm'] is Timestamp
-                ? DateFormat(
-                    'dd/MM/yyyy – HH:mm',
-                  ).format((av['criadoEm'] as Timestamp).toDate())
+                ? DateFormat('dd/MM/yyyy – HH:mm')
+                    .format((av['criadoEm'] as Timestamp).toDate())
                 : '—';
 
             final prestadorId = (av['prestadorId'] ?? '').toString();
             final solicitacaoId = (av['solicitacaoId'] ?? '').toString();
 
-            // Busca em paralelo: nome do prestador + solicitação (para período e duração)
             final fut = Future.wait([
               if (prestadorId.isNotEmpty)
-                FirebaseFirestore.instance
-                    .collection('usuarios')
-                    .doc(prestadorId)
-                    .get()
+                fs.collection('usuarios').doc(prestadorId).get()
               else
                 Future.value(null),
               if (solicitacaoId.isNotEmpty)
-                FirebaseFirestore.instance
-                    .collection('solicitacoesOrcamento')
-                    .doc(solicitacaoId)
-                    .get()
+                fs.collection('solicitacoesOrcamento').doc(solicitacaoId).get()
               else
                 Future.value(null),
             ]);
@@ -162,12 +146,9 @@ class MinhasAvaliacoesTab extends StatelessWidget {
                 String duracao = '—';
 
                 if (fsnap.hasData) {
-                  final DocumentSnapshot<Map<String, dynamic>>? u =
-                      fsnap.data![0] as DocumentSnapshot<Map<String, dynamic>>?;
-                  final DocumentSnapshot<Map<String, dynamic>>? s =
-                      fsnap.data!.length > 1
-                      ? fsnap.data![1]
-                            as DocumentSnapshot<Map<String, dynamic>>?
+                  final u = fsnap.data![0] as DocumentSnapshot<Map<String, dynamic>>?;
+                  final s = fsnap.data!.length > 1
+                      ? fsnap.data![1] as DocumentSnapshot<Map<String, dynamic>>?
                       : null;
 
                   final udata = u?.data() ?? const <String, dynamic>{};
@@ -176,19 +157,16 @@ class MinhasAvaliacoesTab extends StatelessWidget {
                   final sdata = s?.data();
                   if (sdata != null) {
                     final ini = fmtData(sdata['dataInicioSugerida']);
-                    final fim = fmtData(
-                      sdata['dataFinalizacaoReal'] ??
-                          sdata['dataFinalPrevista'],
-                    );
+                    final fim = fmtData(sdata['dataFinalizacaoReal'] ?? sdata['dataFinalPrevista']);
                     if (ini != '—' || fim != '—') periodo = '$ini – $fim';
                     duracao = duracaoFromSolic(sdata);
 
-                    // ✅ NOVO: ao exibir a avaliação, garante status "avaliada" + histórico
                     marcarAvaliadaSeNecessario(
                       solicitacaoId: solicitacaoId,
                       clienteUid: uid,
                       nota: nota,
                       comentario: comentario,
+                      firestore: fs,
                     );
                   }
                 }
@@ -211,7 +189,6 @@ class MinhasAvaliacoesTab extends StatelessWidget {
                             fontSize: 15.5,
                           ),
                         ),
-
                       Padding(
                         padding: const EdgeInsets.only(top: 2.0),
                         child: Text(
@@ -222,35 +199,26 @@ class MinhasAvaliacoesTab extends StatelessWidget {
                           ),
                         ),
                       ),
-
                       if (periodo.isNotEmpty) ...[
                         const SizedBox(height: 6),
                         Row(
                           children: [
                             const Icon(Icons.calendar_today_outlined, size: 14),
                             const SizedBox(width: 6),
-                            Text(
-                              periodo,
-                              style: const TextStyle(fontSize: 12.5),
-                            ),
+                            Text(periodo, style: const TextStyle(fontSize: 12.5)),
                           ],
                         ),
                       ],
-
                       if (duracao.isNotEmpty && duracao != '—') ...[
                         const SizedBox(height: 4),
                         Row(
                           children: [
                             const Icon(Icons.timelapse, size: 14),
                             const SizedBox(width: 6),
-                            Text(
-                              'Duração: $duracao',
-                              style: const TextStyle(fontSize: 12.5),
-                            ),
+                            Text('Duração: $duracao', style: const TextStyle(fontSize: 12.5)),
                           ],
                         ),
                       ],
-
                       if (valorTxt.isNotEmpty) ...[
                         const SizedBox(height: 6),
                         Text(
@@ -261,16 +229,13 @@ class MinhasAvaliacoesTab extends StatelessWidget {
                           ),
                         ),
                       ],
-
                       const SizedBox(height: 8),
                       StarsReadOnly(rating: nota),
-
                       const SizedBox(height: 6),
                       Text(
                         comentario.isEmpty ? 'Sem comentário' : comentario,
                         style: const TextStyle(fontSize: 13.5),
                       ),
-
                       const SizedBox(height: 6),
                       Text(
                         'Enviado em $criadoEm',

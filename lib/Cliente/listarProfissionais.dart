@@ -7,20 +7,26 @@ class ProfissionaisPorCategoriaScreen extends StatelessWidget {
   final String categoriaId;
   final String categoriaNome;
 
-  const ProfissionaisPorCategoriaScreen({
+  // ✅ Adicione esta linha
+  final FirebaseFirestore firestore;
+
+ ProfissionaisPorCategoriaScreen({
     super.key,
     required this.categoriaId,
     required this.categoriaNome,
-  });
+    FirebaseFirestore? firestore,
+  }) : firestore = firestore ?? FirebaseFirestore.instance;
+
 
   @override
   Widget build(BuildContext context) {
     // Consulta SEM orderBy (evita índice composto obrigatório).
-    final query = FirebaseFirestore.instance
-        .collection('usuarios')
-        .where('tipoPerfil', isEqualTo: 'Prestador')
-        .where('ativo', isEqualTo: true)
-        .where('categoriaProfissionalId', isEqualTo: categoriaId);
+final query = firestore
+    .collection('usuarios')
+    .where('tipoPerfil', isEqualTo: 'Prestador')
+    .where('ativo', isEqualTo: true)
+    .where('categoriaProfissionalId', isEqualTo: categoriaId);
+
     // .orderBy('criadoEm', descending: true); // <- se quiser usar, crie índice composto
 
     return Scaffold(

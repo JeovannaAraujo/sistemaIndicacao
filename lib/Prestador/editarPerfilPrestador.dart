@@ -7,16 +7,27 @@ import 'package:firebase_storage/firebase_storage.dart';
 
 class EditarPerfilPrestador extends StatefulWidget {
   final String userId;
-  const EditarPerfilPrestador({super.key, required this.userId});
+  final FirebaseFirestore? firestore;
+  final FirebaseAuth? auth;
+  final FirebaseStorage? storage;
+
+  const EditarPerfilPrestador({
+    super.key,
+    required this.userId,
+    this.firestore,
+    this.auth,
+    this.storage,
+  });
 
   @override
-  State<EditarPerfilPrestador> createState() => _EditarPerfilPrestadorState();
+  State<EditarPerfilPrestador> createState() => EditarPerfilPrestadorState();
 }
 
-class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
+class EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
   final _formKey = GlobalKey<FormState>();
-  final _auth = FirebaseAuth.instance;
-  final _db = FirebaseFirestore.instance;
+  late final FirebaseAuth _auth;
+  late final FirebaseFirestore _db;
+
 
   // form controllers
   final nomeCtrl = TextEditingController();
@@ -41,7 +52,7 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
   final List<String> areaAtendimento = [];
 
   // foto de perfil
-  String? _fotoUrl; // URL pública salva no Firestore (usuarios/{uid}.fotoUrl)
+  String? fotoUrl; // URL pública salva no Firestore (usuarios/{uid}.fotoUrl)
   String? _fotoPath; // caminho no Storage para facilitar remoção
   bool _enviandoFoto = false;
 
@@ -68,6 +79,8 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
   @override
   void initState() {
     super.initState();
+    _auth = widget.auth ?? FirebaseAuth.instance;
+    _db = widget.firestore ?? FirebaseFirestore.instance;
     _categoriasStream = _db
         .collection('categoriasProfissionais')
         .where('ativo', isEqualTo: true)
@@ -119,7 +132,7 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
       });
 
       // foto
-      _fotoUrl = (d['fotoUrl'] ?? '') as String?;
+      fotoUrl = (d['fotoUrl'] ?? '') as String?;
       _fotoPath = (d['fotoPath'] ?? '') as String?;
       (d['areasAtendimento'] as List?)?.forEach((e) {
         final s = '$e';
@@ -127,7 +140,7 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
       });
 
       // foto
-      _fotoUrl = (d['fotoUrl'] ?? '') as String?;
+      fotoUrl = (d['fotoUrl'] ?? '') as String?;
       _fotoPath = (d['fotoPath'] ?? '') as String?;
 
       if (mounted) setState(() => carregando = false);
@@ -141,7 +154,7 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
     }
   }
 
-  Future<void> _selecionarFotoPerfil() async {
+  Future<void> selecionarFotoPerfil() async {
     try {
       final picker = ImagePicker();
       final XFile? img = await picker.pickImage(
@@ -175,7 +188,7 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
       }, SetOptions(merge: true));
 
       setState(() {
-        _fotoUrl = url;
+        fotoUrl = url;
         _fotoPath = path;
       });
 
@@ -195,41 +208,51 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
     }
   }
 
-  Future<void> _removerFotoPerfil() async {
-    try {
-      if (_fotoPath != null && _fotoPath!.isNotEmpty) {
-        await FirebaseStorage.instance
+ Future<void> removerFotoPerfil() async {
+  try {
+    // 🔹 Deleta a imagem do Storage (usando o mock injetado)
+    if (_fotoPath != null && _fotoPath!.isNotEmpty) {
+      try {
+        await (widget.storage ?? FirebaseStorage.instance)
             .ref()
             .child(_fotoPath!)
-            .delete()
-            .catchError((_) {});
+            .delete();
+      } catch (_) {
+        debugPrint('⚠️ Erro ao deletar no Storage (ignorado no teste)');
       }
-      await _db.collection('usuarios').doc(widget.userId).set({
-        'fotoUrl': FieldValue.delete(),
-        'fotoPath': FieldValue.delete(),
-        'atualizadoEm': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+    }
 
+    // 🔹 Atualiza o Firestore (usando o mock injetado)
+    await (widget.firestore ?? FirebaseFirestore.instance)
+        .collection('usuarios')
+        .doc(widget.userId)
+        .set({
+      'fotoUrl': null,
+      'fotoPath': null,
+      'atualizadoEm': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    // 🔹 Atualiza estado e mostra SnackBar
+    if (mounted) {
       setState(() {
-        _fotoUrl = null;
+        fotoUrl = null;
         _fotoPath = null;
       });
 
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Foto removida.')));
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Não foi possível remover a foto: $e')),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Foto removida com sucesso!')),
+      );
+    }
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao remover foto: $e')),
+      );
     }
   }
+}
 
-  Future<void> _salvar() async {
+  Future<void> salvar() async {
     if (!_formKey.currentState!.validate()) return;
 
     // revalida categoria ativa
@@ -286,7 +309,7 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
     }
   }
 
-  Future<void> _excluirConta() async {
+  Future<void> excluirConta() async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
@@ -419,20 +442,24 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
                         child: Stack(
                           alignment: Alignment.bottomRight,
                           children: [
-                            CircleAvatar(
-                              radius: 48,
-                              backgroundColor: Colors.deepPurple.shade50,
-                              backgroundImage:
-                                  (_fotoUrl != null && _fotoUrl!.isNotEmpty)
-                                  ? NetworkImage(_fotoUrl!)
-                                  : null,
-                              child: (_fotoUrl == null || _fotoUrl!.isEmpty)
-                                  ? const Icon(
-                                      Icons.person,
-                                      size: 48,
-                                      color: Colors.deepPurple,
+                            ClipOval(
+                              child: (fotoUrl != null && fotoUrl!.isNotEmpty)
+                                  ? Image.network(
+                                      fotoUrl!,
+                                      width: 96,
+                                      height: 96,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => const Icon(
+                                        Icons.person,
+                                        size: 60,
+                                        color: Colors.deepPurple,
+                                      ),
                                     )
-                                  : null,
+                                  : const Icon(
+                                      Icons.person,
+                                      size: 60,
+                                      color: Colors.deepPurple,
+                                    ),
                             ),
                             Positioned(
                               right: -4,
@@ -440,7 +467,7 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
                               child: ElevatedButton(
                                 onPressed: _enviandoFoto
                                     ? null
-                                    : _selecionarFotoPerfil,
+                                    : selecionarFotoPerfil,
                                 style: ElevatedButton.styleFrom(
                                   padding: const EdgeInsets.all(10),
                                   shape: const CircleBorder(),
@@ -465,6 +492,7 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
                           ],
                         ),
                       ),
+
                       const SizedBox(height: 12),
                       Center(
                         child: Text(
@@ -476,11 +504,11 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
                           textAlign: TextAlign.center,
                         ),
                       ),
-                      if (_fotoUrl != null && _fotoUrl!.isNotEmpty) ...[
+                      if (fotoUrl != null && fotoUrl!.isNotEmpty) ...[
                         const SizedBox(height: 6),
                         Center(
                           child: TextButton.icon(
-                            onPressed: _removerFotoPerfil,
+                            onPressed: removerFotoPerfil,
                             icon: const Icon(Icons.delete_outline),
                             label: const Text('Remover foto'),
                           ),
@@ -612,6 +640,7 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
                               'Erro ao carregar categorias ativas.',
                             );
                           }
+
                           final docs = snap.data?.docs ?? [];
                           if (docs.isEmpty) {
                             return const Text(
@@ -629,15 +658,13 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
                             );
                           }).toList();
 
-                          if (categoriaProfId != null &&
-                              !docs.any((d) => d.id == categoriaProfId)) {
-                            WidgetsBinding.instance.addPostFrameCallback((_) {
-                              setState(() => categoriaProfId = null);
-                            });
-                          }
+                          // ✅ Garante que só define value se existir na lista
+                          final value = docs.any((d) => d.id == categoriaProfId)
+                              ? categoriaProfId
+                              : null;
 
                           return DropdownButtonFormField<String>(
-                            initialValue: categoriaProfId,
+                            value: value,
                             items: itens,
                             onChanged: (v) =>
                                 setState(() => categoriaProfId = v),
@@ -648,6 +675,7 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
                           );
                         },
                       ),
+
                       const SizedBox(height: 15),
                       TextFormField(
                         controller: descricaoCtrl,
@@ -802,7 +830,7 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
-                          onPressed: _salvar,
+                          onPressed: salvar,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.deepPurple,
                             padding: const EdgeInsets.symmetric(vertical: 16),
@@ -848,7 +876,7 @@ class _EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
-                          onPressed: _excluirConta,
+                          onPressed: excluirConta,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.red.shade600,
                             padding: const EdgeInsets.symmetric(vertical: 16),

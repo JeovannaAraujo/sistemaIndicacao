@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
-import 'package:firebase_storage_mocks/firebase_storage_mocks.dart';
 import 'package:myapp/Administrador/visualizarUsuarios.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -9,11 +8,9 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late FakeFirebaseFirestore firestore;
-  late MockFirebaseStorage storage;
 
   setUp(() async {
     firestore = FakeFirebaseFirestore();
-    storage = MockFirebaseStorage();
   });
 
   group('🧩 Testes Unitários — VisualizarUsuarios', () {

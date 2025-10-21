@@ -5,10 +5,14 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 class VisualizarSolicitacaoScreen extends StatelessWidget {
   final String docId;
-  const VisualizarSolicitacaoScreen({super.key, required this.docId});
+  final FirebaseFirestore? firestore;
+  const VisualizarSolicitacaoScreen({
+    super.key,
+    required this.docId,
+    this.firestore,
+  });
 
   static const String _colSolicitacoes = 'solicitacoesOrcamento';
-  static const String _colCategoriasServ = 'categoriasServicos';
 
   @override
   Widget build(BuildContext context) {
@@ -22,7 +26,7 @@ class VisualizarSolicitacaoScreen extends StatelessWidget {
         elevation: 0.3,
       ),
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        stream: FirebaseFirestore.instance
+        stream: (firestore ?? FirebaseFirestore.instance)
             .collection(_colSolicitacoes)
             .doc(docId)
             .snapshots(),
@@ -68,17 +72,6 @@ class VisualizarSolicitacaoScreen extends StatelessWidget {
 
           final prestadorNome = (d['prestadorNome'] ?? '').toString();
           final servicoDesc = (d['servicoDescricao'] ?? '').toString();
-          final servicoCategoriaId = (d['categoriaServicoId'] ?? '').toString();
-
-          final valorMin = (d['servicoValorMinimo'] is num)
-              ? (d['servicoValorMinimo'] as num).toDouble()
-              : null;
-          final valorMed = (d['servicoValorMedio'] is num)
-              ? (d['servicoValorMedio'] as num).toDouble()
-              : null;
-          final valorMax = (d['servicoValorMaximo'] is num)
-              ? (d['servicoValorMaximo'] as num).toDouble()
-              : null;
 
           final end = (d['clienteEndereco'] is Map<String, dynamic>)
               ? (d['clienteEndereco'] as Map<String, dynamic>)
@@ -101,31 +94,32 @@ class VisualizarSolicitacaoScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // ===== CARD DE RESUMO DO SERVIÇO =====
-                _ServicoResumoCard(
+                ServicoResumoCard(
                   titulo: titulo,
                   descricao: servicoDesc,
                   servicoId: (d['servicoId'] ?? '').toString(),
                   prestadorNome: prestadorNome,
                   cidade: cidade,
                   unidadeAbrev: unAbrev,
+                  firestore: firestore,
                 ),
 
                 const SizedBox(height: 16),
 
                 // ===== RESTANTE DO DETALHE =====
-                const _SectionTitle('Descrição detalhada da Solicitação'),
+                const SectionTitle('Descrição detalhada da Solicitação'),
                 const SizedBox(height: 6),
-                _ReadonlyField.multiline(
+                ReadonlyField.multiline(
                   controller: TextEditingController(text: descricao),
                 ),
 
                 const SizedBox(height: 16),
-                const _SectionTitle('Quantidade ou dimensão'),
+                const SectionTitle('Quantidade ou dimensão'),
                 const SizedBox(height: 6),
                 Row(
                   children: [
                     Expanded(
-                      child: _ReadonlyField(
+                      child: ReadonlyField(
                         controller: TextEditingController(
                           text: quantidade.isEmpty ? '—' : quantidade,
                         ),
@@ -134,7 +128,7 @@ class VisualizarSolicitacaoScreen extends StatelessWidget {
                     const SizedBox(width: 8),
                     SizedBox(
                       width: 80,
-                      child: _ReadonlyField(
+                      child: ReadonlyField(
                         controller: TextEditingController(
                           text: unAbrev.isEmpty ? 'un.' : unAbrev,
                         ),
@@ -145,18 +139,18 @@ class VisualizarSolicitacaoScreen extends StatelessWidget {
                 ),
 
                 const SizedBox(height: 16),
-                const _SectionTitle('Data desejada para início'),
+                const SectionTitle('Data desejada para início'),
                 const SizedBox(height: 6),
-                _ReadonlyField(
+                ReadonlyField(
                   controller: TextEditingController(
                     text: dataDesejada.isEmpty ? 'Não informado' : dataDesejada,
                   ),
                   trailingIcon: Icons.calendar_today_outlined,
                 ),
                 const SizedBox(height: 12),
-                const _SectionTitle('Horário desejado para execução'),
+                const SectionTitle('Horário desejado para execução'),
                 const SizedBox(height: 6),
-                _ReadonlyField(
+                ReadonlyField(
                   controller: TextEditingController(
                     text: horaDesejada.isEmpty ? 'Não informado' : horaDesejada,
                   ),
@@ -164,19 +158,19 @@ class VisualizarSolicitacaoScreen extends StatelessWidget {
                 ),
 
                 const SizedBox(height: 16),
-                const _SectionTitle('Estimativa de Valor'),
+                const SectionTitle('Estimativa de Valor'),
                 const SizedBox(height: 6),
-                _ReadonlyField(
+                ReadonlyField(
                   controller: TextEditingController(text: estimativa),
                 ),
 
                 const SizedBox(height: 16),
-                const _SectionTitle('Endereço do serviço'),
+                const SectionTitle('Endereço do serviço'),
                 const SizedBox(height: 6),
-                _LabelValue(label: 'Local', value: enderecoLinha),
+                LabelValue(label: 'Local', value: enderecoLinha),
 
                 const SizedBox(height: 16),
-                const _SectionTitle('Contato'),
+                const SectionTitle('Contato'),
                 const SizedBox(height: 6),
                 Row(
                   children: [
@@ -196,9 +190,9 @@ class VisualizarSolicitacaoScreen extends StatelessWidget {
                 ),
 
                 const SizedBox(height: 16),
-                const _SectionTitle('Imagens (opcional)'),
+                const SectionTitle('Imagens (opcional)'),
                 const SizedBox(height: 6),
-                _ImagesGrid(urls: imagens),
+                ImagesGrid(urls: imagens),
               ],
             ),
           );
@@ -212,29 +206,31 @@ class VisualizarSolicitacaoScreen extends StatelessWidget {
 // ======== CARD IGUAL AO DA TELA DE SOLICITAR ===========
 // =======================================================
 
-class _ServicoResumoCard extends StatelessWidget {
+class ServicoResumoCard extends StatelessWidget {
   final String titulo;
   final String descricao;
   final String servicoId;
   final String prestadorNome;
   final String cidade;
   final String? unidadeAbrev;
+  final FirebaseFirestore? firestore;
 
-  const _ServicoResumoCard({
+  const ServicoResumoCard({
     required this.titulo,
     required this.descricao,
     required this.servicoId,
     required this.prestadorNome,
     required this.cidade,
     this.unidadeAbrev,
+    this.firestore,
   });
 
   // 🔹 Busca imagem + valores direto do serviço e categoria
-  Future<Map<String, dynamic>> _getServicoInfo() async {
+  Future<Map<String, dynamic>> getServicoInfo() async {
     if (servicoId.isEmpty) return {};
 
     try {
-      final servicoDoc = await FirebaseFirestore.instance
+      final servicoDoc = await (firestore ?? FirebaseFirestore.instance)
           .collection('servicos')
           .doc(servicoId)
           .get();
@@ -246,7 +242,7 @@ class _ServicoResumoCard extends StatelessWidget {
 
       String imagemUrl = '';
       if (categoriaId.isNotEmpty) {
-        final catDoc = await FirebaseFirestore.instance
+        final catDoc = await (firestore ?? FirebaseFirestore.instance)
             .collection('categoriasServicos')
             .doc(categoriaId)
             .get();
@@ -273,7 +269,7 @@ class _ServicoResumoCard extends StatelessWidget {
     final moeda = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
 
     return FutureBuilder<Map<String, dynamic>>(
-      future: _getServicoInfo(),
+      future: getServicoInfo(),
       builder: (context, snap) {
         if (!snap.hasData) {
           return const Center(child: CircularProgressIndicator());
@@ -290,26 +286,6 @@ class _ServicoResumoCard extends StatelessWidget {
         final valorMaximo = (data['valorMaximo'] is num)
             ? (data['valorMaximo'] as num).toDouble()
             : null;
-
-        // 🔹 Monta a string dos valores
-        String precosFmt() {
-          final partes = <String>[];
-          if (valorMinimo != null && valorMinimo > 0) {
-            partes.add('Min: ${moeda.format(valorMinimo)}');
-          }
-          if (valorMedio != null && valorMedio > 0) {
-            partes.add('Méd: ${moeda.format(valorMedio)}');
-          }
-          if (valorMaximo != null && valorMaximo > 0) {
-            partes.add('Máx: ${moeda.format(valorMaximo)}');
-          }
-
-          if (partes.isEmpty) return '—';
-          final unidadeTxt = (unidadeAbrev?.isNotEmpty ?? false)
-              ? ' / ${unidadeAbrev!}'
-              : '';
-          return '${partes.join('   ')}$unidadeTxt';
-        }
 
         return Container(
           decoration: BoxDecoration(
@@ -433,9 +409,9 @@ class _ServicoResumoCard extends StatelessWidget {
 // ======== COMPONENTES REUTILIZADOS DE DETALHES =========
 // =======================================================
 
-class _SectionTitle extends StatelessWidget {
+class SectionTitle extends StatelessWidget {
   final String text;
-  const _SectionTitle(this.text);
+  const SectionTitle(this.text);
 
   @override
   Widget build(BuildContext context) {
@@ -450,19 +426,19 @@ class _SectionTitle extends StatelessWidget {
   }
 }
 
-class _ReadonlyField extends StatelessWidget {
+class ReadonlyField extends StatelessWidget {
   final TextEditingController controller;
   final bool multiline;
   final bool centered;
   final IconData? trailingIcon;
 
-  const _ReadonlyField({
+  const ReadonlyField({
     required this.controller,
     this.centered = false,
     this.trailingIcon,
   }) : multiline = false;
 
-  const _ReadonlyField.multiline({required this.controller})
+  const ReadonlyField.multiline({required this.controller})
     : multiline = true,
       centered = false,
       trailingIcon = null;
@@ -489,10 +465,10 @@ class _ReadonlyField extends StatelessWidget {
   }
 }
 
-class _LabelValue extends StatelessWidget {
+class LabelValue extends StatelessWidget {
   final String label;
   final String value;
-  const _LabelValue({required this.label, required this.value});
+  const LabelValue({required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {
@@ -522,67 +498,51 @@ class _LabelValue extends StatelessWidget {
   }
 }
 
-class _ImagesGrid extends StatelessWidget {
+class ImagesGrid extends StatelessWidget {
   final List<String> urls;
-  const _ImagesGrid({required this.urls});
+
+  const ImagesGrid({super.key, required this.urls});
+
+  // ✅ Novo método para compatibilidade com testes
+  ImageProvider _getImageProvider(String url) {
+    if (url.startsWith('mock:')) {
+      // Usa imagem local (placeholder) durante os testes
+      return const AssetImage('assets/placeholder.png');
+    }
+    return NetworkImage(url);
+  }
 
   @override
   Widget build(BuildContext context) {
     if (urls.isEmpty) {
-      return Container(
-        height: 96,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          border: Border.all(color: Colors.black26),
-          borderRadius: BorderRadius.circular(12),
-          color: Colors.white,
+      return const Center(
+        child: Text(
+          'Sem imagens disponíveis',
+          style: TextStyle(color: Colors.grey),
         ),
-        child: const Text('Sem imagens anexadas'),
       );
     }
 
     return GridView.builder(
-      itemCount: urls.length,
-      shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
+      shrinkWrap: true,
+      itemCount: urls.length,
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 4,
-        mainAxisSpacing: 8,
+        crossAxisCount: 2,
         crossAxisSpacing: 8,
-        childAspectRatio: 1,
+        mainAxisSpacing: 8,
       ),
-      itemBuilder: (_, i) {
-        final u = urls[i];
-        return InkWell(
-          onTap: () => _showImage(context, u),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: Image.network(
-              u,
-              fit: BoxFit.cover,
-              colorBlendMode: BlendMode.dst,
-            ),
+      itemBuilder: (context, i) {
+        final image = _getImageProvider(urls[i]);
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image(
+            image: image,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => const Icon(Icons.broken_image),
           ),
         );
       },
-    );
-  }
-
-  static void _showImage(BuildContext context, String url) {
-    showDialog(
-      context: context,
-      barrierColor: Colors.black.withOpacity(0.85),
-      builder: (_) => GestureDetector(
-        onTap: () => Navigator.pop(context),
-        child: InteractiveViewer(
-          child: Center(
-            child: AspectRatio(
-              aspectRatio: 1,
-              child: Image.network(url, fit: BoxFit.contain),
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

@@ -2,39 +2,51 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
-/// Info básica do cliente para exibir em cada avaliação
-class _ClienteInfo {
+/// ✅ Classe pública para usar em testes e em FutureBuilder
+class ClienteInfo {
   final String nome;
   final String? fotoUrl;
-  const _ClienteInfo({required this.nome, this.fotoUrl});
+
+  const ClienteInfo({required this.nome, this.fotoUrl});
 }
 
+/// Tela principal: visualização de avaliações do prestador
 class VisualizarAvaliacoesPrestador extends StatefulWidget {
   final String prestadorId;
+  final FirebaseFirestore? firestore; // ✅ injeção para testes
 
   const VisualizarAvaliacoesPrestador({
     super.key,
     required this.prestadorId,
+    this.firestore,
   });
 
   @override
   State<VisualizarAvaliacoesPrestador> createState() =>
-      _VisualizarAvaliacoesPrestadorState();
+      VisualizarAvaliacoesPrestadorState();
 }
 
-class _VisualizarAvaliacoesPrestadorState
+class VisualizarAvaliacoesPrestadorState
     extends State<VisualizarAvaliacoesPrestador> {
-  final _fs = FirebaseFirestore.instance;
+  late final FirebaseFirestore firestore;
+  String prestadorId = ''; // ✅ valor padrão evita LateInitializationError
 
   // ===== filtros =====
-  bool _somenteMidia = false;
-  int _estrelas = 0; // 0=todas, 1..5 (exatas)
+  bool somenteMidia = false;
+  int estrelas = 0; // 0=todas, 1..5 (exatas)
 
   // cache de clientes
-  final Map<String, _ClienteInfo> _clienteCache = {};
+  final Map<String, ClienteInfo> clienteCache = {};
+
+  @override
+  void initState() {
+    super.initState();
+    firestore = widget.firestore ?? FirebaseFirestore.instance;
+    prestadorId = widget.prestadorId;
+  }
 
   // ---------- helpers ----------
-  double? _nota(Map<String, dynamic> m) {
+  double? nota(Map<String, dynamic> m) {
     for (final k in const ['nota', 'rating', 'estrelas', 'notaGeral']) {
       final v = m[k];
       if (v is num) return v.toDouble();
@@ -57,67 +69,67 @@ class _VisualizarAvaliacoesPrestadorState
     return null;
   }
 
-  bool _temMidia(Map<String, dynamic> m) {
+  bool temMidia(Map<String, dynamic> m) {
     final imgs = m['imagens'];
     if (imgs is List) return imgs.isNotEmpty;
     if (imgs is String) return imgs.trim().isNotEmpty;
     return false;
   }
 
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _aplicarFiltros({
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> aplicarFiltros({
     required List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
     required bool somenteMidia,
     required int estrelasExatas,
   }) {
     return docs.where((d) {
       final m = d.data();
-      if (somenteMidia && !_temMidia(m)) return false;
+      if (somenteMidia && !temMidia(m)) return false;
       if (estrelasExatas > 0) {
-        final n = _nota(m) ?? 0.0;
+        final n = nota(m) ?? 0.0;
         if (n.round() != estrelasExatas) return false;
       }
       return true;
     }).toList();
   }
 
-  Future<_ClienteInfo> _getClienteInfo(String clienteId) async {
-    if (clienteId.isEmpty) return const _ClienteInfo(nome: 'Cliente');
-    if (_clienteCache.containsKey(clienteId)) return _clienteCache[clienteId]!;
+  Future<ClienteInfo> getClienteInfo(String clienteId) async {
+    if (clienteId.isEmpty) return const ClienteInfo(nome: 'Cliente');
+    if (clienteCache.containsKey(clienteId)) return clienteCache[clienteId]!;
     try {
-      final doc = await _fs.collection('usuarios').doc(clienteId).get();
+      final doc = await firestore.collection('usuarios').doc(clienteId).get();
       final data = doc.data() ?? {};
       final nome = (data['nome'] as String?)?.trim();
       final foto = (data['fotoUrl'] as String?)?.trim();
-      final info = _ClienteInfo(
+      final info = ClienteInfo(
         nome: (nome == null || nome.isEmpty) ? 'Cliente' : nome,
         fotoUrl: (foto != null && foto.isNotEmpty) ? foto : null,
       );
-      _clienteCache[clienteId] = info;
+      clienteCache[clienteId] = info;
       return info;
     } catch (_) {
-      return const _ClienteInfo(nome: 'Cliente');
+      return const ClienteInfo(nome: 'Cliente');
     }
   }
 
   // ---------- consultas ----------
-  Stream<QuerySnapshot<Map<String, dynamic>>> _streamAvaliacoesDoPrestador() {
-    return _fs
+  Stream<QuerySnapshot<Map<String, dynamic>>> streamAvaliacoesDoPrestador() {
+    return firestore
         .collection('avaliacoes')
-        .where('prestadorId', isEqualTo: widget.prestadorId)
+        .where('prestadorId', isEqualTo: prestadorId)
         .orderBy('criadoEm', descending: true)
         .snapshots();
   }
 
-  Future<Map<String, num>> _mediaQtdPrestador() async {
-    final snap = await _fs
+  Future<Map<String, num>> mediaQtdPrestador() async {
+    final snap = await firestore
         .collection('avaliacoes')
-        .where('prestadorId', isEqualTo: widget.prestadorId)
+        .where('prestadorId', isEqualTo: prestadorId)
         .get();
 
     double soma = 0;
     int qtd = 0;
     for (final d in snap.docs) {
-      final n = _nota(d.data());
+      final n = nota(d.data());
       if (n != null) {
         soma += n;
         qtd++;
@@ -132,17 +144,17 @@ class _VisualizarAvaliacoesPrestadorState
     return Scaffold(
       appBar: AppBar(title: const Text('Avaliações do Prestador')),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: _streamAvaliacoesDoPrestador(),
+        stream: streamAvaliacoesDoPrestador(),
         builder: (context, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
           final docs = snap.data?.docs ?? const [];
 
-          final filtrados = _aplicarFiltros(
+          final filtrados = aplicarFiltros(
             docs: docs,
-            somenteMidia: _somenteMidia,
-            estrelasExatas: _estrelas,
+            somenteMidia: somenteMidia,
+            estrelasExatas: estrelas,
           );
 
           return CustomScrollView(
@@ -150,14 +162,14 @@ class _VisualizarAvaliacoesPrestadorState
               // Header fixo com média e total
               SliverPersistentHeader(
                 pinned: true,
-                delegate: _PinnedHeaderDelegate(
+                delegate: PinnedHeaderDelegate(
                   height: 84,
                   child: FutureBuilder<Map<String, num>>(
-                    future: _mediaQtdPrestador(),
+                    future: mediaQtdPrestador(),
                     builder: (context, m) {
                       final media = (m.data?['media'] ?? 0).toDouble();
                       final qtd = (m.data?['qtd'] ?? 0).toInt();
-                      return _HeaderPrestador(media: media, qtd: qtd);
+                      return HeaderPrestador(media: media, qtd: qtd);
                     },
                   ),
                 ),
@@ -169,22 +181,22 @@ class _VisualizarAvaliacoesPrestadorState
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                  child: _BarraFiltrosPadrao(
+                  child: BarraFiltrosPadrao(
                     total: docs.length,
-                    comMidia: docs.where((d) => _temMidia(d.data())).length,
-                    somenteMidia: _somenteMidia,
-                    estrelas: _estrelas,
-                    onToggleMidia: (v) => setState(() => _somenteMidia = v),
-                    onChangeEstrelas: (v) => setState(() => _estrelas = v),
+                    comMidia: docs.where((d) => temMidia(d.data())).length,
+                    somenteMidia: somenteMidia,
+                    estrelas: estrelas,
+                    onToggleMidia: (v) => setState(() => somenteMidia = v),
+                    onChangeEstrelas: (v) => setState(() => estrelas = v),
                   ),
                 ),
               ),
 
               // Lista
-              _SliverListaAvaliacoes(
+              SliverListaAvaliacoes(
                 docs: filtrados,
-                nota: _nota,
-                getClienteInfo: _getClienteInfo,
+                nota: nota,
+                getClienteInfo: getClienteInfo,
               ),
             ],
           );
@@ -194,18 +206,22 @@ class _VisualizarAvaliacoesPrestadorState
   }
 }
 
-/* ============================
-   Widgets reutilizáveis
-   ============================ */
+/* ============================================================
+   Widgets reutilizáveis (agora públicos para testes)
+   ============================================================ */
 
-class _PinnedHeaderDelegate extends SliverPersistentHeaderDelegate {
+class PinnedHeaderDelegate extends SliverPersistentHeaderDelegate {
   final double height;
   final Widget child;
 
-  _PinnedHeaderDelegate({required this.height, required this.child});
+  PinnedHeaderDelegate({required this.height, required this.child});
 
   @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
     return SizedBox.expand(
       child: Material(
         color: Theme.of(context).scaffoldBackgroundColor,
@@ -222,16 +238,16 @@ class _PinnedHeaderDelegate extends SliverPersistentHeaderDelegate {
   double get minExtent => height;
 
   @override
-  bool shouldRebuild(covariant _PinnedHeaderDelegate old) {
+  bool shouldRebuild(covariant PinnedHeaderDelegate old) {
     return height != old.height || child != old.child;
   }
 }
 
-class _HeaderPrestador extends StatelessWidget {
+class HeaderPrestador extends StatelessWidget {
   final double media;
   final int qtd;
 
-  const _HeaderPrestador({required this.media, required this.qtd});
+  const HeaderPrestador({required this.media, required this.qtd});
 
   @override
   Widget build(BuildContext context) {
@@ -245,11 +261,10 @@ class _HeaderPrestador extends StatelessWidget {
             style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
           ),
           const SizedBox(width: 8),
-          const Icon(Icons.star, size: starSize, color: Colors.amber),
-          const Icon(Icons.star, size: starSize, color: Colors.amber),
-          const Icon(Icons.star, size: starSize, color: Colors.amber),
-          const Icon(Icons.star, size: starSize, color: Colors.amber),
-          const Icon(Icons.star, size: starSize, color: Colors.amber),
+          ...List.generate(
+            5,
+            (_) => const Icon(Icons.star, size: starSize, color: Colors.amber),
+          ),
           const SizedBox(width: 8),
           Flexible(
             child: Text(
@@ -265,7 +280,7 @@ class _HeaderPrestador extends StatelessWidget {
   }
 }
 
-class _BarraFiltrosPadrao extends StatelessWidget {
+class BarraFiltrosPadrao extends StatelessWidget {
   final int total;
   final int comMidia;
   final bool somenteMidia;
@@ -273,7 +288,7 @@ class _BarraFiltrosPadrao extends StatelessWidget {
   final ValueChanged<bool> onToggleMidia;
   final ValueChanged<int> onChangeEstrelas;
 
-  const _BarraFiltrosPadrao({
+  const BarraFiltrosPadrao({
     required this.total,
     required this.comMidia,
     required this.somenteMidia,
@@ -290,7 +305,7 @@ class _BarraFiltrosPadrao extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: _FiltroPill(
+          child: FiltroPill(
             label: 'Todas',
             count: total,
             selected: !somenteMidia && estrelas == 0,
@@ -304,7 +319,7 @@ class _BarraFiltrosPadrao extends StatelessWidget {
         ),
         const SizedBox(width: _gap),
         Expanded(
-          child: _FiltroPill(
+          child: FiltroPill(
             label: 'Com Mídia',
             count: comMidia,
             selected: somenteMidia,
@@ -315,7 +330,7 @@ class _BarraFiltrosPadrao extends StatelessWidget {
         ),
         const SizedBox(width: _gap),
         Expanded(
-          child: _DropdownEstrelasExato(
+          child: DropdownEstrelasExato(
             value: estrelas,
             onChanged: onChangeEstrelas,
             width: double.infinity,
@@ -327,7 +342,7 @@ class _BarraFiltrosPadrao extends StatelessWidget {
   }
 }
 
-class _FiltroPill extends StatelessWidget {
+class FiltroPill extends StatelessWidget {
   final String label;
   final int count;
   final bool selected;
@@ -335,7 +350,7 @@ class _FiltroPill extends StatelessWidget {
   final double height;
   final VoidCallback onTap;
 
-  const _FiltroPill({
+  const FiltroPill({
     required this.label,
     required this.count,
     required this.selected,
@@ -367,24 +382,15 @@ class _FiltroPill extends StatelessWidget {
               children: [
                 Text(
                   label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontWeight: FontWeight.w600,
                     color: Colors.black87,
-                    height: 1.0,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   '($count)',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.grey[600],
-                    fontSize: 12,
-                    height: 1.0,
-                  ),
+                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
                 ),
               ],
             ),
@@ -395,13 +401,13 @@ class _FiltroPill extends StatelessWidget {
   }
 }
 
-class _DropdownEstrelasExato extends StatelessWidget {
+class DropdownEstrelasExato extends StatelessWidget {
   final int value; // 0..5
   final ValueChanged<int> onChanged;
   final double width;
   final double height;
 
-  const _DropdownEstrelasExato({
+  const DropdownEstrelasExato({
     required this.value,
     required this.onChanged,
     required this.width,
@@ -435,49 +441,18 @@ class _DropdownEstrelasExato extends StatelessWidget {
                 ),
               )
               .toList(),
-          selectedItemBuilder: (context) => itens
-              .map(
-                (v) => FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Estrelas ★',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          color: Colors.black87,
-                          height: 1.0,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        v == 0 ? 'Todas' : '$v ★',
-                        style: const TextStyle(
-                          color: Colors.grey,
-                          fontSize: 12,
-                          height: 1.0,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              )
-              .toList(),
         ),
       ),
     );
   }
 }
 
-class _SliverListaAvaliacoes extends StatelessWidget {
+class SliverListaAvaliacoes extends StatelessWidget {
   final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
   final double? Function(Map<String, dynamic>) nota;
-  final Future<_ClienteInfo> Function(String clienteId) getClienteInfo;
+  final Future<ClienteInfo> Function(String clienteId) getClienteInfo;
 
-  const _SliverListaAvaliacoes({
+  const SliverListaAvaliacoes({
     required this.docs,
     required this.nota,
     required this.getClienteInfo,
@@ -518,17 +493,18 @@ class _SliverListaAvaliacoes extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (titulo.isNotEmpty)
-                    Text(titulo,
-                        style: const TextStyle(fontWeight: FontWeight.w600)),
+                    Text(
+                      titulo,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
                   if (clienteId.isNotEmpty)
-                    FutureBuilder<_ClienteInfo>(
+                    FutureBuilder<ClienteInfo>(
                       future: getClienteInfo(clienteId),
                       builder: (context, snap) {
                         final info =
-                            snap.data ?? const _ClienteInfo(nome: 'Cliente');
+                            snap.data ?? const ClienteInfo(nome: 'Cliente');
                         return Padding(
-                          padding:
-                              const EdgeInsets.only(top: 8.0, bottom: 6.0),
+                          padding: const EdgeInsets.only(top: 8.0, bottom: 6.0),
                           child: Row(
                             children: [
                               CircleAvatar(
@@ -538,8 +514,11 @@ class _SliverListaAvaliacoes extends StatelessWidget {
                                     ? NetworkImage(info.fotoUrl!)
                                     : null,
                                 child: (info.fotoUrl == null)
-                                    ? const Icon(Icons.person,
-                                        size: 16, color: Color(0xFF5B33D6))
+                                    ? const Icon(
+                                        Icons.person,
+                                        size: 16,
+                                        color: Color(0xFF5B33D6),
+                                      )
                                     : null,
                               ),
                               const SizedBox(width: 8),
@@ -549,8 +528,9 @@ class _SliverListaAvaliacoes extends StatelessWidget {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
-                                      color: Colors.black87,
-                                      fontWeight: FontWeight.w600),
+                                    color: Colors.black87,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
                               ),
                             ],

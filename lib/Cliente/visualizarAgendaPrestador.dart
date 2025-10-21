@@ -46,10 +46,10 @@ class VisualizarAgendaPrestador extends StatefulWidget {
 
   @override
   State<VisualizarAgendaPrestador> createState() =>
-      _VisualizarAgendaPrestadorState();
+      VisualizarAgendaPrestadorState();
 }
 
-class _VisualizarAgendaPrestadorState extends State<VisualizarAgendaPrestador> {
+class VisualizarAgendaPrestadorState extends State<VisualizarAgendaPrestador> {
   DateTime get _today {
     final now = DateTime.now();
     return DateTime(now.year, now.month, now.day);
@@ -60,23 +60,23 @@ class _VisualizarAgendaPrestadorState extends State<VisualizarAgendaPrestador> {
   CalendarFormat _format = CalendarFormat.month;
 
   final Set<int> _workWeekdays = {1, 2, 3, 4, 5};
-  final Set<DateTime> _busyDays = {};
+  final Set<DateTime> busyDays = {};
 
-  String _fmtData(DateTime d) =>
+  String fmtData(DateTime d) =>
       DateFormat("d 'de' MMMM 'de' y", 'pt_BR').format(d);
   DateTime _ymd(DateTime d) => DateTime(d.year, d.month, d.day);
-  DateTime _toYMD(dynamic ts) {
+  DateTime toYMD(dynamic ts) {
     final dt = (ts as Timestamp).toDate();
     return DateTime(dt.year, dt.month, dt.day);
   }
 
-  bool _isWorkday(DateTime d) => _workWeekdays.contains(d.weekday);
+  bool isWorkday(DateTime d) => _workWeekdays.contains(d.weekday);
 
-  Iterable<DateTime> _nextBusinessDays(DateTime start, int count) sync* {
+  Iterable<DateTime> nextBusinessDays(DateTime start, int count) sync* {
     var d = _ymd(start);
     int added = 0;
     while (added < count) {
-      if (_isWorkday(d)) {
+      if (isWorkday(d)) {
         yield d;
         added++;
       }
@@ -84,17 +84,17 @@ class _VisualizarAgendaPrestadorState extends State<VisualizarAgendaPrestador> {
     }
   }
 
-  void _markBusyFromDoc(Map<String, dynamic> data) {
+  void markBusyFromDoc(Map<String, dynamic> data) {
     final tsInicio = data['dataInicioSugerida'];
     if (tsInicio is! Timestamp) return;
-    final start = _toYMD(tsInicio);
+    final start = toYMD(tsInicio);
 
     final tsFinalPrev = data['dataFinalPrevista'];
     if (tsFinalPrev is Timestamp) {
-      final end = _toYMD(tsFinalPrev);
+      final end = toYMD(tsFinalPrev);
       var d = start;
       while (!d.isAfter(end)) {
-        if (_isWorkday(d)) _busyDays.add(d);
+        if (isWorkday(d)) busyDays.add(d);
         d = d.add(const Duration(days: 1));
       }
       return;
@@ -106,20 +106,20 @@ class _VisualizarAgendaPrestadorState extends State<VisualizarAgendaPrestador> {
     final valor = (data['tempoEstimadoValor'] as num?)?.ceil() ?? 0;
 
     if (valor <= 0) {
-      if (_isWorkday(start)) _busyDays.add(start);
+      if (isWorkday(start)) busyDays.add(start);
       return;
     }
 
     if (unidade.startsWith('dia')) {
-      for (final d in _nextBusinessDays(start, valor)) {
-        _busyDays.add(d);
+      for (final d in nextBusinessDays(start, valor)) {
+        busyDays.add(d);
       }
     } else {
-      if (_isWorkday(start)) _busyDays.add(start);
+      if (isWorkday(start)) busyDays.add(start);
     }
   }
 
-  bool _isBusy(DateTime day) => _busyDays.contains(_ymd(day));
+  bool _isBusy(DateTime day) => busyDays.contains(_ymd(day));
 
   @override
   Widget build(BuildContext context) {
@@ -138,10 +138,10 @@ class _VisualizarAgendaPrestadorState extends State<VisualizarAgendaPrestador> {
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: stream,
             builder: (context, snap) {
-              _busyDays.clear();
+              busyDays.clear();
               if (snap.hasData) {
                 for (final doc in snap.data!.docs) {
-                  _markBusyFromDoc(doc.data());
+                  markBusyFromDoc(doc.data());
                 }
               }
 
@@ -248,7 +248,7 @@ class _VisualizarAgendaPrestadorState extends State<VisualizarAgendaPrestador> {
                           child: Align(
                             alignment: Alignment.centerLeft,
                             child: Text(
-                              'Agenda em ${_fmtData(_selectedDay)}',
+                              'Agenda em ${fmtData(_selectedDay)}',
                               style: const TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.bold,
@@ -276,12 +276,9 @@ class _VisualizarAgendaPrestadorState extends State<VisualizarAgendaPrestador> {
     const clrWeekend = Color.fromARGB(255, 199, 190, 190); // fds
     const clrToday = Color(0xFF673AB7); // hoje roxo
 
-    DateTime ymdLocal(DateTime d) => DateTime(d.year, d.month, d.day);
-
     Color bgFor(DateTime day) {
-      final ymd = ymdLocal(day);
       if (_isBusy(day)) return clrBusy;
-      if (!_isWorkday(day)) return clrWeekend;
+      if (!isWorkday(day)) return clrWeekend;
       return clrAvail;
     }
 

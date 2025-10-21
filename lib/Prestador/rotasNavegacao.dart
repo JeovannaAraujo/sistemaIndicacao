@@ -12,6 +12,7 @@ class RotasNavegacaoPrestador {
     bool replace = true,
   }) {
     final r = MaterialPageRoute<T>(builder: (_) => page);
+    // ✅ Retorna diretamente o Future do Navigator (funciona em testes e no app)
     return replace
         ? Navigator.of(c).pushReplacement(r)
         : Navigator.of(c).push(r);
@@ -84,8 +85,6 @@ class PrestadorBottomNav extends StatelessWidget {
             context.goSolicitacoes();
             break;
           case 2:
-            // Passa explicitamente se quiser abrir o perfil de outro prestador:
-            // context.goPerfil(userId: 'algumId');
             context.goPerfil();
             break;
         }

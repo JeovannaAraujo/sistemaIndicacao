@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:firebase_storage_mocks/firebase_storage_mocks.dart';
 import 'package:myapp/Administrador/categoriaServicos.dart';
+import 'package:firebase_core/firebase_core.dart';
+
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -329,4 +331,18 @@ void main() {
       expect('categoriasServicos', 'categoriasServicos');
     });
   });
+
+test('31️⃣ Tentar atualizar doc inexistente lança exceção', () async {
+  final ref = firestore.collection('categoriasServicos');
+  expectLater(
+    ref.doc('naoExiste').update({'nome': 'Teste'}),
+    throwsA(isA<FirebaseException>()),
+  );
+});
+
+test('32️⃣ Tentativa de exclusão de doc inexistente não quebra', () async {
+  final ref = firestore.collection('categoriasServicos');
+  await expectLater(ref.doc('inexistente').delete(), completes);
+});
+
 }

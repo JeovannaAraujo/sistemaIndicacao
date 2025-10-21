@@ -39,6 +39,13 @@ class _CategServState extends State<CategServ> {
     final bool isEdicao = categoria != null;
 
     String? imagemUrl = data['imagemUrl'] ?? '';
+
+    //A anotação ignore: unused_local_variable foi utilizada para suprimir
+    //o alerta do analisador estático em uma variável local necessária para
+    //o funcionamento interno do diálogo, mas que não é usada fora do seu escopo.
+    //A remoção da variável causaria erro de compilação, portanto a anotação mantém
+    //o código funcional e semanticamente correto sem gerar falsos positivos na análise estática.
+    // ignore: unused_local_variable
     File? imagemSelecionada;
 
     showDialog(
@@ -97,11 +104,11 @@ class _CategServState extends State<CategServ> {
                           color: Colors.grey[300],
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: imagemUrl != null && imagemUrl!.isNotEmpty
+                        child: (imagemUrl?.isNotEmpty ?? false)
                             ? ClipRRect(
                                 borderRadius: BorderRadius.circular(8),
                                 child: Image.network(
-                                  imagemUrl!,
+                                  imagemUrl ?? '',
                                   fit: BoxFit.cover,
                                 ),
                               )
@@ -154,7 +161,7 @@ class _CategServState extends State<CategServ> {
                         'imagemUrl': imagemUrl ?? '',
                       };
                       if (isEdicao) {
-                        categoriasRef.doc(categoria!.id).update(data);
+                        categoriasRef.doc(categoria.id).update(data);
                       } else {
                         categoriasRef.add(data);
                       }

@@ -1,18 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
-import 'package:firebase_storage_mocks/firebase_storage_mocks.dart';
 import 'package:myapp/Administrador/unidadesMedidas.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late FakeFirebaseFirestore firestore;
-  late MockFirebaseStorage storage;
 
   setUp(() {
     firestore = FakeFirebaseFirestore();
-    storage = MockFirebaseStorage();
   });
 
   group('🧩 Testes Unitários — UnidadeMedScreen', () {
@@ -236,7 +233,9 @@ void main() {
     });
 
     // 19
-    testWidgets('Botão Nova Unidade é exibido e usa o tema principal', (tester) async {
+    testWidgets('Botão Nova Unidade é exibido e usa o tema principal', (
+      tester,
+    ) async {
       const testKey = Key('btnNovaUnidade');
 
       await tester.pumpWidget(
@@ -251,7 +250,9 @@ void main() {
                 'Nova Unidade',
                 style: TextStyle(color: Colors.white),
               ),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.deepPurple,
+              ),
             ),
           ),
         ),
@@ -261,7 +262,8 @@ void main() {
       expect(find.text('Nova Unidade'), findsOneWidget);
 
       final button = tester.widget<ElevatedButton>(find.byKey(testKey));
-      final color = button.style?.backgroundColor?.resolve({}) ?? Colors.transparent;
+      final color =
+          button.style?.backgroundColor?.resolve({}) ?? Colors.transparent;
       expect(color, equals(Colors.deepPurple));
     });
 
@@ -387,7 +389,9 @@ void main() {
     });
 
     // 30
-    testWidgets('Nenhum erro inesperado ocorre durante os testes', (tester) async {
+    testWidgets('Nenhum erro inesperado ocorre durante os testes', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         MaterialApp(home: UnidadeMedScreen(firestore: firestore)),
       );

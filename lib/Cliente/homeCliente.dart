@@ -1,4 +1,3 @@
-// lib/Cliente/homeCliente.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -10,19 +9,35 @@ import 'rotasNavegacao.dart';
 import 'servicosFinalizados.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final FirebaseFirestore? firestore;
+  final FirebaseAuth? auth; // ✅ Novo parâmetro para injetar o mock nos testes
+
+  const HomeScreen({super.key, this.firestore, this.auth});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<HomeScreen> createState() => HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
-  final user = FirebaseAuth.instance.currentUser;
-  int _selectedIndex = 0;
+class HomeScreenState extends State<HomeScreen> {
+  late FirebaseFirestore db;
+  late FirebaseAuth auth;
+  User? user;
 
+  @override
+  void initState() {
+    super.initState();
+    db = widget.firestore ?? FirebaseFirestore.instance;
+    auth = widget.auth ?? FirebaseAuth.instance; // ✅ Usa o mock se existir
+    user = auth.currentUser;
+  }
+
+  int selectedIndex = 0;
+
+
+  // 🔹 Categorias fixas
   static final categoriasFixas = [
     {
-      'id': 'zONJ5iQBpjDNvWpSsQUS', // ID real do Firestore
+      'id': 'zONJ5iQBpjDNvWpSsQUS',
       'nome': 'Eletricista',
       'icone': Icons.flash_on,
       'cor': Colors.yellow,
@@ -59,13 +74,13 @@ class _HomeScreenState extends State<HomeScreen> {
     },
   ];
 
-  static const String _categoriasCollection = 'categoriasProfissionais';
-
-  void _onItemTapped(int index) {
-    setState(() => _selectedIndex = index);
+  // 🔹 Atualiza índice da BottomNav
+  void onItemTapped(int index) {
+    setState(() => selectedIndex = index);
   }
 
-  void _abrirCategoria(String categoriaId, String categoriaNome) {
+  // 🔹 Abre página de profissionais por categoria
+  void abrirCategoria(String categoriaId, String categoriaNome) {
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -85,10 +100,8 @@ class _HomeScreenState extends State<HomeScreen> {
         child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
           stream: (user == null)
               ? const Stream.empty()
-              : FirebaseFirestore.instance
-                    .collection('usuarios')
-                    .doc(user!.uid)
-                    .snapshots(),
+              : db.collection('usuarios').doc(user!.uid).snapshots(),
+
           builder: (context, snap) {
             final dados = snap.data?.data() ?? {};
             final nome = (dados['nome'] ?? 'Cliente') as String;
@@ -276,7 +289,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   leading: const Icon(Icons.logout),
                   title: const Text('Sair'),
                   onTap: () async {
-                    await FirebaseAuth.instance.signOut();
+                    await auth.signOut();
                     if (!context.mounted) return;
                     Navigator.pushReplacement(
                       context,
@@ -291,19 +304,14 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
 
       appBar: AppBar(),
-      body: _buildBody(),
+      body: buildBody(),
 
       bottomNavigationBar: const ClienteBottomNav(selectedIndex: 0),
     );
   }
 
   // ==================== CONTEÚDO ====================
-  Widget _buildBody() {
-    final categoriasQuery = FirebaseFirestore.instance
-        .collection(_categoriasCollection)
-        .where('ativo', isEqualTo: true)
-        .orderBy('nome');
-
+  Widget buildBody() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -359,11 +367,11 @@ class _HomeScreenState extends State<HomeScreen> {
               spacing: 24,
               runSpacing: 24,
               children: categoriasFixas.map((cat) {
-                return _CategoriaItem(
+                return categoriaItem(
                   label: cat['nome'].toString(),
                   iconData: cat['icone'] as IconData,
                   color: cat['cor'] as Color,
-                  onTap: () => _abrirCategoria(
+                  onTap: () => abrirCategoria(
                     cat['id'].toString(),
                     cat['nome'].toString(),
                   ),
@@ -373,7 +381,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
 
           const SizedBox(height: 24),
-
 
           // ====== PROFISSIONAIS EM DESTAQUE ======
           const Text(
@@ -387,13 +394,14 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(height: 12),
 
           StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance
+            stream: db
                 .collection('usuarios')
                 .where('tipoPerfil', isEqualTo: 'Prestador')
                 .where('ativo', isEqualTo: true)
                 .orderBy('mediaAvaliacoes', descending: true)
                 .limit(5)
                 .snapshots(),
+
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
@@ -462,7 +470,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _CategoriaItem({
+  Widget categoriaItem({
     required String label,
     required Color color,
     required IconData iconData,
@@ -505,7 +513,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  IconData _iconForCategory(String nome) {
+  IconData iconForCategory(String nome) {
     final n = nome.toLowerCase();
     if (n.contains('pedreiro')) return Icons.construction;
     if (n.contains('eletric')) return Icons.flash_on;
@@ -518,7 +526,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Icons.handyman;
   }
 
-  Color _fromHexOrDefault(String hex, Color fallback) {
+  Color fromHexOrDefault(String hex, Color fallback) {
     if (hex.isEmpty) return fallback;
     var h = hex.replaceAll('#', '');
     if (h.length == 6) h = 'FF$h';
@@ -529,7 +537,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Widget _buildProfissional(
+  Widget buildProfissional(
     String nome,
     String categoria,
     double nota,

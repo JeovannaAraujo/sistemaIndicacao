@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
-import 'package:myapp/Administrador/categoriaProfissionais.dart';
+import 'package:myapp/Administrador/categoria_profissionais.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -329,4 +329,10 @@ void main() {
       expect('categoriasProfissionais', 'categoriasProfissionais');
     });
   });
+
+  test('31 Tentativa de exclusão de doc inexistente não quebra', () async {
+  final ref = firestore.collection('categoriasProfissionais');
+  await expectLater(ref.doc('inexistente').delete(), completes);
+});
+
 }

@@ -3,7 +3,14 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 class CadastroServicos extends StatefulWidget {
-  const CadastroServicos({super.key});
+  final FirebaseFirestore? firestore; // ✅ injeção para testes
+  final FirebaseAuth? auth; // ✅ injeção para testes
+
+  const CadastroServicos({
+    super.key,
+    this.firestore,
+    this.auth,
+  });
 
   @override
   State<CadastroServicos> createState() => _CadastroServicosState();
@@ -11,8 +18,8 @@ class CadastroServicos extends StatefulWidget {
 
 class _CadastroServicosState extends State<CadastroServicos> {
   final _formKey = GlobalKey<FormState>();
-  final _firestore = FirebaseFirestore.instance;
-  final _auth = FirebaseAuth.instance;
+  late final FirebaseFirestore _firestore;
+  late final FirebaseAuth _auth;
 
   final nomeController = TextEditingController();
   final descricaoController = TextEditingController();
@@ -20,17 +27,18 @@ class _CadastroServicosState extends State<CadastroServicos> {
   final valorMedioController = TextEditingController();
   final valorMaximoController = TextEditingController();
 
-  // IDs selecionados
-  String? unidadeSelecionadaId; // <-- agora por ID
-  String? categoriaSelecionadaId; // <-- já era por ID
+  String? unidadeSelecionadaId;
+  String? categoriaSelecionadaId;
 
-  // Streams (somente documentos ATIVOS)
   late final Stream<QuerySnapshot<Map<String, dynamic>>> _unidadesStream;
   late final Stream<QuerySnapshot<Map<String, dynamic>>> _categoriasStream;
 
   @override
   void initState() {
     super.initState();
+    _firestore = widget.firestore ?? FirebaseFirestore.instance;
+    _auth = widget.auth ?? FirebaseAuth.instance;
+
     _unidadesStream = _firestore
         .collection('unidades')
         .where('ativo', isEqualTo: true)
@@ -79,16 +87,13 @@ class _CadastroServicosState extends State<CadastroServicos> {
     }
 
     // Revalida no servidor se ainda estão ativas
-    final unidadeDoc = await _firestore
-        .collection('unidades')
-        .doc(unidadeSelecionadaId)
-        .get();
+    final unidadeDoc =
+        await _firestore.collection('unidades').doc(unidadeSelecionadaId).get();
     if (!unidadeDoc.exists || unidadeDoc.data()?['ativo'] != true) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'A unidade selecionada não está mais ativa. Selecione outra.',
-          ),
+              'A unidade selecionada não está mais ativa. Selecione outra.'),
         ),
       );
       return;
@@ -102,8 +107,7 @@ class _CadastroServicosState extends State<CadastroServicos> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'A categoria selecionada não está mais ativa. Selecione outra.',
-          ),
+              'A categoria selecionada não está mais ativa. Selecione outra.'),
         ),
       );
       return;
@@ -113,21 +117,17 @@ class _CadastroServicosState extends State<CadastroServicos> {
       await _firestore.collection('servicos').add({
         'nome': nomeController.text.trim(),
         'descricao': descricaoController.text.trim(),
-
-        // ✅ salvando IDs
         'unidadeId': unidadeSelecionadaId,
         'categoriaId': categoriaSelecionadaId,
-
-        'valorMinimo':
-            double.tryParse(valorMinimoController.text.replaceAll(',', '.')) ??
+        'valorMinimo': double.tryParse(
+                valorMinimoController.text.replaceAll(',', '.')) ??
             0,
-        'valorMedio':
-            double.tryParse(valorMedioController.text.replaceAll(',', '.')) ??
+        'valorMedio': double.tryParse(
+                valorMedioController.text.replaceAll(',', '.')) ??
             0,
-        'valorMaximo':
-            double.tryParse(valorMaximoController.text.replaceAll(',', '.')) ??
+        'valorMaximo': double.tryParse(
+                valorMaximoController.text.replaceAll(',', '.')) ??
             0,
-
         'prestadorId': user.uid,
         'ativo': true,
         'criadoEm': FieldValue.serverTimestamp(),
@@ -138,9 +138,9 @@ class _CadastroServicosState extends State<CadastroServicos> {
       );
       Navigator.pop(context);
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Erro: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro: $e')),
+      );
     }
   }
 
@@ -223,25 +223,18 @@ class _CadastroServicosState extends State<CadastroServicos> {
                     );
                   }).toList();
 
-                  // Se a selecionada não está mais na lista, limpa
-                  if (unidadeSelecionadaId != null &&
-                      !docs.any((d) => d.id == unidadeSelecionadaId)) {
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      setState(() => unidadeSelecionadaId = null);
-                    });
-                  }
-
+                  // ✅ evita crash: se ID atual não está mais na lista
                   return DropdownButtonFormField<String>(
-                    initialValue: unidadeSelecionadaId,
+                    value: docs.any((d) => d.id == unidadeSelecionadaId)
+                        ? unidadeSelecionadaId
+                        : null,
                     items: itens,
-                    onChanged: (id) =>
-                        setState(() => unidadeSelecionadaId = id),
+                    onChanged: (id) => setState(() => unidadeSelecionadaId = id),
                     decoration: const InputDecoration(
                       labelText: 'Unidade de medida',
                     ),
                     hint: const Text('Selecione a unidade de medida'),
-                    validator: (_) =>
-                        (unidadeSelecionadaId == null ||
+                    validator: (_) => (unidadeSelecionadaId == null ||
                             unidadeSelecionadaId!.isEmpty)
                         ? 'Obrigatório'
                         : null,
@@ -285,15 +278,11 @@ class _CadastroServicosState extends State<CadastroServicos> {
                     );
                   }).toList();
 
-                  if (categoriaSelecionadaId != null &&
-                      !docs.any((d) => d.id == categoriaSelecionadaId)) {
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      setState(() => categoriaSelecionadaId = null);
-                    });
-                  }
-
+                  // ✅ evita crash também
                   return DropdownButtonFormField<String>(
-                    initialValue: categoriaSelecionadaId,
+                    value: docs.any((d) => d.id == categoriaSelecionadaId)
+                        ? categoriaSelecionadaId
+                        : null,
                     items: itens,
                     onChanged: (id) =>
                         setState(() => categoriaSelecionadaId = id),
@@ -301,8 +290,7 @@ class _CadastroServicosState extends State<CadastroServicos> {
                       labelText: 'Categoria de serviços',
                     ),
                     hint: const Text('Selecione a categoria do serviço'),
-                    validator: (_) =>
-                        (categoriaSelecionadaId == null ||
+                    validator: (_) => (categoriaSelecionadaId == null ||
                             categoriaSelecionadaId!.isEmpty)
                         ? 'Obrigatório'
                         : null,
@@ -312,27 +300,24 @@ class _CadastroServicosState extends State<CadastroServicos> {
 
               TextFormField(
                 controller: valorMinimoController,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
                 decoration: const InputDecoration(
                   labelText: 'Valor por unidade (mínimo)',
                 ),
               ),
               TextFormField(
                 controller: valorMedioController,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
                 decoration: const InputDecoration(
                   labelText: 'Valor por unidade (médio)',
                 ),
               ),
               TextFormField(
                 controller: valorMaximoController,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
                 decoration: const InputDecoration(
                   labelText: 'Valor por unidade (máximo)',
                 ),
@@ -343,10 +328,8 @@ class _CadastroServicosState extends State<CadastroServicos> {
                 onPressed: _salvarServico,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.deepPurple,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 40,
-                    vertical: 16,
-                  ),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(24),
                   ),
@@ -357,10 +340,8 @@ class _CadastroServicosState extends State<CadastroServicos> {
               OutlinedButton(
                 onPressed: () => Navigator.pop(context),
                 style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 40,
-                    vertical: 16,
-                  ),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(24),
                   ),

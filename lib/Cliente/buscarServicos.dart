@@ -14,35 +14,34 @@ import '../Prestador/avaliacoesPrestador.dart';
 import 'package:geolocator/geolocator.dart';
 
 class BuscarServicosScreen extends StatefulWidget {
-  const BuscarServicosScreen({super.key});
+  final FirebaseFirestore? firestore;
+
+  const BuscarServicosScreen({super.key, this.firestore});
 
   @override
-  State<BuscarServicosScreen> createState() => _BuscarServicosScreenState();
+  State<BuscarServicosScreen> createState() => BuscarServicosScreenState();
 }
 
-class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
-  final TextEditingController _buscaController = TextEditingController();
-  final TextEditingController _minValueController = TextEditingController();
-  final TextEditingController _maxValueController = TextEditingController();
-  final TextEditingController _localizacaoController = TextEditingController();
-  final TextEditingController _horarioController = TextEditingController();
+class BuscarServicosScreenState extends State<BuscarServicosScreen> {
+  final TextEditingController buscaController = TextEditingController();
+  final TextEditingController minValueController = TextEditingController();
+  final TextEditingController maxValueController = TextEditingController();
+  final TextEditingController localizacaoController = TextEditingController();
+  final TextEditingController horarioController = TextEditingController();
   final CustomInfoWindowController _customInfoWindowController =
       CustomInfoWindowController();
 
-  String? _categoriaSelecionadaId;
-  String? _categoriaSelecNome;
+  String? categoriaSelecionadaId;
   String? _profissionalSelecionadoId;
-  String? _profissionalSelecNome;
   String? _unidadeSelecionada;
   String? _disponibilidadeSelecionada;
-  DateTime? _dataSelecionada;
-  int _avaliacaoMinima = 0;
+  DateTime? dataSelecionada;
+  int avaliacaoMinima = 0;
   double _raioDistancia = 10.0;
-  List<String> _pagamentosAceitos = [];
+  List<String> pagamentosAceitos = [];
   bool _filtrosExibidos = true;
   bool _exibirMapa = false;
-
-  bool _exibirProfissionais = false;
+  bool exibirProfissionais = false;
 
   GoogleMapController? _mapController;
   final Set<Marker> _marcadores = {};
@@ -64,13 +63,11 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
   final Map<String, String> _cacheNomePrestador = {};
   final Map<String, String> _cacheImagemCategoria = {};
   final Map<String, String> _cacheUnidadeAbrev = {};
-  final Map<String, Map<String, num>> _cacheAvalsPrest = {};
+  final Map<String, Map<String, num>> cacheAvalsPrest = {};
   final Map<String, Map<String, num>> _cacheAvalsServ = {};
-  final Map<String, String> _cacheCategoriaProfNome = {};
+  final Map<String, String> cacheCategoriaProfNome = {};
 
-  final _gStart = const Color(0xFFB196FF);
   final _gEnd = const Color(0xFF6C3AF2);
-  final _ink = const Color(0xFF1E1E24);
   final _muted = const Color(0xFF6B7280);
   final _stroke = const Color(0xFFE5E7EB);
   final _pillBg = const Color(0xFFF7F7FB);
@@ -106,26 +103,49 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     ),
   );
 
+  // 🔧 Banco de dados
+  // 🔧 Banco de dados
+  FirebaseFirestore? _db;
+
+  // Construtor usado para testes (injeta o fake)
+  BuscarServicosScreenState.forTest(FirebaseFirestore db) {
+    _db = db;
+  }
+
+  // Construtor padrão
+  BuscarServicosScreenState();
+
   @override
   void initState() {
     super.initState();
+
+    // Inicializa o Firestore — usa o fake se fornecido no widget, senão o real
+    _db ??= widget.firestore ?? FirebaseFirestore.instance;
+
+    // Evita execução desnecessária em ambiente de teste
+    if (!mounted) return;
+
     _verificarPermissaoLocalizacao();
     _carregarFiltrosBase();
   }
 
+  // Getter defensivo — garante _db não nulo em métodos diretos (ex: testes)
+  FirebaseFirestore get db => _db ?? FirebaseFirestore.instance;
+
   @override
   void dispose() {
-    _buscaController.dispose();
-    _minValueController.dispose();
-    _maxValueController.dispose();
-    _localizacaoController.dispose();
-    _horarioController.dispose();
-    _mapController?.dispose();
+    if (mounted) {
+      buscaController.dispose();
+      minValueController.dispose();
+      maxValueController.dispose();
+      localizacaoController.dispose();
+      horarioController.dispose();
+    }
     super.dispose();
   }
 
   Future<void> _carregarFiltrosBase() async {
-    final fs = FirebaseFirestore.instance;
+    final fs = db; // usa o getter defensivo, nunca é nulo
 
     final futures = await Future.wait([
       fs.collection(_colCategoriasServ).where('ativo', isEqualTo: true).get(),
@@ -197,7 +217,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
 
     setState(() {
       _centroBusca = LatLng(pos.latitude, pos.longitude);
-      _atualizarCirculo();
+      atualizarCirculo();
     });
 
     // centraliza o mapa
@@ -208,42 +228,43 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     );
 
     // já filtra por raio inicial
-    _filtrarPorRaio();
+    filtrarPorRaio();
   }
 
   Future<void> _buscar() async {
+    if (!mounted) return;
     setState(() {
       _filtrosExibidos = false;
       _exibirMapa = false;
       _carregando = true;
       _resultados.clear();
       _marcadores.clear();
-      _exibirProfissionais = false;
+      exibirProfissionais = false;
     });
 
-    if (!_validarHorarioDesejado()) {
+    if (!validarHorarioDesejado()) {
       setState(() => _carregando = false);
       return;
     }
 
-    final termo = _buscaController.text.trim().toLowerCase();
-    final fs = FirebaseFirestore.instance;
+    final termo = buscaController.text.trim().toLowerCase();
+    final fs = db; // ✅ usa o getter defensivo
 
     try {
       bool buscarServicos = true;
       if (_profissionalSelecionadoId != null &&
           _profissionalSelecionadoId!.isNotEmpty &&
-          (_categoriaSelecionadaId == null ||
-              _categoriaSelecionadaId!.isEmpty)) {
+          (categoriaSelecionadaId == null || categoriaSelecionadaId!.isEmpty)) {
         buscarServicos = false;
       }
+
       if (buscarServicos) {
         Query<Map<String, dynamic>> qs = fs
             .collection(_colServicos)
             .where('ativo', isEqualTo: true);
 
-        if (_categoriaSelecionadaId?.isNotEmpty ?? false) {
-          qs = qs.where('categoriaId', isEqualTo: _categoriaSelecionadaId);
+        if (categoriaSelecionadaId?.isNotEmpty ?? false) {
+          qs = qs.where('categoriaId', isEqualTo: categoriaSelecionadaId);
         }
         if (_profissionalSelecionadoId?.isNotEmpty ?? false) {
           qs = qs.where(
@@ -251,9 +272,10 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
             isEqualTo: _profissionalSelecionadoId,
           );
         }
+
         if (_unidadeSelecionada != null && _unidadeSelecionada!.isNotEmpty) {
           final unidadeAbrev = _unidadeSelecionada!.trim().toLowerCase();
-          final queryUnidade = await FirebaseFirestore.instance
+          final queryUnidade = await db
               .collection(_colUnidades)
               .where('abreviacao', isEqualTo: unidadeAbrev)
               .limit(1)
@@ -261,15 +283,14 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
 
           if (queryUnidade.docs.isNotEmpty) {
             final unidadeId = queryUnidade.docs.first.id;
-
             qs = qs.where('unidadeId', isEqualTo: unidadeId);
           } else {
             qs = qs.where('unidadeId', isEqualTo: '__nao_existente__');
           }
         }
 
-        if (_pagamentosAceitos.isNotEmpty) {
-          qs = qs.where('pagamentos', arrayContainsAny: _pagamentosAceitos);
+        if (pagamentosAceitos.isNotEmpty) {
+          qs = qs.where('pagamentos', arrayContainsAny: pagamentosAceitos);
         }
 
         final snapServ = await qs.limit(250).get();
@@ -287,12 +308,12 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
         }).toList();
 
         double? minVal = double.tryParse(
-          _minValueController.text
+          minValueController.text
               .replaceAll(RegExp(r'[^0-9,\.]'), '')
               .replaceAll(',', '.'),
         );
         double? maxVal = double.tryParse(
-          _maxValueController.text
+          maxValueController.text
               .replaceAll(RegExp(r'[^0-9,\.]'), '')
               .replaceAll(',', '.'),
         );
@@ -310,21 +331,21 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
           }).toList();
         }
 
-        if (_avaliacaoMinima > 0) {
+        if (avaliacaoMinima > 0) {
           List<Map<String, dynamic>> filtrados = [];
           for (final s in servicos) {
-            final rate = await _ratingServico(s['id']);
-            if ((rate['media'] ?? 0) >= _avaliacaoMinima) filtrados.add(s);
+            final rate = await ratingServico(s['id']);
+            if ((rate['media'] ?? 0) >= avaliacaoMinima) filtrados.add(s);
           }
           servicos = filtrados;
         }
 
         if (_disponibilidadeSelecionada != null &&
             _disponibilidadeSelecionada != 'Ignorar disponibilidade' &&
-            _dataSelecionada != null) {
-          final hora = _horarioController.text.trim();
-          final disponiveis = await _prestadoresDisponiveisNaDataHora(
-            _dataSelecionada!,
+            dataSelecionada != null) {
+          final hora = horarioController.text.trim();
+          final disponiveis = await prestadoresDisponiveisNaDataHora(
+            dataSelecionada!,
             hora,
           );
           if (_disponibilidadeSelecionada == 'Disponível') {
@@ -338,10 +359,10 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
           }
         }
 
-        // filtro de localização + raio baseado no GPS
+        // Filtro de localização + raio
         if (_centroBusca != null) {
-          _atualizarCirculo();
-          await _filtrarPorRaio();
+          atualizarCirculo();
+          await filtrarPorRaio();
         }
       } else {
         Query<Map<String, dynamic>> qu = fs
@@ -391,10 +412,10 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
                   BitmapDescriptor.hueViolet,
                 ),
                 onTap: () async {
-                  final categoria = await _nomeCategoriaProf(
+                  final categoria = await nomeCategoriaProf(
                     e['categoriaProfissionalId'] ?? '',
                   );
-                  final rating = await _ratingPrestador(e['id']);
+                  final rating = await ratingPrestador(e['id']);
                   _customInfoWindowController.addInfoWindow!(
                     Container(
                       decoration: BoxDecoration(
@@ -464,7 +485,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
         setState(() {
           _resultados = profissionais;
           _marcadores.addAll(markers);
-          _exibirProfissionais = true;
+          exibirProfissionais = true;
           _carregando = false;
         });
       }
@@ -474,7 +495,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
           final pos = _marcadores.first.position;
           _mapController!.animateCamera(CameraUpdate.newLatLngZoom(pos, 14));
         } else {
-          LatLngBounds bounds = _boundsFromMarkers(_marcadores);
+          LatLngBounds bounds = boundsFromMarkers(_marcadores);
           _mapController!.animateCamera(
             CameraUpdate.newLatLngBounds(bounds, 60),
           );
@@ -498,7 +519,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     }
   }
 
-  void _atualizarCirculo() {
+  void atualizarCirculo() {
     if (_centroBusca == null) return;
     setState(() {
       _circulos = {
@@ -512,19 +533,20 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
         ),
       };
     });
-    _filtrarPorRaio();
+    filtrarPorRaio();
   }
 
-  Future<void> _filtrarPorRaio() async {
+  Future<void> filtrarPorRaio() async {
     if (_centroBusca == null) return;
 
-    final fs = FirebaseFirestore.instance;
+    final fs = db; // usa o getter defensivo
     final raioKm = _raioDistancia;
 
     final snap = await fs
         .collection('servicos')
         .where('ativo', isEqualTo: true)
         .get();
+
     final todosServicos = snap.docs.map((d) {
       final m = d.data();
       m['id'] = d.id;
@@ -563,7 +585,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
 
       if (lat == null || lon == null) continue;
 
-      final dist = _distanciaKm(
+      final dist = distanciaKm(
         _centroBusca!.latitude,
         _centroBusca!.longitude,
         lat,
@@ -601,7 +623,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     });
   }
 
-  LatLngBounds _boundsFromMarkers(Set<Marker> markers) {
+  LatLngBounds boundsFromMarkers(Set<Marker> markers) {
     final latitudes = markers.map((m) => m.position.latitude).toList();
     final longitudes = markers.map((m) => m.position.longitude).toList();
 
@@ -617,39 +639,21 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     return LatLngBounds(southwest: southwest, northeast: northeast);
   }
 
-  Future<List<Map<String, dynamic>>> _enriquecerServicos(
+  Future<List<Map<String, dynamic>>> enriquecerServicos(
     List<Map<String, dynamic>> servicos,
   ) async {
-    final fs = FirebaseFirestore.instance;
-
-    Future<String> nomePrest(String id) async {
-      if (id.isEmpty) return '';
-      if (_cacheNomePrestador.containsKey(id)) return _cacheNomePrestador[id]!;
-      final doc = await fs.collection(_colUsuarios).doc(id).get();
-      final nome = (doc.data()?['nome'] ?? '').toString();
-      _cacheNomePrestador[id] = nome;
-      return nome;
-    }
+    final fs = db; // usa o getter defensivo
 
     Future<String> imgCategoria(String id) async {
       if (id.isEmpty) return '';
       if (_cacheImagemCategoria.containsKey(id)) {
         return _cacheImagemCategoria[id]!;
       }
+
       final doc = await fs.collection(_colCategoriasServ).doc(id).get();
       final url = (doc.data()?['imagemUrl'] ?? '').toString();
       _cacheImagemCategoria[id] = url;
       return url;
-    }
-
-    Future<String> abrevUnidade(String id) async {
-      if (id.isEmpty) return '';
-      if (_cacheUnidadeAbrev.containsKey(id)) return _cacheUnidadeAbrev[id]!;
-      final doc = await fs.collection(_colUnidades).doc(id).get();
-      final ab = (doc.data()?['abreviacao'] ?? doc.data()?['sigla'] ?? '')
-          .toString();
-      _cacheUnidadeAbrev[id] = ab;
-      return ab;
     }
 
     final futures = servicos.map((s) async {
@@ -678,11 +682,39 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     return await Future.wait(futures);
   }
 
-  Future<Set<String>> _prestadoresDisponiveisNaDataHora(
+  // =====================================================
+  // 🔹 Agora acessíveis pela classe (para testes também)
+  // =====================================================
+
+  Future<String> abrevUnidade(String id) async {
+    if (id.isEmpty) return '';
+    if (_cacheUnidadeAbrev.containsKey(id)) return _cacheUnidadeAbrev[id]!;
+
+    final doc = await db.collection(_colUnidades).doc(id).get();
+    final ab = (doc.data()?['abreviacao'] ?? doc.data()?['sigla'] ?? '')
+        .toString();
+
+    _cacheUnidadeAbrev[id] = ab;
+    return ab;
+  }
+
+  Future<String> nomePrest(String id) async {
+    if (id.isEmpty) return '';
+    if (_cacheNomePrestador.containsKey(id)) return _cacheNomePrestador[id]!;
+
+    final doc = await db.collection(_colUsuarios).doc(id).get();
+    final nome = (doc.data()?['nome'] ?? '').toString();
+
+    _cacheNomePrestador[id] = nome;
+    return nome;
+  }
+
+  Future<Set<String>> prestadoresDisponiveisNaDataHora(
     DateTime data,
     String horaHHmm,
   ) async {
-    final fs = FirebaseFirestore.instance;
+    // Usa o getter defensivo, garantindo que db nunca será null
+    final fs = db;
     final dataStr = DateFormat('yyyy-MM-dd').format(data);
 
     final snap = await fs
@@ -695,6 +727,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
       final m = d.data();
       final prestadorId = (m['prestadorId'] ?? '').toString();
       final horas = (m['horasLivres'] ?? []) as List<dynamic>;
+
       if (horaHHmm.isEmpty) {
         if (horas.isNotEmpty) set.add(prestadorId);
       } else {
@@ -704,130 +737,140 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     return set;
   }
 
-  double _distanciaKm(double lat1, double lon1, double lat2, double lon2) {
+  double distanciaKm(double lat1, double lon1, double lat2, double lon2) {
     const r = 6371.0;
-    final dLat = _deg2rad(lat2 - lat1);
-    final dLon = _deg2rad(lon2 - lon1);
+    final dLat = deg2rad(lat2 - lat1);
+    final dLon = deg2rad(lon2 - lon1);
     final a =
         math.sin(dLat / 2) * math.sin(dLat / 2) +
-        math.cos(_deg2rad(lat1)) *
-            math.cos(_deg2rad(lat2)) *
+        math.cos(deg2rad(lat1)) *
+            math.cos(deg2rad(lat2)) *
             math.sin(dLon / 2) *
             math.sin(dLon / 2);
     final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
     return r * c;
   }
 
-  double _deg2rad(double deg) => deg * (math.pi / 180.0);
+  double deg2rad(double deg) => deg * (math.pi / 180.0);
 
-  bool _isSameDay(DateTime a, DateTime b) =>
+  bool isSameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
 
-  bool _validarHorarioDesejado() {
-    if (_dataSelecionada == null || _horarioController.text.trim().isEmpty) {
+  bool validarHorarioDesejado({bool emTeste = false}) {
+    if (dataSelecionada == null || horarioController.text.trim().isEmpty) {
       return true;
     }
 
-    final now = DateTime.now();
-    final hhmm = _horarioController.text.trim();
-    final parts = hhmm.split(':');
-    if (parts.length != 2) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Informe o horário no formato HH:mm')),
-      );
+    final partes = horarioController.text.trim().split(':');
+    if (partes.length != 2) return false;
+
+    final h = int.tryParse(partes[0]);
+    final m = int.tryParse(partes[1]);
+    if (h == null || m == null || h < 0 || h > 23 || m < 0 || m > 59)
+      return false;
+
+    final agora = DateTime.now();
+
+    // 🧠 Cria horário apenas para o mesmo dia (ignorando fusos e datas cruzadas)
+    final selecionadoHoje = DateTime(agora.year, agora.month, agora.day, h, m);
+
+    print('⏰ DEBUG => selecionadoHoje: $selecionadoHoje | agora: $agora');
+
+    // 🚫 Se data selecionada é o mesmo dia e hora já passou
+    if (isSameDay(dataSelecionada!, agora) && selecionadoHoje.isBefore(agora)) {
       return false;
     }
 
-    final h = int.tryParse(parts[0]);
-    final m = int.tryParse(parts[1]);
-    if (h == null || m == null || h < 0 || h > 23 || m < 0 || m > 59) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Horário inválido. Use HH:mm')),
-      );
+    // 🚫 Se a data selecionada é anterior a hoje
+    if (dataSelecionada!.isBefore(
+      DateTime(agora.year, agora.month, agora.day),
+    )) {
       return false;
     }
 
-    final escolhido = DateTime(
-      _dataSelecionada!.year,
-      _dataSelecionada!.month,
-      _dataSelecionada!.day,
-      h,
-      m,
-    );
-
-    if (_isSameDay(_dataSelecionada!, now) && escolhido.isBefore(now)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'O horário desejado não pode ser no passado para hoje.',
-          ),
-        ),
-      );
-      return false;
-    }
-
+    // 🟢 Caso contrário, é válido
     return true;
   }
 
-  void _limparFiltros() {
-    setState(() {
-      _buscaController.clear();
-      _minValueController.clear();
-      _maxValueController.clear();
-      _localizacaoController.clear();
-      _horarioController.clear();
-      _categoriaSelecionadaId = null;
-      _categoriaSelecNome = null;
+  void limparFiltros() {
+    if (!mounted) {
+      // ⚙️ Apenas limpa os campos diretamente em ambiente de teste
+      buscaController.clear();
+      minValueController.clear();
+      maxValueController.clear();
+      localizacaoController.clear();
+      horarioController.clear();
+      categoriaSelecionadaId = null;
       _profissionalSelecionadoId = null;
-      _profissionalSelecNome = null;
       _unidadeSelecionada = null;
       _disponibilidadeSelecionada = null;
-      _dataSelecionada = null;
-      _avaliacaoMinima = 0;
+      dataSelecionada = null;
+      avaliacaoMinima = 0;
       _raioDistancia = 10.0;
-      _pagamentosAceitos = [];
+      pagamentosAceitos = [];
+      _resultados.clear();
+      _marcadores.clear();
+      exibirProfissionais = false;
+      return;
+    }
+
+    // 🟣 Modo normal (UI ativa)
+    setState(() {
+      buscaController.clear();
+      minValueController.clear();
+      maxValueController.clear();
+      localizacaoController.clear();
+      horarioController.clear();
+      categoriaSelecionadaId = null;
+      _profissionalSelecionadoId = null;
+      _unidadeSelecionada = null;
+      _disponibilidadeSelecionada = null;
+      dataSelecionada = null;
+      avaliacaoMinima = 0;
+      _raioDistancia = 10.0;
+      pagamentosAceitos = [];
       _filtrosExibidos = true;
       _resultados.clear();
       _marcadores.clear();
-      _exibirProfissionais = false;
+      exibirProfissionais = false;
     });
   }
 
-  Future<String> _nomeCategoriaProf(String id) async {
+  Future<String> nomeCategoriaProf(String id) async {
     if (id.isEmpty) return '';
-    if (_cacheCategoriaProfNome.containsKey(id)) {
-      return _cacheCategoriaProfNome[id]!;
+    if (cacheCategoriaProfNome.containsKey(id)) {
+      return cacheCategoriaProfNome[id]!;
     }
     final local = _categoriasProf
         .firstWhere((c) => c.id == id, orElse: () => const _ItemRef.empty())
         .nome;
     if (local.isNotEmpty) {
-      _cacheCategoriaProfNome[id] = local;
+      cacheCategoriaProfNome[id] = local;
       return local;
     }
-    final doc = await FirebaseFirestore.instance
-        .collection(_colCategoriasProf)
-        .doc(id)
-        .get();
+    final doc = await db.collection(_colCategoriasProf).doc(id).get();
     final nome = (doc.data()?['nome'] ?? '').toString();
-    _cacheCategoriaProfNome[id] = nome;
+    cacheCategoriaProfNome[id] = nome;
     return nome;
   }
 
-  Future<Map<String, num>> _ratingPrestador(
+  Future<Map<String, num>> ratingPrestador(
     String prestadorId, {
     num? notaAgg,
     num? qtdAgg,
   }) async {
-    if (_cacheAvalsPrest.containsKey(prestadorId)) {
-      return _cacheAvalsPrest[prestadorId]!;
+    if (cacheAvalsPrest.containsKey(prestadorId)) {
+      return cacheAvalsPrest[prestadorId]!;
     }
+
     if (notaAgg != null && qtdAgg != null) {
       final r = {'media': notaAgg.toDouble(), 'total': qtdAgg.toInt()};
-      _cacheAvalsPrest[prestadorId] = r;
+      cacheAvalsPrest[prestadorId] = r;
       return r;
     }
-    final fs = FirebaseFirestore.instance;
+
+    final fs = db; // ✅ usa o getter defensivo
+
     QuerySnapshot<Map<String, dynamic>> snap;
     try {
       snap = await fs
@@ -844,6 +887,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
         return {'media': 0.0, 'total': 0};
       }
     }
+
     double soma = 0;
     int tot = 0;
     for (final d in snap.docs) {
@@ -853,12 +897,13 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
         tot++;
       }
     }
+
     final res = {'media': tot > 0 ? soma / tot : 0.0, 'total': tot};
-    _cacheAvalsPrest[prestadorId] = res;
+    cacheAvalsPrest[prestadorId] = res;
     return res;
   }
 
-  Future<Map<String, num>> _ratingServico(
+  Future<Map<String, num>> ratingServico(
     String servicoId, {
     num? notaAgg,
     num? qtdAgg,
@@ -866,12 +911,15 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     if (_cacheAvalsServ.containsKey(servicoId)) {
       return _cacheAvalsServ[servicoId]!;
     }
+
     if (notaAgg != null && qtdAgg != null) {
       final r = {'media': notaAgg.toDouble(), 'total': qtdAgg.toInt()};
       _cacheAvalsServ[servicoId] = r;
       return r;
     }
-    final fs = FirebaseFirestore.instance;
+
+    final fs = db; // ✅ usa o getter defensivo
+
     QuerySnapshot<Map<String, dynamic>> snap;
     try {
       snap = await fs
@@ -888,6 +936,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
         return {'media': 0.0, 'total': 0};
       }
     }
+
     double soma = 0;
     int tot = 0;
     for (final d in snap.docs) {
@@ -897,6 +946,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
         tot++;
       }
     }
+
     final res = {'media': tot > 0 ? soma / tot : 0.0, 'total': tot};
     _cacheAvalsServ[servicoId] = res;
     return res;
@@ -968,7 +1018,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     );
   }
 
-  Widget _buildTopoComBusca() {
+  Widget buildTopoComBusca() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
       child: Row(
@@ -987,7 +1037,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
           const SizedBox(width: 10),
           Expanded(
             child: TextField(
-              controller: _buscaController,
+              controller: buscaController,
               textInputAction: TextInputAction.search,
               onSubmitted: (_) => _buscar(),
               decoration: _input(
@@ -1012,7 +1062,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     );
   }
 
-  Widget _buildToggleListaMapa() {
+  Widget buildToggleListaMapa() {
     return Container(
       decoration: BoxDecoration(
         color: _pillBg,
@@ -1045,8 +1095,8 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     );
   }
 
-  String _tituloResultados(int total) {
-    final base = _exibirProfissionais ? 'prestador' : 'serviço';
+  String tituloResultados(int total) {
+    final base = exibirProfissionais ? 'prestador' : 'serviço';
     final palavra = total == 1
         ? base
         : (base == 'prestador' ? 'prestadores' : 'serviços');
@@ -1054,7 +1104,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     return '$total $palavra $verbo';
   }
 
-  Widget _buildMapa() {
+  Widget buildMapa() {
     return SizedBox(
       height: 400,
       child: Stack(
@@ -1070,9 +1120,9 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
               _customInfoWindowController.hideInfoWindow!();
               setState(() {
                 _centroBusca = pos;
-                _atualizarCirculo();
+                atualizarCirculo();
               });
-              _filtrarPorRaio();
+              filtrarPorRaio();
             },
             onCameraMove: (pos) => _customInfoWindowController.onCameraMove!(),
             initialCameraPosition: const CameraPosition(
@@ -1091,7 +1141,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     );
   }
 
-  Widget _buildServicoCard(Map<String, dynamic> e) {
+  Widget buildServicoCard(Map<String, dynamic> e) {
     final servicoId = (e['id'] ?? '').toString();
     final titulo = (e['titulo'] ?? e['nome'] ?? 'Serviço').toString();
     final descricao = (e['descricao'] ?? '').toString();
@@ -1102,7 +1152,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
               .toString();
 
     final cidade = (e['cidade'] ?? '').toString();
-    final valorMedio = e['valorMedio'] ?? e['precoMin'];
     final unidadeAbrev = (e['unidadeAbreviacao'] ?? '').toString();
 
     final double? nota = (e['nota'] is num)
@@ -1151,7 +1200,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
                 prestadorId: prestadorId,
                 servicoId: servicoId,
                 servicoTitulo: titulo,
-                future: _ratingServico(
+                future: ratingServico(
                   servicoId,
                   notaAgg: nota,
                   qtdAgg: avaliacoes,
@@ -1313,7 +1362,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     );
   }
 
-  Widget _buildPrestadorCard(Map<String, dynamic> u) {
+  Widget buildPrestadorCard(Map<String, dynamic> u) {
     final id = (u['id'] ?? '').toString();
     final nome = (u['nome'] ?? id).toString();
     final endereco = (u['endereco'] is Map)
@@ -1349,7 +1398,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
             Align(
               alignment: Alignment.centerRight,
               child: _ratingInline(
-                _ratingPrestador(id, notaAgg: nota, qtdAgg: avaliacoes),
+                ratingPrestador(id, notaAgg: nota, qtdAgg: avaliacoes),
                 onTap: () {
                   Navigator.push(
                     context,
@@ -1402,7 +1451,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
                       const SizedBox(height: 4),
 
                       FutureBuilder<String>(
-                        future: _nomeCategoriaProf(catProfId),
+                        future: nomeCategoriaProf(catProfId),
                         builder: (_, snapCat) {
                           final cat = (snapCat.data ?? '').trim();
                           return Text(
@@ -1531,7 +1580,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     );
   }
 
-  Widget _buildResultado() {
+  Widget buildResultado() {
     if (_carregando) {
       return const Center(
         child: Padding(
@@ -1551,10 +1600,10 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
 
     final total = _resultados.length;
     final childrenList = _exibirMapa
-        ? [_buildMapa()]
-        : (_exibirProfissionais
-              ? _resultados.map(_buildPrestadorCard).toList()
-              : _resultados.map(_buildServicoCard).toList());
+        ? [buildMapa()]
+        : (exibirProfissionais
+              ? _resultados.map(buildPrestadorCard).toList()
+              : _resultados.map(buildServicoCard).toList());
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1565,11 +1614,11 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
             children: [
               Expanded(
                 child: Text(
-                  _tituloResultados(total),
+                  tituloResultados(total),
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               ),
-              _buildToggleListaMapa(),
+              buildToggleListaMapa(),
             ],
           ),
         ),
@@ -1579,7 +1628,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
     );
   }
 
-  Widget _buildFiltro() {
+  Widget buildFiltro() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1587,7 +1636,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
 
         _sectionTitle('Categoria de serviço'),
         DropdownButtonFormField<String>(
-          initialValue: _categoriaSelecionadaId,
+          initialValue: categoriaSelecionadaId,
           items: [
             const DropdownMenuItem(value: null, child: Text('Todas')),
             ..._categoriasServ.map(
@@ -1596,13 +1645,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
           ],
           onChanged: (v) {
             setState(() {
-              _categoriaSelecionadaId = v;
-              _categoriaSelecNome = _categoriasServ
-                  .firstWhere(
-                    (c) => c.id == v,
-                    orElse: () => const _ItemRef.empty(),
-                  )
-                  .nome;
+              categoriaSelecionadaId = v;
             });
           },
           decoration: _input(''),
@@ -1620,12 +1663,6 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
           onChanged: (v) {
             setState(() {
               _profissionalSelecionadoId = v;
-              _profissionalSelecNome = _categoriasProf
-                  .firstWhere(
-                    (c) => c.id == v,
-                    orElse: () => const _ItemRef.empty(),
-                  )
-                  .nome;
             });
           },
           decoration: _input(''),
@@ -1647,18 +1684,18 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
           children: [
             Expanded(
               child: TextField(
-                controller: _minValueController,
+                controller: minValueController,
                 keyboardType: TextInputType.number,
-                inputFormatters: [_MoedaPtBrInputFormatter()],
+                inputFormatters: [MoedaPtBrInputFormatter()],
                 decoration: _input('Mínimo', hint: 'R\$ 0,00'),
               ),
             ),
             const SizedBox(width: 10),
             Expanded(
               child: TextField(
-                controller: _maxValueController,
+                controller: maxValueController, // ✅ usa o controller correto
                 keyboardType: TextInputType.number,
-                inputFormatters: [_MoedaPtBrInputFormatter()],
+                inputFormatters: [MoedaPtBrInputFormatter()],
                 decoration: _input('Máximo', hint: 'R\$ 0,00'),
               ),
             ),
@@ -1679,14 +1716,14 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
             return Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [5, 4, 3, 2, 1].map((v) {
-                final selected = _avaliacaoMinima == v;
+                final selected = avaliacaoMinima == v;
                 return SizedBox(
                   width: itemW,
                   child: ChoiceChip(
                     showCheckmark: false,
                     selected: selected,
                     onSelected: (_) => setState(() {
-                      _avaliacaoMinima = selected ? 0 : v;
+                      avaliacaoMinima = selected ? 0 : v;
                     }),
                     label: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -1737,7 +1774,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
                 value: _raioDistancia,
                 onChanged: (v) {
                   setState(() => _raioDistancia = v);
-                  _atualizarCirculo();
+                  atualizarCirculo();
                 },
                 min: 1,
                 max: 50,
@@ -1778,9 +1815,9 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
         TextField(
           readOnly: true,
           controller: TextEditingController(
-            text: _dataSelecionada == null
+            text: dataSelecionada == null
                 ? ''
-                : DateFormat('dd/MM/yyyy').format(_dataSelecionada!),
+                : DateFormat('dd/MM/yyyy').format(dataSelecionada!),
           ),
           decoration:
               _input(
@@ -1796,11 +1833,11 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
         const SizedBox(height: 12),
 
         TextField(
-          controller: _horarioController,
+          controller: horarioController,
           keyboardType: TextInputType.number,
           inputFormatters: [
             FilteringTextInputFormatter.digitsOnly,
-            _HoraInputFormatter(),
+            HoraInputFormatter(),
           ],
           decoration: _input(
             'Horário desejado',
@@ -1817,16 +1854,16 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
             style: TextStyle(fontSize: 12, color: _muted),
           ),
         ),
-        _payTile('Dinheiro'),
-        _payTile('Pix'),
-        _payTile('Cartão de crédito/débito'),
+        payTile('Dinheiro'),
+        payTile('Pix'),
+        payTile('Cartão de crédito/débito'),
         const SizedBox(height: 8),
       ],
     );
   }
 
-  Widget _payTile(String label) {
-    final checked = _pagamentosAceitos.contains(label);
+  Widget payTile(String label) {
+    final checked = pagamentosAceitos.contains(label);
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
       decoration: BoxDecoration(
@@ -1839,8 +1876,8 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
         value: checked,
         onChanged: (v) => setState(
           () => v!
-              ? _pagamentosAceitos.add(label)
-              : _pagamentosAceitos.remove(label),
+              ? pagamentosAceitos.add(label)
+              : pagamentosAceitos.remove(label),
         ),
         title: Text(
           label,
@@ -1860,7 +1897,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
       lastDate: DateTime(2100),
     );
     if (data != null) {
-      setState(() => _dataSelecionada = data);
+      setState(() => dataSelecionada = data);
     }
   }
 
@@ -1872,7 +1909,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
           color: const Color(0xFFF6F6FB),
           child: Column(
             children: [
-              _buildTopoComBusca(),
+              buildTopoComBusca(),
               const SizedBox(height: 8),
               Expanded(
                 child: Column(
@@ -1881,8 +1918,8 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
                       child: SingleChildScrollView(
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         child: _filtrosExibidos
-                            ? _buildFiltro()
-                            : _buildResultado(),
+                            ? buildFiltro()
+                            : buildResultado(),
                       ),
                     ),
                     if (_filtrosExibidos)
@@ -1918,7 +1955,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
 
                             Expanded(
                               child: OutlinedButton(
-                                onPressed: _limparFiltros,
+                                onPressed: limparFiltros,
                                 style: OutlinedButton.styleFrom(
                                   foregroundColor: Colors.deepPurple,
                                   side: const BorderSide(
@@ -1954,7 +1991,7 @@ class _BuscarServicosScreenState extends State<BuscarServicosScreen> {
   }
 }
 
-class _CepInputFormatter extends TextInputFormatter {
+class CepInputFormatter extends TextInputFormatter {
   @override
   TextEditingValue formatEditUpdate(
     TextEditingValue oldValue,
@@ -1975,7 +2012,7 @@ class _CepInputFormatter extends TextInputFormatter {
   }
 }
 
-class _MoedaPtBrInputFormatter extends TextInputFormatter {
+class MoedaPtBrInputFormatter extends TextInputFormatter {
   final NumberFormat _nf = NumberFormat.currency(
     locale: 'pt_BR',
     symbol: 'R\$',
@@ -2003,7 +2040,7 @@ class _MoedaPtBrInputFormatter extends TextInputFormatter {
   }
 }
 
-class _HoraInputFormatter extends TextInputFormatter {
+class HoraInputFormatter extends TextInputFormatter {
   @override
   TextEditingValue formatEditUpdate(
     TextEditingValue oldValue,
@@ -2020,56 +2057,6 @@ class _HoraInputFormatter extends TextInputFormatter {
     return TextEditingValue(
       text: out,
       selection: TextSelection.collapsed(offset: out.length),
-    );
-  }
-}
-
-class _GradientButton extends StatelessWidget {
-  final String text;
-  final VoidCallback onPressed;
-  const _GradientButton({required this.text, required this.onPressed});
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(24),
-      onTap: onPressed,
-      child: Ink(
-        height: 44,
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFF6C3AF2), Color(0xFF3F10D6)],
-          ),
-          borderRadius: BorderRadius.circular(24),
-        ),
-        child: Center(
-          child: Text(
-            text,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _GhostButton extends StatelessWidget {
-  final String text;
-  final VoidCallback onPressed;
-  const _GhostButton({required this.text, required this.onPressed});
-  @override
-  Widget build(BuildContext context) {
-    return OutlinedButton(
-      onPressed: onPressed,
-      style: OutlinedButton.styleFrom(
-        foregroundColor: const Color(0xFF3F10D6),
-        side: const BorderSide(color: Color(0xFFDDD7FF)),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        minimumSize: const Size.fromHeight(44),
-      ),
-      child: Text(text, style: const TextStyle(fontWeight: FontWeight.w600)),
     );
   }
 }

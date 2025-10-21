@@ -5,17 +5,30 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 class VisualizarRespostaPrestadorScreen extends StatefulWidget {
   final String docId;
-  const VisualizarRespostaPrestadorScreen({super.key, required this.docId});
+  final FirebaseFirestore? firestore; // ✅ injeção para testes
+
+  const VisualizarRespostaPrestadorScreen({
+    super.key,
+    required this.docId,
+    this.firestore,
+  });
 
   @override
   State<VisualizarRespostaPrestadorScreen> createState() =>
-      _VisualizarRespostaPrestadorScreenState();
+      VisualizarRespostaPrestadorScreenState();
 }
 
-class _VisualizarRespostaPrestadorScreenState
+class VisualizarRespostaPrestadorScreenState
     extends State<VisualizarRespostaPrestadorScreen> {
-  static const colSolicitacoes = 'solicitacoesOrcamento';
+  static const String colSolicitacoes = 'solicitacoesOrcamento';
   final moeda = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
+  late FirebaseFirestore db; // ✅ público e não-final
+
+  @override
+  void initState() {
+    super.initState();
+    db = widget.firestore ?? FirebaseFirestore.instance;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -26,35 +39,44 @@ class _VisualizarRespostaPrestadorScreenState
         backgroundColor: Colors.white,
         elevation: 0.3,
       ),
-      body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        stream: FirebaseFirestore.instance
-            .collection(colSolicitacoes)
-            .doc(widget.docId)
-            .snapshots(),
-        builder: (context, snap) {
-          if (snap.hasError) {
+      // 🔹 CORRIGIDO: tipo genérico removido do StreamBuilder
+      body: StreamBuilder(
+        stream: db.collection(colSolicitacoes).doc(widget.docId).snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
             return Center(
               child: Text(
-                'Erro: ${snap.error}',
+                'Erro: ${snapshot.error}',
                 style: const TextStyle(color: Colors.red),
               ),
             );
           }
 
-          if (!snap.hasData) {
+          if (snapshot.connectionState == ConnectionState.waiting ||
+              !snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          if (!snap.data!.exists) {
+          final doc = snapshot.data;
+          if (doc == null || !(doc as dynamic).exists) {
             return const Center(child: Text('Solicitação não encontrada.'));
           }
 
-          final d = snap.data!.data() ?? {};
+          // 🔹 Cast totalmente seguro e independente de tipo genérico
+          final Object? rawData = (doc as dynamic).data();
+          final Map<String, dynamic> d = {};
+          if (rawData is Map) {
+            rawData.forEach((key, value) {
+              d[key.toString()] = value;
+            });
+          }
+
+          // 🔹 Agora é impossível dar cast error
           final servicoTitulo = (d['servicoTitulo'] ?? '').toString();
           final quantidade = (d['quantidade'] ?? '').toString();
           final valorProposto = (d['valorProposto'] as num?)?.toDouble();
-          final dataInicio = _fmtData(d['dataInicioSugerida']);
-          final dataFim = _fmtData(d['dataFinalPrevista']);
+          final dataInicio = fmtData(d['dataInicioSugerida']);
+          final dataFim = fmtData(d['dataFinalPrevista']);
           final tempoValor = (d['tempoEstimadoValor'] ?? '').toString();
           final tempoUnidade = (d['tempoEstimadoUnidade'] ?? '').toString();
           final servicoId = (d['servicoId'] ?? '').toString();
@@ -62,16 +84,21 @@ class _VisualizarRespostaPrestadorScreenState
           final clienteWhats = (d['clienteWhatsapp'] ?? '').toString();
 
           // 🔹 Unidade (id e abreviação)
-          final unidadeSelecionadaId =
-              (d['unidadeSelecionadaId'] ?? '').toString();
-          final servicoUnidadeId =
-              (d['servicoUnidadeId'] ?? '').toString(); // fallback
+          final unidadeSelecionadaId = (d['unidadeSelecionadaId'] ?? '')
+              .toString();
+          final servicoUnidadeId = (d['servicoUnidadeId'] ?? '')
+              .toString(); // fallback
           final unidadeIdUsar = unidadeSelecionadaId.isNotEmpty
               ? unidadeSelecionadaId
               : servicoUnidadeId;
 
-          final clienteEndereco =
-              (d['clienteEndereco'] ?? {}) as Map<String, dynamic>;
+          // ✅ Converte mapa aninhado de forma segura (sem casts diretos)
+          final Map<String, dynamic> clienteEndereco = {};
+          final ce = d['clienteEndereco'];
+          if (ce is Map) {
+            ce.forEach((k, v) => clienteEndereco[k.toString()] = v);
+          }
+
           final rua = (clienteEndereco['rua'] ?? '').toString();
           final numero = (clienteEndereco['numero'] ?? '').toString();
           final bairro = (clienteEndereco['bairro'] ?? '').toString();
@@ -87,7 +114,7 @@ class _VisualizarRespostaPrestadorScreenState
           ].join(', ');
 
           return FutureBuilder<Map<String, dynamic>>(
-            future: _getInfo(servicoId, unidadeIdUsar),
+            future: getInfo(servicoId, unidadeIdUsar),
             builder: (context, snapInfo) {
               if (!snapInfo.hasData) {
                 return const Center(child: CircularProgressIndicator());
@@ -142,7 +169,7 @@ class _VisualizarRespostaPrestadorScreenState
 
                     const SizedBox(height: 16),
                     const _SectionTitle('Tempo estimado de execução'),
-                    _ReadonlyBox(_formatTempo(tempoValor, tempoUnidade)),
+                    _ReadonlyBox(formatTempo(tempoValor, tempoUnidade)),
 
                     const SizedBox(height: 20),
                     const _SectionTitle('Informações do Cliente'),
@@ -158,11 +185,15 @@ class _VisualizarRespostaPrestadorScreenState
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Nome: $clienteNome',
-                              style: const TextStyle(fontSize: 14)),
+                          Text(
+                            'Nome: $clienteNome',
+                            style: const TextStyle(fontSize: 14),
+                          ),
                           const SizedBox(height: 4),
-                          Text('Endereço: $enderecoCompleto',
-                              style: const TextStyle(fontSize: 14)),
+                          Text(
+                            'Endereço: $enderecoCompleto',
+                            style: const TextStyle(fontSize: 14),
+                          ),
                           const SizedBox(height: 6),
                           Row(
                             children: [
@@ -202,15 +233,15 @@ class _VisualizarRespostaPrestadorScreenState
   }
 
   // ==============================================================
-  // 🔹 Funções auxiliares
+  // 🔹 Funções auxiliares públicas para testes
   // ==============================================================
 
-  static String _fmtData(dynamic ts) {
+  static String fmtData(dynamic ts) {
     if (ts is! Timestamp) return '—';
     return DateFormat('dd/MM/yyyy').format(ts.toDate());
   }
 
-  String _formatTempo(dynamic tempo, String unidade) {
+  String formatTempo(dynamic tempo, String unidade) {
     if (tempo == null || tempo.toString().isEmpty) return '—';
     String valor = tempo.toString().replaceAll('.0', '');
     String unidadeFmt = unidade;
@@ -220,7 +251,7 @@ class _VisualizarRespostaPrestadorScreenState
     return '$valor $unidadeFmt'.trim();
   }
 
-  Future<Map<String, dynamic>> _getInfo(
+  Future<Map<String, dynamic>> getInfo(
     String servicoId,
     String unidadeIdUsar,
   ) async {
@@ -233,10 +264,7 @@ class _VisualizarRespostaPrestadorScreenState
     try {
       // 🔹 Busca dados do serviço
       if (servicoId.isNotEmpty) {
-        final servico = await FirebaseFirestore.instance
-            .collection('servicos')
-            .doc(servicoId)
-            .get();
+        final servico = await db.collection('servicos').doc(servicoId).get();
         if (servico.exists) {
           final s = servico.data()!;
           descricaoServ = (s['descricao'] ?? '').toString();
@@ -246,7 +274,7 @@ class _VisualizarRespostaPrestadorScreenState
 
           final categoriaId = (s['categoriaId'] ?? '').toString();
           if (categoriaId.isNotEmpty) {
-            final cat = await FirebaseFirestore.instance
+            final cat = await db
                 .collection('categoriasServicos')
                 .doc(categoriaId)
                 .get();
@@ -259,7 +287,7 @@ class _VisualizarRespostaPrestadorScreenState
 
       // 🔹 Busca unidade de medida
       if (unidadeIdUsar.isNotEmpty) {
-        final unidadeDoc = await FirebaseFirestore.instance
+        final unidadeDoc = await db
             .collection('unidades')
             .doc(unidadeIdUsar)
             .get();
@@ -284,7 +312,7 @@ class _VisualizarRespostaPrestadorScreenState
 }
 
 /* =======================================================
-   COMPONENTES
+   COMPONENTES (inalterados)
    ======================================================= */
 
 class _ServicoResumoCard extends StatelessWidget {
@@ -421,8 +449,8 @@ class _SectionTitle extends StatelessWidget {
 
 class _ReadonlyBox extends StatelessWidget {
   final String text;
-  final bool multiline;
-  const _ReadonlyBox(this.text, {this.multiline = false});
+  const _ReadonlyBox(this.text);
+
   @override
   Widget build(BuildContext context) {
     return Container(

@@ -30,8 +30,8 @@ class SolicitacoesEnviadasScreen extends StatelessWidget {
       ),
       body: Column(
         children: [
-          _Tabs(
-            active: _TabKind.enviadas,
+          Tabs(
+            active: TabKind.enviadas,
             onTapEnviadas: () {},
             onTapRespondidas: () => context.goRespondidas(),
             onTapAceitas: () => context.goAceitas(),
@@ -82,7 +82,7 @@ class SolicitacoesEnviadasScreen extends StatelessWidget {
                   separatorBuilder: (_, __) => const SizedBox(height: 16),
                   itemBuilder: (context, i) {
                     final d = docs[i].data();
-                    return _CardEnviada(dados: d, docId: docs[i].id);
+                    return CardEnviada(dados: d, docId: docs[i].id);
                   },
                 );
               },
@@ -97,15 +97,15 @@ class SolicitacoesEnviadasScreen extends StatelessWidget {
 
 /* ========================= Abas ========================= */
 
-enum _TabKind { enviadas, respondidas, aceitas }
+enum TabKind { enviadas, respondidas, aceitas }
 
-class _Tabs extends StatelessWidget {
-  final _TabKind active;
+class Tabs extends StatelessWidget {
+  final TabKind active;
   final VoidCallback onTapEnviadas;
   final VoidCallback onTapRespondidas;
   final VoidCallback onTapAceitas;
 
-  const _Tabs({
+  const Tabs({
     required this.active,
     required this.onTapEnviadas,
     required this.onTapRespondidas,
@@ -149,9 +149,9 @@ class _Tabs extends StatelessWidget {
 
     return Row(
       children: [
-        tab('Enviadas', active == _TabKind.enviadas, onTapEnviadas),
-        tab('Respondidas', active == _TabKind.respondidas, onTapRespondidas),
-        tab('Aceitas', active == _TabKind.aceitas, onTapAceitas),
+        tab('Enviadas', active == TabKind.enviadas, onTapEnviadas),
+        tab('Respondidas', active == TabKind.respondidas, onTapRespondidas),
+        tab('Aceitas', active == TabKind.aceitas, onTapAceitas),
       ],
     );
   }
@@ -159,27 +159,34 @@ class _Tabs extends StatelessWidget {
 
 /* ========================= Repo simples de Categoria (cache) ========================= */
 
-class _CategoriaRepo {
+class CategoriaRepo {
   static final Map<String, String> _cache = {};
+  static FirebaseFirestore firestore = FirebaseFirestore.instance; // 🔹 injetável
+
   static Future<String> nome(String id) async {
     if (id.isEmpty) return '';
     if (_cache.containsKey(id)) return _cache[id]!;
-    final snap = await FirebaseFirestore.instance
+
+    final snap = await firestore
         .collection('categoriasProfissionais')
         .doc(id)
         .get();
+
     final n = (snap.data()?['nome'] ?? '').toString();
     _cache[id] = n;
     return n;
   }
+
+  static void limparCache() => _cache.clear();
 }
 
 /* ========================= Card (dados do CLIENTE) ========================= */
 
-class _CardEnviada extends StatelessWidget {
+class CardEnviada extends StatelessWidget {
   final Map<String, dynamic> dados;
   final String docId;
-  const _CardEnviada({required this.dados, required this.docId});
+  final FirebaseFirestore? firestore; 
+  const CardEnviada({required this.dados, required this.docId, this.firestore,});
 
   String _fmtDataHora(DateTime? dt) {
     if (dt == null) return '—';
@@ -204,7 +211,7 @@ class _CardEnviada extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fs = FirebaseFirestore.instance;
+    final fs = firestore ?? FirebaseFirestore.instance;
 
     final prestadorId = (dados['prestadorId'] ?? '').toString();
     final servico = (dados['servicoTitulo'] ?? '').toString();
@@ -345,7 +352,7 @@ class _CardEnviada extends StatelessWidget {
                         ),
                         const SizedBox(height: 2),
                         FutureBuilder<String>(
-                          future: _CategoriaRepo.nome(catId),
+                          future: CategoriaRepo.nome(catId),
                           builder: (context, s2) {
                             final profissao = (s2.data?.isNotEmpty == true)
                                 ? s2.data!
@@ -531,12 +538,6 @@ class VisualizarSolicitacaoEnviadaPage extends StatelessWidget {
     required this.dados,
   });
 
-  String _fmtTs(Timestamp? ts) =>
-      ts == null ? '—' : DateFormat('dd/MM/yyyy').format(ts.toDate());
-  String _fmtMoeda(num? v) => v == null
-      ? '—'
-      : NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$').format(v);
-
   @override
   Widget build(BuildContext context) {
     final fs = FirebaseFirestore.instance;
@@ -699,25 +700,6 @@ class VisualizarSolicitacaoEnviadaPage extends StatelessWidget {
               child: const Text('Ver solicitação'),
             ),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _kv(String k, String v, {bool big = false}) {
-    return RichText(
-      text: TextSpan(
-        style: TextStyle(
-          color: Colors.black87,
-          fontSize: big ? 16 : 13.5,
-          height: 1.25,
-        ),
-        children: [
-          TextSpan(
-            text: '$k: ',
-            style: const TextStyle(fontWeight: FontWeight.w700),
-          ),
-          TextSpan(text: v),
         ],
       ),
     );

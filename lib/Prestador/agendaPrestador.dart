@@ -8,12 +8,27 @@ import 'package:url_launcher/url_launcher.dart';
 import 'servicosAgendados.dart';
 
 class AgendaPrestadorScreen extends StatefulWidget {
-  const AgendaPrestadorScreen({super.key});
+  final FirebaseFirestore? firestore;
+  final FirebaseAuth? auth;
+
+  const AgendaPrestadorScreen({super.key, this.firestore, this.auth});
+
   @override
-  State<AgendaPrestadorScreen> createState() => _AgendaPrestadorScreenState();
+  State<AgendaPrestadorScreen> createState() => AgendaPrestadorScreenState();
 }
 
-class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
+class AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
+  late FirebaseFirestore db;
+  late FirebaseAuth auth;
+
+  @override
+  void initState() {
+    super.initState();
+    db = widget.firestore ?? FirebaseFirestore.instance;
+    auth = widget.auth ?? FirebaseAuth.instance;
+    loadWorkdays(); // mantém a chamada normal
+  }
+
   // =================== Estado/Config ===================
   DateTime get _today {
     final now = DateTime.now();
@@ -25,27 +40,27 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
   CalendarFormat _format = CalendarFormat.month;
 
   final Set<int> _workWeekdays = {1, 2, 3, 4, 5};
-  final Set<DateTime> _busyDays = {}; // indisponível (em andamento)
+  final Set<DateTime> busyDays = {}; // indisponível (em andamento)
   final Set<DateTime> _finalizedDays =
       {}; // finalizado (dias realmente trabalhados)
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _acceptedDocs = [];
 
   // =================== Utils ===================
-  String _fmtData(DateTime d) =>
+  String fmtData(DateTime d) =>
       DateFormat("d 'de' MMMM 'de' y", 'pt_BR').format(d);
 
-  bool _isWorkday(DateTime d) => _workWeekdays.contains(d.weekday);
-  DateTime _ymd(DateTime d) => DateTime(d.year, d.month, d.day);
-  DateTime _toYMD(dynamic ts) {
+  bool isWorkday(DateTime d) => _workWeekdays.contains(d.weekday);
+  DateTime ymd(DateTime d) => DateTime(d.year, d.month, d.day);
+  DateTime toYMD(dynamic ts) {
     final dt = (ts as Timestamp).toDate();
     return DateTime(dt.year, dt.month, dt.day);
   }
 
-  Iterable<DateTime> _nextBusinessDays(DateTime start, int count) sync* {
-    var d = _ymd(start);
+  Iterable<DateTime> nextBusinessDays(DateTime start, int count) sync* {
+    var d = ymd(start);
     int added = 0;
     while (added < count) {
-      if (_isWorkday(d)) {
+      if (isWorkday(d)) {
         yield d;
         added++;
       }
@@ -53,11 +68,11 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
     }
   }
 
-  bool _isFinalStatus(String? s) =>
+  bool isFinalStatus(String? s) =>
       (s ?? '').toLowerCase().startsWith('finaliz');
 
   /// tenta achar a data real de finalização no doc
-  DateTime? _getFinalizacaoReal(Map<String, dynamic> d) {
+  DateTime? getFinalizacaoReal(Map<String, dynamic> d) {
     for (final k in [
       'dataFinalizacaoReal',
       'dataFinalizada',
@@ -66,16 +81,16 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
       'dataFinalizacao',
     ]) {
       final v = d[k];
-      if (v is Timestamp) return _toYMD(v);
+      if (v is Timestamp) return toYMD(v);
     }
     return null;
   }
 
-  int _countWorkdays(DateTime start, DateTime end) {
+  int countWorkdays(DateTime start, DateTime end) {
     int count = 0;
-    DateTime d = _ymd(start);
-    while (!d.isAfter(_ymd(end))) {
-      if (_isWorkday(d)) {
+    DateTime d = ymd(start);
+    while (!d.isAfter(ymd(end))) {
+      if (isWorkday(d)) {
         count++;
       }
       d = d.add(const Duration(days: 1));
@@ -84,17 +99,17 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
   }
 
   // marca como indisponíveis os dias previstos (status "aceita")
-  void _markBusyFromDoc(Map<String, dynamic> data) {
+  void markBusyFromDoc(Map<String, dynamic> data) {
     final tsInicio = data['dataInicioSugerida'];
     if (tsInicio is! Timestamp) return;
-    final start = _toYMD(tsInicio);
+    final start = toYMD(tsInicio);
 
     final tsFinal = data['dataFinalPrevista'];
     if (tsFinal is Timestamp) {
-      final end = _toYMD(tsFinal);
+      final end = toYMD(tsFinal);
       var d = start;
       while (!d.isAfter(end)) {
-        if (_isWorkday(d)) _busyDays.add(d);
+        if (isWorkday(d)) busyDays.add(d);
         d = d.add(const Duration(days: 1));
       }
       return;
@@ -106,58 +121,67 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
     final valor = (data['tempoEstimadoValor'] as num?)?.ceil() ?? 0;
 
     if (valor <= 0) {
-      if (_isWorkday(start)) _busyDays.add(start);
+      if (isWorkday(start)) busyDays.add(start);
       return;
     }
 
     if (unidade.startsWith('dia')) {
-      for (final d in _nextBusinessDays(start, valor)) {
-        _busyDays.add(d);
+      for (final d in nextBusinessDays(start, valor)) {
+        busyDays.add(d);
       }
     } else if (unidade.startsWith('hora')) {
-      if (_isWorkday(start)) _busyDays.add(start);
+      if (isWorkday(start)) busyDays.add(start);
     } else {
-      if (_isWorkday(start)) _busyDays.add(start);
+      if (isWorkday(start)) busyDays.add(start);
     }
   }
 
-  bool _isBusy(DateTime day) => _busyDays.contains(_ymd(day));
+  bool isBusy(DateTime day) => busyDays.contains(ymd(day));
 
-  bool _docHitsDay(Map<String, dynamic> data, DateTime day) {
-    final ymd = _ymd(day);
+  bool docHitsDay(Map<String, dynamic> data, DateTime day) {
+    final dayYmd = ymd(day);
     final tsInicio = data['dataInicioSugerida'];
     if (tsInicio is! Timestamp) return false;
-    final start = _toYMD(tsInicio);
+    final start = ymd(toYMD(tsInicio)); // 🔒 garante truncado
 
-    final tsFinalReal = _getFinalizacaoReal(data);
+    // 🔹 Finalização real — inclui todo o intervalo até o último dia
+    final tsFinalReal = getFinalizacaoReal(data);
     if (tsFinalReal != null) {
-      if (ymd.isBefore(start) || ymd.isAfter(tsFinalReal)) return false;
-      return _isWorkday(ymd);
+      final end = ymd(tsFinalReal); // normaliza a data real
+      // ✅ inclui o dia inicial e o final (inclusive)
+      if (!dayYmd.isBefore(start) && !dayYmd.isAfter(end)) {
+        return true; // 🧠 retorno direto, sem depender de isWorkday
+      }
+      return false;
     }
 
+    // 🔹 Finalização prevista
     final tsPrev = data['dataFinalPrevista'];
     if (tsPrev is Timestamp) {
-      final end = _toYMD(tsPrev);
-      if (ymd.isBefore(start) || ymd.isAfter(end)) return false;
-      return _isWorkday(ymd);
+      final end = ymd(toYMD(tsPrev));
+      if (!dayYmd.isBefore(start) && !dayYmd.isAfter(end)) {
+        return isWorkday(dayYmd);
+      }
+      return false;
     }
 
+    // 🔹 Caso estimado por unidade/valor
     final unidade = (data['tempoEstimadoUnidade'] ?? '')
         .toString()
         .toLowerCase();
     final valor = (data['tempoEstimadoValor'] as num?)?.ceil() ?? 0;
 
     if (unidade.startsWith('dia') && valor > 0) {
-      for (final d in _nextBusinessDays(start, valor)) {
-        if (d == ymd) return true;
+      for (final d in nextBusinessDays(start, valor)) {
+        if (d == dayYmd) return true;
       }
       return false;
     }
 
-    return ymd == start && _isWorkday(ymd);
+    return dayYmd == start && isWorkday(dayYmd);
   }
 
-  String _fmtEndereco(Map<String, dynamic>? e) {
+  String fmtEndereco(Map<String, dynamic>? e) {
     if (e == null) return '—';
     String rua = (e['rua'] ?? e['logradouro'] ?? '').toString();
     String numero = (e['numero'] ?? '').toString();
@@ -184,7 +208,7 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
     return cep.isNotEmpty ? '$end, CEP $cep' : (end.isEmpty ? '—' : end);
   }
 
-  String _pickWhatsApp(Map<String, dynamic> d) {
+  String pickWhatsApp(Map<String, dynamic> d) {
     for (final k in [
       'clienteWhatsapp',
       'clienteWhatsApp',
@@ -198,26 +222,26 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
     return '—';
   }
 
-  String _onlyDigits(String s) => s.replaceAll(RegExp(r'[^0-9]'), '');
+  String onlyDigits(String s) => s.replaceAll(RegExp(r'[^0-9]'), '');
 
   Future<void> _openWhatsApp(String rawPhone) async {
     if (rawPhone == '—' || rawPhone.trim().isEmpty) return;
-    final digits = _onlyDigits(rawPhone);
+    final digits = onlyDigits(rawPhone);
     final uri = Uri.parse('https://wa.me/55$digits');
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
   }
 
-  Future<void> _loadWorkdays() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+  Future<void> loadWorkdays() async {
+    final uid = auth.currentUser?.uid; // ✅ usa o mock injetado
     if (uid == null) return;
 
     try {
-      final doc = await FirebaseFirestore.instance
+      final doc = await db
           .collection('usuarios')
           .doc(uid)
-          .get();
+          .get(); // ✅ também usa o Firestore injetado
       final jornada = (doc.data()?['jornada'] ?? []) as List<dynamic>;
 
       // Mapeia nomes da jornada para weekdays numéricos
@@ -231,7 +255,29 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
         'Domingo': DateTime.sunday,
       };
 
-      setState(() {
+      if (mounted) {
+        setState(() {
+          _workWeekdays
+            ..clear()
+            ..addAll(
+              jornada
+                  .map((d) => diasSemana[d.toString()])
+                  .whereType<int>()
+                  .toSet(),
+            );
+
+          if (_workWeekdays.isEmpty) {
+            _workWeekdays.addAll([
+              DateTime.monday,
+              DateTime.tuesday,
+              DateTime.wednesday,
+              DateTime.thursday,
+              DateTime.friday,
+            ]);
+          }
+        });
+      } else {
+        // fallback silencioso (para testes)
         _workWeekdays
           ..clear()
           ..addAll(
@@ -241,7 +287,6 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
                 .toSet(),
           );
 
-        // se não tiver jornada salva, padrão: segunda a sexta
         if (_workWeekdays.isEmpty) {
           _workWeekdays.addAll([
             DateTime.monday,
@@ -251,27 +296,10 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
             DateTime.friday,
           ]);
         }
-      });
+      }
     } catch (e) {
       debugPrint('Erro ao carregar jornada: $e');
     }
-  }
-
-  Future<void> _openMaps(String endereco) async {
-    if (endereco.trim().isEmpty || endereco == '—') return;
-    final encoded = Uri.encodeComponent(endereco);
-    final uri = Uri.parse(
-      'https://www.google.com/maps/search/?api=1&query=$encoded',
-    );
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    }
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _loadWorkdays(); // carrega jornada do prestador
   }
 
   // =================== Build ===================
@@ -302,7 +330,7 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
       child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: stream,
         builder: (context, snap) {
-          _busyDays.clear();
+          busyDays.clear();
           _finalizedDays.clear();
           _acceptedDocs = [];
 
@@ -314,18 +342,18 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
               final status = (data['status'] ?? '').toString().toLowerCase();
               final tsInicio = data['dataInicioSugerida'];
               if (tsInicio is! Timestamp) continue;
-              final start = _toYMD(tsInicio);
+              final start = toYMD(tsInicio);
 
-              final realEnd = _getFinalizacaoReal(data);
+              final realEnd = getFinalizacaoReal(data);
               final prevEnd = data['dataFinalPrevista'] is Timestamp
-                  ? _toYMD(data['dataFinalPrevista'])
+                  ? toYMD(data['dataFinalPrevista'])
                   : null;
 
-              if (_isFinalStatus(status) && realEnd != null) {
+              if (isFinalStatus(status) && realEnd != null) {
                 // 🔹 Serviço finalizado → usa o período real
                 var d = start;
                 while (!d.isAfter(realEnd)) {
-                  if (_isWorkday(d)) _finalizedDays.add(d);
+                  if (isWorkday(d)) _finalizedDays.add(d);
                   d = d.add(const Duration(days: 1));
                 }
               } else if (status == 'em andamento' || status == 'em_andamento') {
@@ -333,15 +361,15 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
                 if (prevEnd != null) {
                   var d = start;
                   while (!d.isAfter(prevEnd)) {
-                    if (_isWorkday(d)) _busyDays.add(d);
+                    if (isWorkday(d)) busyDays.add(d);
                     d = d.add(const Duration(days: 1));
                   }
                 } else {
-                  _markBusyFromDoc(data);
+                  markBusyFromDoc(data);
                 }
               } else if (status == 'aceita') {
                 // 🔹 Aceita → usa previsão padrão
-                _markBusyFromDoc(data);
+                markBusyFromDoc(data);
               }
             }
           }
@@ -451,7 +479,7 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
       final ymd = ymdLocal(day);
 
       // 1️⃣ Fora da jornada: cinza claro
-      if (!_isWorkday(day)) {
+      if (!isWorkday(day)) {
         return const Color.fromARGB(255, 199, 190, 190);
       }
 
@@ -467,7 +495,7 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
 
       // 4️⃣ Ocupados (em andamento/aceitos): azul claro (ajustado para cinza se preferir)
       // CORREÇÃO OPCIONAL: Mudei para cinza claro aqui para atender à sua descrição ("cinza")
-      if (_busyDays.contains(ymd)) {
+      if (busyDays.contains(ymd)) {
         return const Color.fromARGB(
           255,
           199,
@@ -514,7 +542,7 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
         selectedDayPredicate: (day) => isSameDay(day, _selectedDay),
         onDaySelected: (selected, focused) {
           setState(() {
-            _selectedDay = _ymd(selected);
+            _selectedDay = ymd(selected);
             _focusedDay = (selected.month != _focusedDay.month)
                 ? selected
                 : focused;
@@ -613,7 +641,7 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
       child: Align(
         alignment: Alignment.centerLeft,
         child: Text(
-          'Serviços em ${_fmtData(_selectedDay)}',
+          'Serviços em ${fmtData(_selectedDay)}',
           style: const TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.bold,
@@ -625,9 +653,9 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
   }
 
   Widget _listaServicosDoDia() {
-    final dia = _ymd(_selectedDay);
+    final dia = ymd(_selectedDay);
     final docsDoDia = _acceptedDocs
-        .where((doc) => _docHitsDay(doc.data(), dia))
+        .where((doc) => docHitsDay(doc.data(), dia))
         .toList();
 
     if (docsDoDia.isEmpty) {
@@ -645,14 +673,14 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
       child: Column(
         children: docsDoDia.map((doc) {
           final d = doc.data();
-          final inicio = _toYMD(d['dataInicioSugerida']);
+          final inicio = toYMD(d['dataInicioSugerida']);
           final unidade = (d['tempoEstimadoUnidade'] ?? '').toString();
           final valor = (d['tempoEstimadoValor'] as num?)?.ceil() ?? 0;
           final cliente = (d['clienteNome'] ?? '') as String?;
-          final endereco = _fmtEndereco(
+          final endereco = fmtEndereco(
             (d['clienteEndereco'] ?? d['endereco']) as Map<String, dynamic>?,
           );
-          final whatsapp = _pickWhatsApp(d);
+          final whatsapp = pickWhatsApp(d);
           final status = (d['status'] ?? '').toString().toLowerCase();
 
           // Define texto e cor do status (sem ícones)
@@ -796,27 +824,6 @@ class _AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
           );
         }).toList(),
       ),
-    );
-  }
-}
-
-class _LegendaDot extends StatelessWidget {
-  final Color color;
-  final String label;
-  const _LegendaDot({required this.color, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 6),
-        Text(label, style: const TextStyle(fontSize: 12)),
-      ],
     );
   }
 }

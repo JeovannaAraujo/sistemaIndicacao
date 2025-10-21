@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:myapp/Administrador/categoriaProfissionais.dart';
+import 'package:myapp/Administrador/categoria_profissionais.dart';
 import 'unidadesMedidas.dart';
 import 'categoriaServicos.dart';
 import 'visualizarUsuarios.dart';

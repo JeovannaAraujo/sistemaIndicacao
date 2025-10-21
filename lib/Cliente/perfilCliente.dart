@@ -9,7 +9,13 @@ import '../Prestador/homePrestador.dart';
 
 class PerfilCliente extends StatefulWidget {
   final String userId;
-  const PerfilCliente({super.key, required this.userId});
+  final FirebaseFirestore? firestore; // ✅ injeção opcional
+
+  const PerfilCliente({
+    super.key,
+    required this.userId,
+    this.firestore, // ✅ recebe o fake ou real
+  });
 
   @override
   State<PerfilCliente> createState() => _PerfilClienteState();
@@ -18,13 +24,17 @@ class PerfilCliente extends StatefulWidget {
 class _PerfilClienteState extends State<PerfilCliente> {
   @override
   Widget build(BuildContext context) {
+    final firestore =
+        widget.firestore ?? FirebaseFirestore.instance; // ✅ fallback
+
     return Scaffold(
       appBar: AppBar(title: const Text('Meu Perfil')),
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        stream: FirebaseFirestore.instance
-            .collection('usuarios')
-            .doc(widget.userId)
-            .snapshots(),
+        stream:
+            firestore // ✅ usa o fake se injetado
+                .collection('usuarios')
+                .doc(widget.userId)
+                .snapshots(),
         builder: (context, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
@@ -37,7 +47,12 @@ class _PerfilClienteState extends State<PerfilCliente> {
           final nome = (data['nome'] ?? '') as String;
           final email = (data['email'] ?? '') as String;
           final fotoUrl = (data['fotoUrl'] ?? '') as String;
-          final endereco = (data['endereco'] as Map<String, dynamic>?) ?? {};
+
+          // ✅ Conversão segura para evitar _TypeError em testes e dados dinâmicos
+          final rawEndereco = data['endereco'];
+          final endereco = rawEndereco is Map
+              ? rawEndereco.map((k, v) => MapEntry(k.toString(), v))
+              : <String, dynamic>{};
 
           final cidade = (endereco['cidade'] ?? '') as String;
           final rua = (endereco['rua'] ?? '') as String;

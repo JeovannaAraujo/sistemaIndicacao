@@ -4,18 +4,35 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 class ServicosFinalizadosPrestadorScreen extends StatefulWidget {
-  const ServicosFinalizadosPrestadorScreen({super.key});
+  final FirebaseFirestore? firestore;
+  final FirebaseAuth? auth;
+
+  const ServicosFinalizadosPrestadorScreen({
+    super.key,
+    this.firestore,
+    this.auth,
+  });
 
   @override
   State<ServicosFinalizadosPrestadorScreen> createState() =>
-      _ServicosFinalizadosPrestadorScreenState();
+      ServicosFinalizadosPrestadorScreenState();
 }
 
-class _ServicosFinalizadosPrestadorScreenState
+class ServicosFinalizadosPrestadorScreenState
     extends State<ServicosFinalizadosPrestadorScreen> {
+  late FirebaseFirestore db;
+  late FirebaseAuth auth;
+
   final _moeda = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
   final _buscaCtl = TextEditingController();
   String _filtroCliente = '';
+
+  @override
+  void initState() {
+    super.initState();
+    db = widget.firestore ?? FirebaseFirestore.instance;
+    auth = widget.auth ?? FirebaseAuth.instance;
+  }
 
   @override
   void dispose() {
@@ -23,11 +40,22 @@ class _ServicosFinalizadosPrestadorScreenState
     super.dispose();
   }
 
+  // === Métodos expostos publicamente para testes unitários ===
+  String fmtData(dynamic val) => _fmtData(val);
+
+  Future<String> calcDuracaoComJornada(
+    String prestadorId,
+    dynamic ini,
+    dynamic fim, {
+    dynamic realFim,
+  }) =>
+      _calcDuracaoComJornada(prestadorId, ini, fim, realFim: realFim);
+
   @override
   Widget build(BuildContext context) {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = auth.currentUser?.uid;
 
-    final stream = FirebaseFirestore.instance
+    final stream = db
         .collection('solicitacoesOrcamento')
         .where('prestadorId', isEqualTo: uid)
         .where('status', isEqualTo: 'finalizada')
@@ -125,7 +153,6 @@ class _ServicosFinalizadosPrestadorScreenState
                     );
                     final valor = _moeda.format((d['valorProposto'] ?? 0));
 
-                    // usamos FutureBuilder pq o cálculo é async
                     return FutureBuilder<String>(
                       future: _calcDuracaoComJornada(
                         d['prestadorId'] ?? '',
@@ -155,6 +182,9 @@ class _ServicosFinalizadosPrestadorScreenState
     );
   }
 
+  // =====================================================
+  // 🔹 FORMATAÇÃO DE DATAS (privado)
+  // =====================================================
   String _fmtData(dynamic val) {
     if (val == null) return '—';
     try {
@@ -168,7 +198,9 @@ class _ServicosFinalizadosPrestadorScreenState
     }
   }
 
-  // === NOVA FUNÇÃO: considera jornada do prestador ===
+  // =====================================================
+  // 🔹 CÁLCULO DE DURAÇÃO CONSIDERANDO JORNADA DO PRESTADOR (privado)
+  // =====================================================
   Future<String> _calcDuracaoComJornada(
     String prestadorId,
     dynamic ini,
@@ -181,7 +213,6 @@ class _ServicosFinalizadosPrestadorScreenState
     if (ini is Timestamp) inicio = ini.toDate();
     if (fim is Timestamp) finalPrevista = fim.toDate();
 
-    // Se tiver data real de finalização, usa ela
     DateTime? finalUsada;
     if (realFim is Timestamp) {
       finalUsada = realFim.toDate();
@@ -191,17 +222,12 @@ class _ServicosFinalizadosPrestadorScreenState
 
     if (inicio == null || finalUsada == null) return '—';
 
-    // 🔍 Busca a jornada do prestador no Firestore
     List<dynamic> jornada = [];
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection('usuarios')
-          .doc(prestadorId)
-          .get();
+      final doc = await db.collection('usuarios').doc(prestadorId).get();
       jornada = (doc.data()?['jornada'] ?? []) as List<dynamic>;
     } catch (_) {}
 
-    // Mapeia os nomes de dias para números (1=segunda, 7=domingo)
     final Map<String, int> diasSemana = {
       'Segunda-feira': DateTime.monday,
       'Terça-feira': DateTime.tuesday,
@@ -212,13 +238,11 @@ class _ServicosFinalizadosPrestadorScreenState
       'Domingo': DateTime.sunday,
     };
 
-    // Cria uma lista de dias que ele trabalha (números)
     final Set<int> diasTrabalho = jornada
         .map((d) => diasSemana[d.toString()])
         .whereType<int>()
         .toSet();
 
-    // Se não tiver jornada definida, considera segunda a sexta
     if (diasTrabalho.isEmpty) {
       diasTrabalho.addAll([
         DateTime.monday,
@@ -229,7 +253,6 @@ class _ServicosFinalizadosPrestadorScreenState
       ]);
     }
 
-    // Faz o cálculo considerando a jornada
     int diasUteis = 0;
     DateTime dataAtual = inicio;
 
@@ -245,7 +268,8 @@ class _ServicosFinalizadosPrestadorScreenState
 }
 
 // =====================================================
-
+// 🟣 COMPONENTE DE CARD (inalterado)
+// =====================================================
 class _FinalizadoCard extends StatelessWidget {
   final String titulo;
   final String cliente;
@@ -285,7 +309,6 @@ class _FinalizadoCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // título + selo verde
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [

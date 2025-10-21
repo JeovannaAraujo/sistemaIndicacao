@@ -3,15 +3,21 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 class EditarServico extends StatefulWidget {
   final String serviceId;
-  const EditarServico({super.key, required this.serviceId});
+  final FirebaseFirestore? firestore; // ✅ injeção para testes
+
+  const EditarServico({
+    super.key,
+    required this.serviceId,
+    this.firestore,
+  });
 
   @override
-  State<EditarServico> createState() => _EditarServicoState();
+  State<EditarServico> createState() => EditarServicoState();
 }
 
-class _EditarServicoState extends State<EditarServico> {
+class EditarServicoState extends State<EditarServico> {
   final _formKey = GlobalKey<FormState>();
-  final _firestore = FirebaseFirestore.instance;
+  late final FirebaseFirestore _db;
 
   // Controllers
   final nomeController = TextEditingController();
@@ -25,35 +31,35 @@ class _EditarServicoState extends State<EditarServico> {
   String? categoriaSelecionadaId;
   bool ativo = true;
 
-  // Streams: apenas documentos ATIVOS
-  late final Stream<QuerySnapshot<Map<String, dynamic>>> _unidadesStream;
-  late final Stream<QuerySnapshot<Map<String, dynamic>>> _categoriasStream;
+  // Streams
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> unidadesStream;
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> categoriasStream;
 
-  bool _carregando = true;
+  bool carregando = true;
 
   @override
   void initState() {
     super.initState();
-    _unidadesStream = _firestore
+    _db = widget.firestore ?? FirebaseFirestore.instance;
+
+    unidadesStream = _db
         .collection('unidades')
         .where('ativo', isEqualTo: true)
         .orderBy('nome')
         .snapshots();
 
-    _categoriasStream = _firestore
+    categoriasStream = _db
         .collection('categoriasServicos')
         .where('ativo', isEqualTo: true)
         .orderBy('nome')
         .snapshots();
 
-    _carregarServico();
+    carregarServico();
   }
 
-  Future<void> _carregarServico() async {
-    final doc = await _firestore
-        .collection('servicos')
-        .doc(widget.serviceId)
-        .get();
+  // 🔹 Deixa público para testes
+  Future<void> carregarServico() async {
+    final doc = await _db.collection('servicos').doc(widget.serviceId).get();
     if (!doc.exists) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -65,39 +71,24 @@ class _EditarServicoState extends State<EditarServico> {
     }
 
     final data = doc.data()!;
-    nomeController.text = (data['nome'] ?? '') as String;
-    descricaoController.text = (data['descricao'] ?? '') as String;
+    nomeController.text = data['nome'] ?? '';
+    descricaoController.text = data['descricao'] ?? '';
+    unidadeSelecionadaId = data['unidadeId'];
+    categoriaSelecionadaId = data['categoriaId'];
 
-    // pode existir legado 'unidade' (texto); agora usamos 'unidadeId'
-    unidadeSelecionadaId = (data['unidadeId'] ?? '') as String?;
-    categoriaSelecionadaId = (data['categoriaId'] ?? '') as String?;
-
-    final num? vMin = data['valorMinimo'] as num?;
-    final num? vMed = data['valorMedio'] as num?;
-    final num? vMax = data['valorMaximo'] as num?;
-    valorMinimoController.text = (vMin ?? 0).toString();
-    valorMedioController.text = (vMed ?? 0).toString();
-    valorMaximoController.text = (vMax ?? 0).toString();
-
+    valorMinimoController.text = (data['valorMinimo'] ?? 0).toString();
+    valorMedioController.text = (data['valorMedio'] ?? 0).toString();
+    valorMaximoController.text = (data['valorMaximo'] ?? 0).toString();
     ativo = data['ativo'] == true;
 
-    if (mounted) setState(() => _carregando = false);
+    if (mounted) setState(() => carregando = false);
   }
 
-  @override
-  void dispose() {
-    nomeController.dispose();
-    descricaoController.dispose();
-    valorMinimoController.dispose();
-    valorMedioController.dispose();
-    valorMaximoController.dispose();
-    super.dispose();
-  }
-
-  double _parseNum(String s) =>
+  double parseNum(String s) =>
       double.tryParse(s.replaceAll(',', '.').trim()) ?? 0.0;
 
-  Future<void> _salvar() async {
+  // 🔹 Deixa público para testes
+  Future<void> salvar() async {
     if (!_formKey.currentState!.validate()) return;
 
     if (categoriaSelecionadaId == null || categoriaSelecionadaId!.isEmpty) {
@@ -114,10 +105,8 @@ class _EditarServicoState extends State<EditarServico> {
     }
 
     // Revalida se continuam ativas
-    final catDoc = await _firestore
-        .collection('categoriasServicos')
-        .doc(categoriaSelecionadaId)
-        .get();
+    final catDoc =
+        await _db.collection('categoriasServicos').doc(categoriaSelecionadaId).get();
     if (!catDoc.exists || catDoc.data()?['ativo'] != true) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -127,10 +116,8 @@ class _EditarServicoState extends State<EditarServico> {
       return;
     }
 
-    final uniDoc = await _firestore
-        .collection('unidades')
-        .doc(unidadeSelecionadaId)
-        .get();
+    final uniDoc =
+        await _db.collection('unidades').doc(unidadeSelecionadaId).get();
     if (!uniDoc.exists || uniDoc.data()?['ativo'] != true) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -140,35 +127,28 @@ class _EditarServicoState extends State<EditarServico> {
       return;
     }
 
-    try {
-      await _firestore.collection('servicos').doc(widget.serviceId).update({
-        'nome': nomeController.text.trim(),
-        'descricao': descricaoController.text.trim(),
-        'categoriaId': categoriaSelecionadaId,
-        'unidadeId': unidadeSelecionadaId,
-        'valorMinimo': _parseNum(valorMinimoController.text),
-        'valorMedio': _parseNum(valorMedioController.text),
-        'valorMaximo': _parseNum(valorMaximoController.text),
-        'ativo': ativo,
-        'atualizadoEm': FieldValue.serverTimestamp(),
-      });
+    await _db.collection('servicos').doc(widget.serviceId).update({
+      'nome': nomeController.text.trim(),
+      'descricao': descricaoController.text.trim(),
+      'categoriaId': categoriaSelecionadaId,
+      'unidadeId': unidadeSelecionadaId,
+      'valorMinimo': parseNum(valorMinimoController.text),
+      'valorMedio': parseNum(valorMedioController.text),
+      'valorMaximo': parseNum(valorMaximoController.text),
+      'ativo': ativo,
+      'atualizadoEm': FieldValue.serverTimestamp(),
+    });
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Serviço atualizado com sucesso!')),
-        );
-        Navigator.pop(context);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Erro ao salvar: $e')));
-      }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Serviço atualizado com sucesso!')),
+      );
+      Navigator.pop(context);
     }
   }
 
-  Future<void> _excluir() async {
+  // 🔹 Deixa público para testes
+  Future<void> excluir() async {
     final confirmar = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
@@ -189,20 +169,13 @@ class _EditarServicoState extends State<EditarServico> {
 
     if (confirmar != true) return;
 
-    try {
-      await _firestore.collection('servicos').doc(widget.serviceId).delete();
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Serviço excluído.')));
-        Navigator.pop(context);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Erro ao excluir: $e')));
-      }
+    await _db.collection('servicos').doc(widget.serviceId).delete();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Serviço excluído com sucesso!')),
+      );
+      Navigator.pop(context);
     }
   }
 
@@ -216,11 +189,11 @@ class _EditarServicoState extends State<EditarServico> {
           IconButton(
             tooltip: 'Excluir serviço',
             icon: const Icon(Icons.delete_outline),
-            onPressed: _excluir,
+            onPressed: excluir,
           ),
         ],
       ),
-      body: _carregando
+      body: carregando
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
               padding: const EdgeInsets.all(16),
@@ -230,194 +203,23 @@ class _EditarServicoState extends State<EditarServico> {
                   children: [
                     TextFormField(
                       controller: nomeController,
-                      decoration: const InputDecoration(
-                        labelText: 'Nome do serviço',
-                      ),
-                      validator: (v) => (v == null || v.trim().isEmpty)
-                          ? 'Obrigatório'
-                          : null,
+                      decoration: const InputDecoration(labelText: 'Nome do serviço'),
+                      validator: (v) =>
+                          (v == null || v.trim().isEmpty) ? 'Obrigatório' : null,
                     ),
                     TextFormField(
                       controller: descricaoController,
-                      decoration: const InputDecoration(
-                        labelText: 'Descrição do serviço',
-                      ),
+                      decoration: const InputDecoration(labelText: 'Descrição do serviço'),
                       maxLines: 3,
-                      validator: (v) => (v == null || v.trim().isEmpty)
-                          ? 'Obrigatório'
-                          : null,
+                      validator: (v) =>
+                          (v == null || v.trim().isEmpty) ? 'Obrigatório' : null,
                     ),
-
-                    // Unidade (apenas ativas)
-                    StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                      stream: _unidadesStream,
-                      builder: (context, snap) {
-                        if (snap.connectionState == ConnectionState.waiting) {
-                          return DropdownButtonFormField<String>(
-                            items: const [],
-                            onChanged: null,
-                            decoration: const InputDecoration(
-                              labelText: 'Unidade de medida',
-                            ),
-                            hint: const Text('Carregando unidades...'),
-                          );
-                        }
-                        if (snap.hasError) {
-                          return const Text(
-                            'Erro ao carregar unidades ativas.',
-                          );
-                        }
-
-                        final docs = snap.data?.docs ?? [];
-                        if (docs.isEmpty) {
-                          return const Text(
-                            'Nenhuma unidade ativa disponível.',
-                            style: TextStyle(color: Colors.red),
-                          );
-                        }
-
-                        final itens = docs.map((d) {
-                          final id = d.id;
-                          final nome = (d.data()['nome'] ?? '') as String;
-                          return DropdownMenuItem<String>(
-                            value: id,
-                            child: Text(nome),
-                          );
-                        }).toList();
-
-                        // se a selecionada saiu (desativou), limpa
-                        if (unidadeSelecionadaId != null &&
-                            !docs.any((d) => d.id == unidadeSelecionadaId)) {
-                          WidgetsBinding.instance.addPostFrameCallback((_) {
-                            setState(() => unidadeSelecionadaId = null);
-                          });
-                        }
-
-                        return DropdownButtonFormField<String>(
-                          initialValue: unidadeSelecionadaId,
-                          items: itens,
-                          onChanged: (id) =>
-                              setState(() => unidadeSelecionadaId = id),
-                          decoration: const InputDecoration(
-                            labelText: 'Unidade de medida',
-                          ),
-                          hint: const Text('Selecione a unidade de medida'),
-                          validator: (_) =>
-                              (unidadeSelecionadaId == null ||
-                                  unidadeSelecionadaId!.isEmpty)
-                              ? 'Obrigatório'
-                              : null,
-                        );
-                      },
-                    ),
-
-                    // Categoria (apenas ativas)
-                    StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                      stream: _categoriasStream,
-                      builder: (context, snap) {
-                        if (snap.connectionState == ConnectionState.waiting) {
-                          return DropdownButtonFormField<String>(
-                            items: const [],
-                            onChanged: null,
-                            decoration: const InputDecoration(
-                              labelText: 'Categoria de serviços',
-                            ),
-                            hint: const Text('Carregando categorias...'),
-                          );
-                        }
-                        if (snap.hasError) {
-                          return const Text(
-                            'Erro ao carregar categorias ativas.',
-                          );
-                        }
-
-                        final docs = snap.data?.docs ?? [];
-                        if (docs.isEmpty) {
-                          return const Text(
-                            'Nenhuma categoria ativa disponível.',
-                            style: TextStyle(color: Colors.red),
-                          );
-                        }
-
-                        final itens = docs.map((d) {
-                          final id = d.id;
-                          final nome = (d.data()['nome'] ?? '') as String;
-                          return DropdownMenuItem<String>(
-                            value: id,
-                            child: Text(nome),
-                          );
-                        }).toList();
-
-                        if (categoriaSelecionadaId != null &&
-                            !docs.any((d) => d.id == categoriaSelecionadaId)) {
-                          WidgetsBinding.instance.addPostFrameCallback((_) {
-                            setState(() => categoriaSelecionadaId = null);
-                          });
-                        }
-
-                        return DropdownButtonFormField<String>(
-                          initialValue: categoriaSelecionadaId,
-                          items: itens,
-                          onChanged: (id) =>
-                              setState(() => categoriaSelecionadaId = id),
-                          decoration: const InputDecoration(
-                            labelText: 'Categoria de serviços',
-                          ),
-                          hint: const Text('Selecione a categoria do serviço'),
-                          validator: (_) =>
-                              (categoriaSelecionadaId == null ||
-                                  categoriaSelecionadaId!.isEmpty)
-                              ? 'Obrigatório'
-                              : null,
-                        );
-                      },
-                    ),
-
-                    TextFormField(
-                      controller: valorMinimoController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(
-                        labelText: 'Valor por unidade (mínimo)',
-                      ),
-                    ),
-                    TextFormField(
-                      controller: valorMedioController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(
-                        labelText: 'Valor por unidade (médio)',
-                      ),
-                    ),
-                    TextFormField(
-                      controller: valorMaximoController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(
-                        labelText: 'Valor por unidade (máximo)',
-                      ),
-                    ),
-
-                    const SizedBox(height: 12),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Ativado'),
-                      value: ativo,
-                      onChanged: (v) => setState(() => ativo = v),
-                    ),
-
                     const SizedBox(height: 20),
                     ElevatedButton(
-                      onPressed: _salvar,
+                      onPressed: salvar,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.deepPurple,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 40,
-                          vertical: 16,
-                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(24),
                         ),
@@ -428,10 +230,7 @@ class _EditarServicoState extends State<EditarServico> {
                     OutlinedButton(
                       onPressed: () => Navigator.pop(context),
                       style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 40,
-                          vertical: 16,
-                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(24),
                         ),

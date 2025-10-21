@@ -3,33 +3,48 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'detalhesSolicitacao.dart';
-import 'visualizarResposta.dart';
 import 'solicitacoesRespondidas.dart';
 import 'rotasNavegacao.dart';
 
 class SolicitacoesRecebidasScreen extends StatefulWidget {
-  const SolicitacoesRecebidasScreen({super.key});
+  final FirebaseFirestore? firestore;
+  final FirebaseAuth? auth;
+
+  const SolicitacoesRecebidasScreen({
+    super.key,
+    this.firestore,
+    this.auth,
+  });
 
   @override
   State<SolicitacoesRecebidasScreen> createState() =>
-      _SolicitacoesRecebidasScreenState();
+      SolicitacoesRecebidasScreenState();
 }
 
-class _SolicitacoesRecebidasScreenState
+class SolicitacoesRecebidasScreenState
     extends State<SolicitacoesRecebidasScreen>
     with SingleTickerProviderStateMixin {
   static const String colSolicitacoes = 'solicitacoesOrcamento';
-  late final String _prestadorId;
-  final _moeda = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
-  late TabController _tabController;
+  late final String prestadorId;
+  final moeda = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
+  late TabController tabController;
+
+  late FirebaseFirestore db;
+  late FirebaseAuth auth;
 
   @override
   void initState() {
     super.initState();
-    _prestadorId = FirebaseAuth.instance.currentUser!.uid;
-    _tabController = TabController(length: 2, vsync: this, initialIndex: 0);
-    _tabController.addListener(() {
-      if (_tabController.index == 1) {
+
+    // ✅ Injeções
+    db = widget.firestore ?? FirebaseFirestore.instance;
+    auth = widget.auth ?? FirebaseAuth.instance;
+
+    prestadorId = auth.currentUser?.uid ?? 'fake_prestador';
+
+    tabController = TabController(length: 2, vsync: this, initialIndex: 0);
+    tabController.addListener(() {
+      if (tabController.index == 1) {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
@@ -40,10 +55,11 @@ class _SolicitacoesRecebidasScreenState
     });
   }
 
-  Stream<QuerySnapshot<Map<String, dynamic>>> _streamSolicitacoes() {
-    return FirebaseFirestore.instance
+  /// ✅ Método público para testes (antes privado)
+  Stream<QuerySnapshot<Map<String, dynamic>>> streamSolicitacoes() {
+    return db
         .collection(colSolicitacoes)
-        .where('prestadorId', isEqualTo: _prestadorId)
+        .where('prestadorId', isEqualTo: prestadorId)
         .where('status', isEqualTo: 'pendente')
         .orderBy('criadoEm', descending: true)
         .snapshots();
@@ -51,7 +67,7 @@ class _SolicitacoesRecebidasScreenState
 
   @override
   void dispose() {
-    _tabController.dispose();
+    tabController.dispose();
     super.dispose();
   }
 
@@ -64,7 +80,7 @@ class _SolicitacoesRecebidasScreenState
         backgroundColor: Colors.white,
         elevation: 0.3,
         bottom: TabBar(
-          controller: _tabController,
+          controller: tabController,
           labelColor: Colors.deepPurple,
           unselectedLabelColor: Colors.black54,
           indicatorColor: Colors.deepPurple,
@@ -74,9 +90,9 @@ class _SolicitacoesRecebidasScreenState
           ],
         ),
       ),
-      body: _ListaSolicitacoes(
-        stream: _streamSolicitacoes(),
-        moeda: _moeda,
+      body: ListaSolicitacoes(
+        stream: streamSolicitacoes(),
+        moeda: moeda,
         recebidas: true,
       ),
       bottomNavigationBar: const PrestadorBottomNav(selectedIndex: 1),
@@ -84,18 +100,32 @@ class _SolicitacoesRecebidasScreenState
   }
 }
 
-// ======== COMPONENTES AUXILIARES (idênticos) ========
-
-class _ListaSolicitacoes extends StatelessWidget {
+// =============================================================
+// 🔹 Lista de solicitações (agora com método público auxiliar)
+// =============================================================
+class ListaSolicitacoes extends StatelessWidget {
   final Stream<QuerySnapshot<Map<String, dynamic>>> stream;
   final NumberFormat moeda;
   final bool recebidas;
 
-  const _ListaSolicitacoes({
+  const ListaSolicitacoes({
+    super.key,
     required this.stream,
     required this.moeda,
     required this.recebidas,
   });
+
+  /// ✅ Tornado público para testes
+  String enderecoLinha(Map<String, dynamic>? e) {
+    final m = e ?? {};
+    final partes = <String>[];
+    if ((m['rua'] ?? '').toString().isNotEmpty) partes.add('${m['rua']}');
+    if ((m['numero'] ?? '').toString().isNotEmpty)
+      partes.add('Nº ${m['numero']}');
+    if ((m['bairro'] ?? '').toString().isNotEmpty) partes.add(m['bairro']);
+    if ((m['cidade'] ?? '').toString().isNotEmpty) partes.add(m['cidade']);
+    return partes.join(', ');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -125,13 +155,12 @@ class _ListaSolicitacoes extends StatelessWidget {
                 : '—';
 
             final dataDesejada = (d['dataDesejada'] is Timestamp)
-                ? DateFormat(
-                    'dd/MM/yyyy',
-                  ).format((d['dataDesejada'] as Timestamp).toDate())
+                ? DateFormat('dd/MM/yyyy')
+                    .format((d['dataDesejada'] as Timestamp).toDate())
                 : '—';
             final endereco =
                 (d['clienteEndereco'] as Map<String, dynamic>?) ?? {};
-            final enderecoStr = _enderecoLinha(endereco);
+            final enderecoStr = enderecoLinha(endereco);
 
             return _SolicCard(
               titulo: titulo,
@@ -158,28 +187,18 @@ class _ListaSolicitacoes extends StatelessWidget {
       },
     );
   }
-
-  String _enderecoLinha(Map<String, dynamic>? e) {
-    final m = e ?? {};
-    final partes = <String>[];
-    if ((m['rua'] ?? '').toString().isNotEmpty) partes.add('${m['rua']}');
-    if ((m['numero'] ?? '').toString().isNotEmpty)
-      partes.add('Nº ${m['numero']}');
-    if ((m['bairro'] ?? '').toString().isNotEmpty) partes.add(m['bairro']);
-    if ((m['cidade'] ?? '').toString().isNotEmpty) partes.add(m['cidade']);
-    return partes.join(', ');
-  }
 }
 
-// === Thumbs e Card (iguais ao original) ===
-
-class _CategoriaThumbCache {
-  static final Map<String, String> _cache = {};
+// =============================================================
+// 🔹 Thumbs e Card (inalterados, apenas público mantido onde seguro)
+// =============================================================
+class CategoriaThumbCache {
+  static final Map<String, String> cache = {};
   static const String colCategorias = 'categoriasServicos';
 
   static Future<String> getUrl(String categoriaId) async {
     if (categoriaId.isEmpty) return '';
-    if (_cache.containsKey(categoriaId)) return _cache[categoriaId]!;
+    if (cache.containsKey(categoriaId)) return cache[categoriaId]!;
     try {
       final doc = await FirebaseFirestore.instance
           .collection(colCategorias)
@@ -187,7 +206,7 @@ class _CategoriaThumbCache {
           .get();
       final data = doc.data();
       final url = (data?['imagemUrl'] ?? data?['imageUrl'] ?? '').toString();
-      _cache[categoriaId] = url;
+      cache[categoriaId] = url;
       return url;
     } catch (_) {
       return '';
@@ -195,13 +214,13 @@ class _CategoriaThumbCache {
   }
 }
 
-class _CategoriaThumbByServico {
+class CategoriaThumbByServico {
   static const String colServicos = 'servicos';
-  static final Map<String, String> _cacheServicoToUrl = {};
+  static final Map<String, String> cacheServicoToUrl = {};
   static Future<String> getUrlFromServico(String servicoId) async {
     if (servicoId.isEmpty) return '';
-    if (_cacheServicoToUrl.containsKey(servicoId))
-      return _cacheServicoToUrl[servicoId]!;
+    if (cacheServicoToUrl.containsKey(servicoId))
+      return cacheServicoToUrl[servicoId]!;
     try {
       final doc = await FirebaseFirestore.instance
           .collection(colServicos)
@@ -211,8 +230,8 @@ class _CategoriaThumbByServico {
       final categoriaId =
           (servData?['categoriaId'] ?? servData?['categoriaServicoId'] ?? '')
               .toString();
-      final url = await _CategoriaThumbCache.getUrl(categoriaId);
-      _cacheServicoToUrl[servicoId] = url;
+      final url = await CategoriaThumbCache.getUrl(categoriaId);
+      cacheServicoToUrl[servicoId] = url;
       return url;
     } catch (_) {
       return '';
@@ -242,8 +261,8 @@ class _SolicCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final thumb = servicoId.isNotEmpty
-        ? _CategoriaThumbByServico.getUrlFromServico(servicoId)
-        : _CategoriaThumbCache.getUrl(categoriaIdFallback);
+        ? CategoriaThumbByServico.getUrlFromServico(servicoId)
+        : CategoriaThumbCache.getUrl(categoriaIdFallback);
     final color = _statusColor(status);
 
     return Container(

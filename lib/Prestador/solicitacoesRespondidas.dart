@@ -8,25 +8,39 @@ import 'solicitacoesRecebidas.dart';
 import 'rotasNavegacao.dart';
 
 class SolicitacoesRespondidasScreen extends StatefulWidget {
-  const SolicitacoesRespondidasScreen({super.key});
+  final FirebaseFirestore? firestore;
+  final FirebaseAuth? auth;
+
+  const SolicitacoesRespondidasScreen({super.key, this.firestore, this.auth});
 
   @override
   State<SolicitacoesRespondidasScreen> createState() =>
-      _SolicitacoesRespondidasScreenState();
+      SolicitacoesRespondidasScreenState();
 }
 
-class _SolicitacoesRespondidasScreenState
+class SolicitacoesRespondidasScreenState
     extends State<SolicitacoesRespondidasScreen>
     with SingleTickerProviderStateMixin {
   static const String colSolicitacoes = 'solicitacoesOrcamento';
-  late final String _prestadorId;
   final _moeda = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
   late TabController _tabController;
+
+  // ✅ públicas para testes
+  late FirebaseFirestore db;
+  late FirebaseAuth auth;
+  String prestadorId = 'fake_prestador';
 
   @override
   void initState() {
     super.initState();
-    _prestadorId = FirebaseAuth.instance.currentUser!.uid;
+
+    db = widget.firestore ?? FirebaseFirestore.instance;
+    auth = widget.auth ?? FirebaseAuth.instance;
+    prestadorId = auth.currentUser?.uid ?? 'fake_prestador';
+
+    // ✅ propaga o mock para as classes estáticas usadas internamente
+    CategoriaThumbByServico.setFirestore(db);
+
     _tabController = TabController(length: 2, vsync: this, initialIndex: 1);
     _tabController.addListener(() {
       if (_tabController.index == 0) {
@@ -40,10 +54,14 @@ class _SolicitacoesRespondidasScreenState
     });
   }
 
+  // ✅ público para testes
+  Stream<QuerySnapshot<Map<String, dynamic>>> streamSolicitacoes() =>
+      _streamSolicitacoes();
+
   Stream<QuerySnapshot<Map<String, dynamic>>> _streamSolicitacoes() {
-    return FirebaseFirestore.instance
+    return db
         .collection(colSolicitacoes)
-        .where('prestadorId', isEqualTo: _prestadorId)
+        .where('prestadorId', isEqualTo: prestadorId)
         .where(
           'status',
           whereIn: [
@@ -93,7 +111,7 @@ class _SolicitacoesRespondidasScreenState
   }
 }
 
-// ======== COMPONENTES AUXILIARES (idênticos ao arquivo anterior) ========
+// ======== COMPONENTES AUXILIARES ========
 
 class _ListaSolicitacoes extends StatelessWidget {
   final Stream<QuerySnapshot<Map<String, dynamic>>> stream;
@@ -143,9 +161,8 @@ class _ListaSolicitacoes extends StatelessWidget {
             }
 
             final dataDesejada = (d['dataDesejada'] is Timestamp)
-                ? DateFormat(
-                    'dd/MM/yyyy',
-                  ).format((d['dataDesejada'] as Timestamp).toDate())
+                ? DateFormat('dd/MM/yyyy')
+                    .format((d['dataDesejada'] as Timestamp).toDate())
                 : '—';
             final endereco =
                 (d['clienteEndereco'] as Map<String, dynamic>?) ?? {};
@@ -183,26 +200,28 @@ class _ListaSolicitacoes extends StatelessWidget {
     final m = e ?? {};
     final partes = <String>[];
     if ((m['rua'] ?? '').toString().isNotEmpty) partes.add('${m['rua']}');
-    if ((m['numero'] ?? '').toString().isNotEmpty)
-      partes.add('Nº ${m['numero']}');
+    if ((m['numero'] ?? '').toString().isNotEmpty) partes.add('Nº ${m['numero']}');
     if ((m['bairro'] ?? '').toString().isNotEmpty) partes.add(m['bairro']);
     if ((m['cidade'] ?? '').toString().isNotEmpty) partes.add(m['cidade']);
     return partes.join(', ');
   }
 }
 
-class _CategoriaThumbCache {
+class CategoriaThumbCache {
   static final Map<String, String> _cache = {};
   static const String colCategorias = 'categoriasServicos';
+  static FirebaseFirestore? _firestore; // ✅ adiciona injeção
+
+  static void setFirestore(FirebaseFirestore? firestore) {
+    _firestore = firestore;
+  }
 
   static Future<String> getUrl(String categoriaId) async {
     if (categoriaId.isEmpty) return '';
     if (_cache.containsKey(categoriaId)) return _cache[categoriaId]!;
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection(colCategorias)
-          .doc(categoriaId)
-          .get();
+      final db = _firestore ?? FirebaseFirestore.instance; // ✅ usa mock se existir
+      final doc = await db.collection(colCategorias).doc(categoriaId).get();
       final data = doc.data();
       final url = (data?['imagemUrl'] ?? data?['imageUrl'] ?? '').toString();
       _cache[categoriaId] = url;
@@ -213,23 +232,31 @@ class _CategoriaThumbCache {
   }
 }
 
-class _CategoriaThumbByServico {
+class CategoriaThumbByServico {
   static const String colServicos = 'servicos';
   static final Map<String, String> _cacheServicoToUrl = {};
+  static FirebaseFirestore? _firestore; // ✅ injetável também
+
+  static void setFirestore(FirebaseFirestore? firestore) {
+    _firestore = firestore;
+    CategoriaThumbCache.setFirestore(firestore); // propaga pro cache
+  }
+
   static Future<String> getUrlFromServico(String servicoId) async {
     if (servicoId.isEmpty) return '';
-    if (_cacheServicoToUrl.containsKey(servicoId))
+    if (_cacheServicoToUrl.containsKey(servicoId)) {
       return _cacheServicoToUrl[servicoId]!;
+    }
+
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection(colServicos)
-          .doc(servicoId)
-          .get();
+      final db = _firestore ?? FirebaseFirestore.instance; // ✅ usa mock
+      final doc = await db.collection(colServicos).doc(servicoId).get();
       final servData = doc.data();
       final categoriaId =
           (servData?['categoriaId'] ?? servData?['categoriaServicoId'] ?? '')
               .toString();
-      final url = await _CategoriaThumbCache.getUrl(categoriaId);
+
+      final url = await CategoriaThumbCache.getUrl(categoriaId);
       _cacheServicoToUrl[servicoId] = url;
       return url;
     } catch (_) {
@@ -262,8 +289,8 @@ class _SolicCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final thumb = servicoId.isNotEmpty
-        ? _CategoriaThumbByServico.getUrlFromServico(servicoId)
-        : _CategoriaThumbCache.getUrl(categoriaIdFallback);
+        ? CategoriaThumbByServico.getUrlFromServico(servicoId)
+        : CategoriaThumbCache.getUrl(categoriaIdFallback);
     final color = _statusColor(status);
 
     return Container(
@@ -406,14 +433,7 @@ class _SolicCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               ElevatedButton(
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          VisualizarRespostaPrestadorScreen(docId: docId),
-                    ),
-                  );
-                },
+                onPressed: onVerDetalhes,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF5B2EFF),
                   shape: RoundedRectangleBorder(

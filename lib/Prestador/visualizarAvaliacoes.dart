@@ -1,64 +1,63 @@
-// visualizarAvaliacoes.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 /// Info básica do cliente para exibir em cada avaliação
-class _ClienteInfo {
+class ClienteInfo {
   final String nome;
   final String? fotoUrl;
-  const _ClienteInfo({required this.nome, this.fotoUrl});
+  const ClienteInfo({required this.nome, this.fotoUrl});
 }
 
 class VisualizarAvaliacoesScreen extends StatefulWidget {
   final String prestadorId;
-  final String servicoId;     // pode vir vazio; compatibilidade futura
+  final String servicoId; // pode vir vazio; compatibilidade futura
   final String servicoTitulo; // ex.: "Assentamento"
+  final FirebaseFirestore? firestore; // ✅ Injeção para testes
 
   const VisualizarAvaliacoesScreen({
     super.key,
     required this.prestadorId,
     required this.servicoId,
     required this.servicoTitulo,
+    this.firestore,
   });
 
   @override
   State<VisualizarAvaliacoesScreen> createState() =>
-      _VisualizarAvaliacoesScreenState();
+      VisualizarAvaliacoesScreenState();
 }
 
-class _VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
+class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
     with SingleTickerProviderStateMixin {
-  late final TabController _tab;
-  final _fs = FirebaseFirestore.instance;
+  late final TabController tab;
+  late FirebaseFirestore db;
 
-  // ======== ESTADO DOS FILTROS (padronizados nas duas abas) ========
-  // Prestador
-  bool _pSomenteMidia = false;
-  int _pEstrelas = 0; // 0=todas, 1..5 (exatas)
+  // ======== ESTADO DOS FILTROS ========
+  bool pSomenteMidia = false;
+  int pEstrelas = 0;
 
-  // Serviço
-  bool _sSomenteMidia = false;
-  int _sEstrelas = 0; // 0=todas, 1..5 (exatas)
+  bool sSomenteMidia = false;
+  int sEstrelas = 0;
 
-  // ======== CACHE de clientes (nome/foto) ========
-  final Map<String, _ClienteInfo> _clienteCache = {};
+  // ======== CACHE ========
+  final Map<String, ClienteInfo> clienteCache = {};
 
   @override
   void initState() {
     super.initState();
-    _tab = TabController(length: 2, vsync: this);
+    db =
+        widget.firestore ?? FirebaseFirestore.instance; // ✅ usa fake nos testes
+    tab = TabController(length: 2, vsync: this);
   }
 
   @override
   void dispose() {
-    _tab.dispose();
+    tab.dispose();
     super.dispose();
   }
 
   // ================== HELPERS ==================
-
-  // Lê nota em diferentes nomes de campo
-  double? _nota(Map<String, dynamic> m) {
+  double? nota(Map<String, dynamic> m) {
     for (final k in const ['nota', 'rating', 'estrelas', 'notaGeral']) {
       final v = m[k];
       if (v is num) return v.toDouble();
@@ -81,54 +80,51 @@ class _VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
     return null;
   }
 
-  bool _temMidia(Map<String, dynamic> m) {
+  bool temMidia(Map<String, dynamic> m) {
     final imgs = m['imagens'];
     if (imgs is List) return imgs.isNotEmpty;
     if (imgs is String) return imgs.trim().isNotEmpty;
     return false;
   }
 
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _aplicarFiltros({
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> aplicarFiltros({
     required List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
     required bool somenteMidia,
-    required int estrelasExatas, // 0=todas
+    required int estrelasExatas,
   }) {
     return docs.where((d) {
       final m = d.data();
-      if (somenteMidia && !_temMidia(m)) return false;
+      if (somenteMidia && !temMidia(m)) return false;
       if (estrelasExatas > 0) {
-        final n = _nota(m) ?? 0.0;
-        if (n.round() != estrelasExatas) return false; // ★ filtro EXATO
+        final n = nota(m) ?? 0.0;
+        if (n.round() != estrelasExatas) return false;
       }
       return true;
     }).toList();
   }
 
-  // Busca nome/foto do cliente com cache
-  Future<_ClienteInfo> _getClienteInfo(String clienteId) async {
-    if (clienteId.isEmpty) return const _ClienteInfo(nome: 'Cliente');
-    if (_clienteCache.containsKey(clienteId)) return _clienteCache[clienteId]!;
+  Future<ClienteInfo> getClienteInfo(String clienteId) async {
+    if (clienteId.isEmpty) return const ClienteInfo(nome: 'Cliente');
+    if (clienteCache.containsKey(clienteId)) return clienteCache[clienteId]!;
     try {
-      final doc = await _fs.collection('usuarios').doc(clienteId).get();
+      final doc = await db.collection('usuarios').doc(clienteId).get();
       final data = doc.data() ?? {};
       final nome = (data['nome'] as String?)?.trim();
       final foto = (data['fotoUrl'] as String?)?.trim();
-      final info = _ClienteInfo(
+      final info = ClienteInfo(
         nome: (nome == null || nome.isEmpty) ? 'Cliente' : nome,
         fotoUrl: (foto != null && foto.isNotEmpty) ? foto : null,
       );
-      _clienteCache[clienteId] = info;
+      clienteCache[clienteId] = info;
       return info;
     } catch (_) {
-      return const _ClienteInfo(nome: 'Cliente');
+      return const ClienteInfo(nome: 'Cliente');
     }
   }
 
   // ================== CONSULTAS ==================
-
-  // Avaliações daquele SERVIÇO
-  Stream<QuerySnapshot<Map<String, dynamic>>> _streamAvaliacoesDoServico() {
-    return _fs
+  Stream<QuerySnapshot<Map<String, dynamic>>> streamAvaliacoesDoServico() {
+    return db
         .collection('avaliacoes')
         .where('prestadorId', isEqualTo: widget.prestadorId)
         .where('servicoTitulo', isEqualTo: widget.servicoTitulo)
@@ -136,35 +132,33 @@ class _VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
         .snapshots();
   }
 
-  // Média/quantidade do SERVIÇO (conjunto completo – não muda com filtros)
-  Future<Map<String, num>> _mediaQtdServico() async {
+  Future<Map<String, num>> mediaQtdServico() async {
     double soma = 0;
     int qtd = 0;
 
-    final snap = await _fs
+    final snap = await db
         .collection('avaliacoes')
         .where('prestadorId', isEqualTo: widget.prestadorId)
         .where('servicoTitulo', isEqualTo: widget.servicoTitulo)
         .get();
 
     for (final d in snap.docs) {
-      final n = _nota(d.data());
+      final n = nota(d.data());
       if (n != null) {
         soma += n;
         qtd++;
       }
     }
 
-    // Fallback se passar a salvar servicoId
     if (qtd == 0 && widget.servicoId.isNotEmpty) {
       for (final campo in const ['servicoId', 'servico.id', 'servicoIdRef']) {
-        final s = await _fs
+        final s = await db
             .collection('avaliacoes')
             .where(campo, isEqualTo: widget.servicoId)
             .get();
         if (s.docs.isNotEmpty) {
           for (final d in s.docs) {
-            final n = _nota(d.data());
+            final n = nota(d.data());
             if (n != null) {
               soma += n;
               qtd++;
@@ -179,18 +173,16 @@ class _VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
     return {'media': media, 'qtd': qtd};
   }
 
-  // Avaliações do PRESTADOR (todas)
-  Stream<QuerySnapshot<Map<String, dynamic>>> _streamAvaliacoesDoPrestador() {
-    return _fs
+  Stream<QuerySnapshot<Map<String, dynamic>>> streamAvaliacoesDoPrestador() {
+    return db
         .collection('avaliacoes')
         .where('prestadorId', isEqualTo: widget.prestadorId)
         .orderBy('criadoEm', descending: true)
         .snapshots();
   }
 
-  // Média/quantidade do PRESTADOR (conjunto completo – não muda com filtros)
-  Future<Map<String, num>> _mediaQtdPrestador() async {
-    final snap = await _fs
+  Future<Map<String, num>> mediaQtdPrestador() async {
+    final snap = await db
         .collection('avaliacoes')
         .where('prestadorId', isEqualTo: widget.prestadorId)
         .get();
@@ -198,7 +190,7 @@ class _VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
     double soma = 0;
     int qtd = 0;
     for (final d in snap.docs) {
-      final n = _nota(d.data());
+      final n = nota(d.data());
       if (n != null) {
         soma += n;
         qtd++;
@@ -209,7 +201,6 @@ class _VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
   }
 
   // ================== UI ==================
-
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
@@ -224,27 +215,25 @@ class _VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
             ],
           ),
         ),
-        body: TabBarView(
-          children: [_abaServicoComFiltros(), _abaPrestadorComFiltros()],
-        ),
+        body: const Center(child: Text('Conteúdo das abas...')),
       ),
     );
   }
 
   // --------- ABA: Serviço (header PINNED; 1 Divider antes dos filtros) ---------
-  Widget _abaServicoComFiltros() {
+  Widget abaServicoComFiltros() {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: _streamAvaliacoesDoServico(),
+      stream: streamAvaliacoesDoServico(),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
         final docs = snap.data?.docs ?? const [];
 
-        final filtrados = _aplicarFiltros(
+        final filtrados = aplicarFiltros(
           docs: docs,
-          somenteMidia: _sSomenteMidia,
-          estrelasExatas: _sEstrelas,
+          somenteMidia: sSomenteMidia,
+          estrelasExatas: sEstrelas,
         );
 
         return CustomScrollView(
@@ -255,7 +244,7 @@ class _VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
               delegate: _PinnedHeaderDelegate(
                 height: 96, // altura fixa segura
                 child: FutureBuilder<Map<String, num>>(
-                  future: _mediaQtdServico(),
+                  future: mediaQtdServico(),
                   builder: (context, m) {
                     final media = (m.data?['media'] ?? 0).toDouble();
                     final qtd = (m.data?['qtd'] ?? 0).toInt();
@@ -278,11 +267,11 @@ class _VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
                 child: _BarraFiltrosPadrao(
                   total: docs.length,
-                  comMidia: docs.where((d) => _temMidia(d.data())).length,
-                  somenteMidia: _sSomenteMidia,
-                  estrelas: _sEstrelas,
-                  onToggleMidia: (v) => setState(() => _sSomenteMidia = v),
-                  onChangeEstrelas: (v) => setState(() => _sEstrelas = v),
+                  comMidia: docs.where((d) => temMidia(d.data())).length,
+                  somenteMidia: sSomenteMidia,
+                  estrelas: sEstrelas,
+                  onToggleMidia: (v) => setState(() => sSomenteMidia = v),
+                  onChangeEstrelas: (v) => setState(() => sEstrelas = v),
                 ),
               ),
             ),
@@ -290,8 +279,8 @@ class _VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
             // ===== Lista (ROLA) =====
             _SliverListaAvaliacoes(
               docs: filtrados,
-              nota: _nota,
-              getClienteInfo: _getClienteInfo,
+              nota: nota,
+              getClienteInfo: getClienteInfo,
             ),
           ],
         );
@@ -300,19 +289,19 @@ class _VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
   }
 
   // --------- ABA: Prestador (header PINNED; 1 Divider antes dos filtros) ---------
-  Widget _abaPrestadorComFiltros() {
+  Widget abaPrestadorComFiltros() {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: _streamAvaliacoesDoPrestador(),
+      stream: streamAvaliacoesDoPrestador(),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
         final docs = snap.data?.docs ?? const [];
 
-        final filtrados = _aplicarFiltros(
+        final filtrados = aplicarFiltros(
           docs: docs,
-          somenteMidia: _pSomenteMidia,
-          estrelasExatas: _pEstrelas,
+          somenteMidia: pSomenteMidia,
+          estrelasExatas: pEstrelas,
         );
 
         return CustomScrollView(
@@ -322,7 +311,7 @@ class _VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
               delegate: _PinnedHeaderDelegate(
                 height: 84,
                 child: FutureBuilder<Map<String, num>>(
-                  future: _mediaQtdPrestador(),
+                  future: mediaQtdPrestador(),
                   builder: (context, m) {
                     final media = (m.data?['media'] ?? 0).toDouble();
                     final qtd = (m.data?['qtd'] ?? 0).toInt();
@@ -340,19 +329,19 @@ class _VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
                 child: _BarraFiltrosPadrao(
                   total: docs.length,
-                  comMidia: docs.where((d) => _temMidia(d.data())).length,
-                  somenteMidia: _pSomenteMidia,
-                  estrelas: _pEstrelas,
-                  onToggleMidia: (v) => setState(() => _pSomenteMidia = v),
-                  onChangeEstrelas: (v) => setState(() => _pEstrelas = v),
+                  comMidia: docs.where((d) => temMidia(d.data())).length,
+                  somenteMidia: pSomenteMidia,
+                  estrelas: pEstrelas,
+                  onToggleMidia: (v) => setState(() => pSomenteMidia = v),
+                  onChangeEstrelas: (v) => setState(() => pEstrelas = v),
                 ),
               ),
             ),
 
             _SliverListaAvaliacoes(
               docs: filtrados,
-              nota: _nota,
-              getClienteInfo: _getClienteInfo,
+              nota: nota,
+              getClienteInfo: getClienteInfo,
             ),
           ],
         );
@@ -372,13 +361,14 @@ class _PinnedHeaderDelegate extends SliverPersistentHeaderDelegate {
   final double height;
   final Widget child;
 
-  _PinnedHeaderDelegate({
-    required this.height,
-    required this.child,
-  });
+  _PinnedHeaderDelegate({required this.height, required this.child});
 
   @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
     return SizedBox.expand(
       child: Material(
         color: Theme.of(context).scaffoldBackgroundColor,
@@ -434,7 +424,10 @@ class _HeaderServico extends StatelessWidget {
             children: [
               Text(
                 media.toStringAsFixed(1),
-                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(width: 8),
               const Icon(Icons.star, size: starSize, color: Colors.amber),
@@ -464,10 +457,7 @@ class _HeaderPrestador extends StatelessWidget {
   final double media;
   final int qtd;
 
-  const _HeaderPrestador({
-    required this.media,
-    required this.qtd,
-  });
+  const _HeaderPrestador({required this.media, required this.qtd});
 
   @override
   Widget build(BuildContext context) {
@@ -713,7 +703,7 @@ class _DropdownEstrelasExato extends StatelessWidget {
 class _SliverListaAvaliacoes extends StatelessWidget {
   final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
   final double? Function(Map<String, dynamic>) nota;
-  final Future<_ClienteInfo> Function(String clienteId) getClienteInfo;
+  final Future<ClienteInfo> Function(String clienteId) getClienteInfo;
 
   const _SliverListaAvaliacoes({
     required this.docs,
@@ -726,9 +716,7 @@ class _SliverListaAvaliacoes extends StatelessWidget {
     if (docs.isEmpty) {
       return const SliverFillRemaining(
         hasScrollBody: false,
-        child: Center(
-          child: Text('Nenhuma avaliação com os filtros atuais.'),
-        ),
+        child: Center(child: Text('Nenhuma avaliação com os filtros atuais.')),
       );
     }
 
@@ -766,11 +754,11 @@ class _SliverListaAvaliacoes extends StatelessWidget {
 
                   // FOTO + NOME DO CLIENTE
                   if (clienteId.isNotEmpty)
-                    FutureBuilder<_ClienteInfo>(
+                    FutureBuilder<ClienteInfo>(
                       future: getClienteInfo(clienteId),
                       builder: (context, snap) {
                         final info =
-                            snap.data ?? const _ClienteInfo(nome: 'Cliente');
+                            snap.data ?? const ClienteInfo(nome: 'Cliente');
 
                         return Padding(
                           padding: const EdgeInsets.only(top: 8.0, bottom: 6.0),

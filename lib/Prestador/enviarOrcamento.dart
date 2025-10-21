@@ -5,8 +5,15 @@ import 'package:intl/intl.dart';
 
 class EnviarOrcamentoScreen extends StatefulWidget {
   final String solicitacaoId;
+  final FirebaseFirestore? firestore;
+  final FirebaseAuth? auth;
 
-  const EnviarOrcamentoScreen({super.key, required this.solicitacaoId});
+  const EnviarOrcamentoScreen({
+    super.key,
+    required this.solicitacaoId,
+    this.firestore,
+    this.auth,
+  });
 
   @override
   State<EnviarOrcamentoScreen> createState() => _EnviarOrcamentoScreenState();
@@ -21,6 +28,10 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
   final _valorPropostoCtl = TextEditingController();
   final _tempoValorCtl = TextEditingController(); // número
   final _observacoesCtl = TextEditingController();
+
+  late final FirebaseFirestore db;
+  late final FirebaseAuth auth;
+
   String _tempoUnidade = 'dia'; // 'dia' | 'hora'
   DateTime? _dataInicio; // data sugerida p/ iniciar
   TimeOfDay? _horaInicio; // hora sugerida p/ iniciar
@@ -32,6 +43,8 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
   @override
   void initState() {
     super.initState();
+    db = widget.firestore ?? FirebaseFirestore.instance;
+    auth = widget.auth ?? FirebaseAuth.instance;
     _loadSolicitacao();
   }
 
@@ -151,18 +164,18 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
       final prestadorUid = uid!;
 
       // 1) Define início (usa a sugerida; se nula, usa agora alinhado)
-      final inicio = inicioSugerido ?? DateTime.now();
+      final inicio = inicioSugerido;
 
       // 2) Carrega jornada do prestador
-      final jornada = await _fetchJornadaPrestador(prestadorUid);
+      final jornada = await fetchJornadaPrestador(prestadorUid);
 
       // 3) Calcula data final
       late DateTime fimPrevisto;
       if (_tempoUnidade == 'hora') {
-        fimPrevisto = _addWorkingHours(inicio, tempo, jornada);
+        fimPrevisto = addWorkingHours(inicio, tempo, jornada);
       } else {
         // 'dia'
-        fimPrevisto = _addWorkingDays(inicio, tempo, jornada);
+        fimPrevisto = addWorkingDays(inicio, tempo, jornada);
       }
 
       await fs.collection(colSolicitacoes).doc(widget.solicitacaoId).update({
@@ -513,7 +526,7 @@ int _minutesOfDay(DateTime d) => d.hour * 60 + d.minute;
 /// - ou jornadaInicio: '08:00', jornadaFim: '17:00'
 /// - diasTrabalho: [1..7]  (1=segunda ... 7=domingo)
 /// - diasMapa: {seg:true, ter:true, qua:true, qui:true, sex:true, sab:false, dom:false}
-Future<_Jornada> _fetchJornadaPrestador(String prestadorUid) async {
+Future<_Jornada> fetchJornadaPrestador(String prestadorUid) async {
   try {
     final snap = await FirebaseFirestore.instance
         .collection('usuarios')
@@ -577,11 +590,11 @@ Future<_Jornada> _fetchJornadaPrestador(String prestadorUid) async {
   }
 }
 
-bool _isWorkingDay(DateTime d, _Jornada j) => j.dias.contains(d.weekday);
+bool isWorkingDay(DateTime d, _Jornada j) => j.dias.contains(d.weekday);
 
 DateTime _nextWorkingDayStart(DateTime date, _Jornada j) {
   var d = DateTime(date.year, date.month, date.day);
-  while (!_isWorkingDay(d, j)) {
+  while (!isWorkingDay(d, j)) {
     d = d.add(const Duration(days: 1));
   }
   return _withMinutesOfDay(d, j.inicioMin);
@@ -591,8 +604,8 @@ DateTime _nextWorkingDayStart(DateTime date, _Jornada j) {
 /// - Se for fim de semana / dia não trabalhado → próximo dia útil no horário de início
 /// - Se antes do início → início do mesmo dia
 /// - Se depois do fim → início do próximo dia útil
-DateTime _alignToJornadaStart(DateTime dt, _Jornada j) {
-  if (!_isWorkingDay(dt, j)) return _nextWorkingDayStart(dt, j);
+DateTime alignToJornadaStart(DateTime dt, _Jornada j) {
+  if (!isWorkingDay(dt, j)) return _nextWorkingDayStart(dt, j);
   final mod = _minutesOfDay(dt);
   if (mod < j.inicioMin) return _withMinutesOfDay(dt, j.inicioMin);
   if (mod >= j.fimMin) {
@@ -602,8 +615,8 @@ DateTime _alignToJornadaStart(DateTime dt, _Jornada j) {
 }
 
 /// Soma horas úteis respeitando a jornada (pula dias não trabalhados)
-DateTime _addWorkingHours(DateTime start, double hours, _Jornada j) {
-  var cur = _alignToJornadaStart(start, j);
+DateTime addWorkingHours(DateTime start, double hours, _Jornada j) {
+  var cur = alignToJornadaStart(start, j);
   var remaining = (hours * 60).round();
 
   while (remaining > 0) {
@@ -626,12 +639,12 @@ DateTime _addWorkingHours(DateTime start, double hours, _Jornada j) {
 /// Soma dias úteis.
 /// Regra: se o prestador informou "5 dias", o término é no **quinto dia útil** após a data de início,
 /// conforme seu exemplo (começa dia 28 → termina 5 dias depois, pulando fins de semana).
-DateTime _addWorkingDays(DateTime start, double dias, _Jornada j) {
+DateTime addWorkingDays(DateTime start, double dias, _Jornada j) {
   // Se for inteiro, contamos "N dias" como mover N dias úteis e terminar no fim do expediente
   final inteiro = dias.floor();
   final resto = dias - inteiro;
 
-  var d = _alignToJornadaStart(start, j);
+  var d = alignToJornadaStart(start, j);
 
   // avança N dias úteis
   for (var i = 0; i < inteiro; i++) {
@@ -645,39 +658,7 @@ DateTime _addWorkingDays(DateTime start, double dias, _Jornada j) {
 
   // parte fracionária do dia → converte para horas de trabalho
   final horasFracao = resto * (j.cargaMinDia / 60.0);
-  return _addWorkingHours(d, horasFracao, j);
-}
-
-// --------- Widgets auxiliares de UI ---------
-
-class _HeaderGradient extends StatelessWidget {
-  final String title;
-  const _HeaderGradient({required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 56,
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Color(0xFFB388FF), Color(0xFF7C4DFF)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.all(Radius.circular(12)),
-      ),
-      alignment: Alignment.centerLeft,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Text(
-        title,
-        style: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w700,
-          fontSize: 18,
-        ),
-      ),
-    );
-  }
+  return addWorkingHours(d, horasFracao, j);
 }
 
 class _EstimativaCard extends StatelessWidget {
@@ -770,52 +751,31 @@ class _ReadOnlyField extends StatelessWidget {
   final String label;
   final String value;
   final Widget? suffixIcon;
-  final String? hint; // ✅ torna opcional (pode ser null)
 
   const _ReadOnlyField({
     required this.label,
     required this.value,
     this.suffixIcon,
-    this.hint, // ✅ adiciona no construtor
   });
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        TextFormField(
-          readOnly: true,
-          controller: TextEditingController(text: value),
-          decoration: InputDecoration(
-            labelText: label,
-            hintText: hint,
-            suffixIcon: suffixIcon,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 12,
-            ),
-          ),
+    return TextFormField(
+      readOnly: true,
+      controller: TextEditingController(text: value),
+      decoration: InputDecoration(
+        labelText: label,
+        suffixIcon: suffixIcon,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 12,
         ),
-        if (hint != null) ...[const SizedBox(height: 4), _HelperText(hint!)],
-      ],
+      ),
     );
   }
 }
 
-class _HelperText extends StatelessWidget {
-  final String text;
-  const _HelperText(this.text);
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: const TextStyle(fontSize: 12, color: Colors.black54),
-    );
-  }
-}
 
 class _UnitChip extends StatelessWidget {
   final String text;

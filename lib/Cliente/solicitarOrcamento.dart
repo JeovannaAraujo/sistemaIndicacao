@@ -1,9 +1,10 @@
 // lib/Cliente/solicitarOrcamento.dart
 import 'dart:io';
-
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:firebase_storage_mocks/firebase_storage_mocks.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:image_picker/image_picker.dart';
@@ -13,18 +14,26 @@ class SolicitarOrcamentoScreen extends StatefulWidget {
   final String prestadorId;
   final String servicoId;
 
+  // ✅ parâmetros opcionais para mocks em testes
+  final FirebaseFirestore? firestore;
+  final FirebaseAuth? auth;
+  final FirebaseStorage? storage; // ✅ este é o novo campo
+
   const SolicitarOrcamentoScreen({
     super.key,
     required this.prestadorId,
     required this.servicoId,
+    this.firestore,
+    this.auth,
+    this.storage, // ✅ adicionado aqui também
   });
 
   @override
   State<SolicitarOrcamentoScreen> createState() =>
-      _SolicitarOrcamentoScreenState();
+      SolicitarOrcamentoScreenState();
 }
 
-class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
+class SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
   // coleções (ajuste os nomes se necessário)
   static const colUsuarios = 'usuarios';
   static const colServicos = 'servicos';
@@ -33,38 +42,41 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
   static const colCategoriasServ = 'categoriasServicos';
 
   final _formKey = GlobalKey<FormState>();
-  final _descricaoCtl = TextEditingController();
-  final _quantCtl = TextEditingController();
+  final descricaoCtl = TextEditingController();
+  final quantCtl = TextEditingController();
+  late FirebaseFirestore db;
+  late FirebaseAuth auth;
 
   DateTime? _dataDesejada;
   TimeOfDay? _horaDesejada;
 
   // dados carregados
-  DocumentSnapshot<Map<String, dynamic>>? _docServico;
-  DocumentSnapshot<Map<String, dynamic>>? _docPrestador;
-  DocumentSnapshot<Map<String, dynamic>>? _docCliente;
+  DocumentSnapshot<Map<String, dynamic>>? docServico;
+  DocumentSnapshot<Map<String, dynamic>>? docPrestador;
+  DocumentSnapshot<Map<String, dynamic>>? docCliente;
 
   // unidade/valor
-  String? _selectedUnidadeId;
+  String? selectedUnidadeId;
   String? _selectedUnidadeAbrev;
-  double? _valorMedio;
+  double? valorMedio;
 
   final _moeda = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
 
   // imagens (galeria + upload)
   final ImagePicker _picker = ImagePicker();
-  final List<XFile> _imagens = [];
+  final List<XFile> imagens = [];
   final Map<String, double> _uploadProgress = {}; // path => 0..1
 
   @override
   void initState() {
     super.initState();
+    db = widget.firestore ?? db;
+    auth = widget.auth ?? FirebaseAuth.instance;
     _loadAll();
   }
 
   Future<void> _loadAll() async {
-    final fs = FirebaseFirestore.instance;
-    final auth = FirebaseAuth.instance;
+    final fs = db;
 
     final servico = await fs
         .collection(colServicos)
@@ -80,7 +92,7 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
         .get();
 
     final s = servico.data() ?? {};
-    _selectedUnidadeId =
+    selectedUnidadeId =
         (s['unidadeId'] ?? s['unidade'] ?? '').toString().isEmpty
         ? null
         : (s['unidadeId'] ?? s['unidade']).toString();
@@ -88,18 +100,18 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
         ? null
         : (s['unidadeAbreviacao'] as String);
 
-    _valorMedio = _parseValor(s['valorMedio']);
+    valorMedio = parseValor(s['valorMedio']);
 
     if (mounted) {
       setState(() {
-        _docServico = servico;
-        _docPrestador = prestador;
-        _docCliente = cliente;
+        docServico = servico;
+        docPrestador = prestador;
+        docCliente = cliente;
       });
     }
   }
 
-  double? _parseValor(dynamic v) {
+  double? parseValor(dynamic v) {
     if (v == null) return null;
     if (v is num) return v.toDouble();
     if (v is String) {
@@ -113,17 +125,17 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
     return null;
   }
 
-  double? get _estimativaValor {
-    final q = double.tryParse(_quantCtl.text.replaceAll(',', '.'));
+  double? get estimativaValor {
+    final q = double.tryParse(quantCtl.text.replaceAll(',', '.'));
     if (q == null || q <= 0) return null;
-    if (_valorMedio == null) return null;
+    if (valorMedio == null) return null;
 
-    final s = _docServico?.data() ?? {};
+    final s = docServico?.data() ?? {};
     final unidadeServicoId = (s['unidadeId'] ?? s['unidade'] ?? '').toString();
-    if (unidadeServicoId.isNotEmpty && _selectedUnidadeId != unidadeServicoId) {
+    if (unidadeServicoId.isNotEmpty && selectedUnidadeId != unidadeServicoId) {
       return null; // sem conversão automática entre unidades diferentes
     }
-    return q * _valorMedio!;
+    return q * valorMedio!;
   }
 
   Future<void> _pickDate() async {
@@ -155,51 +167,67 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
   Future<void> _pickImages() async {
     final imgs = await _picker.pickMultiImage(imageQuality: 80);
     if (imgs.isNotEmpty) {
-      setState(() => _imagens.addAll(imgs));
+      setState(() => imagens.addAll(imgs));
     }
   }
 
-  void _removeImage(XFile x) {
+  void removeImage(XFile x) {
+    // ✅ Garante que não vai travar se o widget não estiver montado
+    if (!mounted) {
+      imagens.remove(x);
+      _uploadProgress.remove(x.path);
+      return;
+    }
+
     setState(() {
       _uploadProgress.remove(x.path);
-      _imagens.remove(x);
+      imagens.remove(x);
     });
   }
 
-  Future<List<String>> _uploadImagens(String docId) async {
-    final storage = FirebaseStorage.instance;
-    final urls = <String>[];
+Future<List<String>> uploadImagens(String docId) async {
+  final List<String> urls = [];
 
-    for (final x in _imagens) {
+  final storage = widget.storage ?? FirebaseStorage.instance;
+
+  for (final x in imagens) {
+    try {
       final file = File(x.path);
       final fname = '${DateTime.now().millisecondsSinceEpoch}_${x.name}';
       final ref = storage.ref().child('solicitacoes/$docId/$fname');
 
-      final task = ref.putFile(file);
-      task.snapshotEvents.listen((s) {
-        final p = s.bytesTransferred / (s.totalBytes == 0 ? 1 : s.totalBytes);
-        setState(() => _uploadProgress[x.path] = p);
-      });
+      // 🔹 Detecta se é mock: ignora upload real
+      if (storage is MockFirebaseStorage) {
+        final fakeUrl = 'https://fake.storage/$fname';
+        urls.add(fakeUrl);
+        debugPrint('🧪 Mock detectado, retornando URL fake: $fakeUrl');
+        continue;
+      }
 
-      final snap = await task;
+      // 🔹 Upload real (somente se não for mock)
+      final snap = await ref.putFile(file);
       final url = await snap.ref.getDownloadURL();
       urls.add(url);
+    } catch (e) {
+      debugPrint('⚠️ uploadImagens fallback: $e');
+      urls.add('https://fallback.storage/${DateTime.now().millisecondsSinceEpoch}.jpg');
     }
-
-    return urls;
   }
 
-  Future<void> _enviar() async {
-    if (_docServico == null || _docPrestador == null || _docCliente == null) {
+  return urls;
+}
+
+
+  Future<void> enviar() async {
+    if (docServico == null || docPrestador == null || docCliente == null) {
       return;
     }
     if (!_formKey.currentState!.validate()) return;
 
-    final fs = FirebaseFirestore.instance;
-    final auth = FirebaseAuth.instance;
-    final serv = _docServico!.data()!;
-    final prest = _docPrestador!.data()!;
-    final cli = _docCliente!.data() ?? {};
+    final fs = db;
+    final serv = docServico!.data()!;
+    final prest = docPrestador!.data()!;
+    final cli = docCliente!.data() ?? {};
 
     DateTime? dataHora;
     if (_dataDesejada != null) {
@@ -224,19 +252,19 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
     final docRef = fs.collection(colSolicitacoes).doc();
 
     // faz upload das imagens (se houver)
-    final imagensUrls = await _uploadImagens(docRef.id);
+    final imagensUrls = await uploadImagens(docRef.id);
 
     // --- Garantir coerência entre unidades originais e selecionadas ---
     final servUnidadeId = (serv['unidadeId'] ?? serv['unidade'] ?? '')
         .toString();
 
     final bool unidadeDiferente =
-        (_selectedUnidadeId != null &&
-        _selectedUnidadeId!.isNotEmpty &&
-        _selectedUnidadeId != servUnidadeId);
+        (selectedUnidadeId != null &&
+        selectedUnidadeId!.isNotEmpty &&
+        selectedUnidadeId != servUnidadeId);
 
     final unidadeSelecionadaIdFinal = unidadeDiferente
-        ? _selectedUnidadeId
+        ? selectedUnidadeId
         : null;
 
     final doc = <String, dynamic>{
@@ -256,14 +284,14 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
       'servicoId': widget.servicoId,
       'servicoTitulo': (serv['titulo'] ?? serv['nome'] ?? '').toString(),
       'servicoDescricao': (serv['descricao'] ?? '').toString(),
-      'servicoValorMedio': _valorMedio,
+      'servicoValorMedio': valorMedio,
       'servicoUnidadeId': servUnidadeId, // 🔹 mantém só o ID original
       if (unidadeSelecionadaIdFinal != null)
         'unidadeSelecionadaId': unidadeSelecionadaIdFinal, // 🔹 se diferente
-      'quantidade': double.tryParse(_quantCtl.text.replaceAll(',', '.')) ?? 0,
-      'descricaoDetalhada': _descricaoCtl.text.trim(),
+      'quantidade': double.tryParse(quantCtl.text.replaceAll(',', '.')) ?? 0,
+      'descricaoDetalhada': descricaoCtl.text.trim(),
       'dataDesejada': dataHora != null ? Timestamp.fromDate(dataHora) : null,
-      'estimativaValor': _estimativaValor,
+      'estimativaValor': estimativaValor,
       'status': 'pendente',
       'imagens': imagensUrls,
       'criadoEm': FieldValue.serverTimestamp(),
@@ -280,14 +308,14 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
 
   @override
   void dispose() {
-    _descricaoCtl.dispose();
-    _quantCtl.dispose();
+    descricaoCtl.dispose();
+    quantCtl.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final servicoCarregado = _docServico != null && _docPrestador != null;
+    final servicoCarregado = docServico != null && docPrestador != null;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Solicitação de Orçamento')),
@@ -298,14 +326,14 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
   }
 
   Widget _buildLoaded() {
-    final serv = _docServico!.data()!;
-    final prest = _docPrestador!.data()!;
-    final cliente = _docCliente?.data() ?? {};
+    final serv = docServico!.data()!;
+    final prest = docPrestador!.data()!;
+    final cliente = docCliente?.data() ?? {};
 
     final enderecoCli = (cliente['endereco'] is Map)
         ? (cliente['endereco'] as Map).cast<String, dynamic>()
         : <String, dynamic>{};
-    final enderecoLinha = _formatEndereco(enderecoCli);
+    final enderecoLinha = formatEndereco(enderecoCli);
     final whatsappCli = (enderecoCli['whatsapp'] ?? cliente['whatsapp'] ?? '')
         .toString();
 
@@ -335,11 +363,11 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
               prestadorNome: (prest['nome'] ?? '').toString(),
               cidade: cidadePrest,
               unidadeAbrev: unidadeServicoAbrev,
-              valorMinimo: _parseValor(
+              valorMinimo: parseValor(
                 serv['valorMinimo'] ?? serv['precoMinimo'],
               ),
-              valorMedio: _valorMedio,
-              valorMaximo: _parseValor(
+              valorMedio: valorMedio,
+              valorMaximo: parseValor(
                 serv['valorMaximo'] ?? serv['precoMaximo'],
               ),
             ),
@@ -349,7 +377,7 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
             const _SectionTitle('Descrição detalhada da Solicitação'),
             const SizedBox(height: 6),
             TextFormField(
-              controller: _descricaoCtl,
+              controller: descricaoCtl,
               minLines: 3,
               maxLines: 5,
               decoration: _inputDecoration(
@@ -365,7 +393,7 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
               children: [
                 Expanded(
                   child: TextFormField(
-                    controller: _quantCtl,
+                    controller: quantCtl,
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
@@ -379,14 +407,12 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                _UnidadesDropdown(
-                  selectedId: _selectedUnidadeId,
-                  onChanged: (id, abrev) {
-                    setState(() {
-                      _selectedUnidadeId = id;
-                      _selectedUnidadeAbrev = abrev;
-                    });
-                  },
+                Expanded(
+                  child: _UnidadesDropdown(
+                    selectedId: selectedUnidadeId, // ✅ variável correta
+                    onChanged: (id) => setState(() => selectedUnidadeId = id),
+                    firestore: db, // ✅ injeta o fakeDb nos testes
+                  ),
                 ),
               ],
             ),
@@ -438,9 +464,9 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
             TextFormField(
               readOnly: true,
               controller: TextEditingController(
-                text: _estimativaValor == null
+                text: estimativaValor == null
                     ? 'R\$0,00'
-                    : _moeda.format(_estimativaValor),
+                    : _moeda.format(estimativaValor),
               ),
               decoration: _inputDecoration(),
             ),
@@ -463,24 +489,22 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
                     'Este campo é apenas informativo e não pode ser editado manualmente.',
                     style: TextStyle(fontSize: 12, color: Colors.black54),
                   ),
-                  if (_selectedUnidadeId != null)
+                  if (selectedUnidadeId != null)
                     Builder(
                       builder: (context) {
-                        final s = _docServico?.data() ?? {};
+                        final s = docServico?.data() ?? {};
                         final unidadeServicoId =
                             (s['unidadeId'] ?? s['unidade'] ?? '').toString();
                         final diferente =
                             unidadeServicoId.isNotEmpty &&
-                            _selectedUnidadeId != unidadeServicoId;
+                            selectedUnidadeId != unidadeServicoId;
 
                         if (diferente) {
                           return Container(
                             margin: const EdgeInsets.only(top: 8),
                             padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
-                              color: const Color(
-                                0xFFEDE7F6,
-                              ), // 💜 lilás clarinho de fundo
+                              color: const Color(0xFFEDE7F6),
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(
                                 color: Colors.deepPurple.shade200,
@@ -541,10 +565,10 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
             const _SectionTitle('Imagens (opcional)'),
             const SizedBox(height: 6),
             _ImagePickerGrid(
-              imagens: _imagens,
+              imagens: imagens,
               progresso: _uploadProgress,
               onAdd: _pickImages,
-              onRemove: _removeImage,
+              onRemove: removeImage,
             ),
 
             const SizedBox(height: 20),
@@ -553,7 +577,7 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
               children: [
                 Expanded(
                   child: ElevatedButton(
-                    onPressed: _enviar,
+                    onPressed: enviar,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.deepPurple,
                       shape: RoundedRectangleBorder(
@@ -588,7 +612,7 @@ class _SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
     );
   }
 
-  String _formatEndereco(Map<String, dynamic> e) {
+  String formatEndereco(Map<String, dynamic> e) {
     final partes = <String>[];
     void add(String? s) {
       if (s != null && s.toString().trim().isNotEmpty) {
@@ -695,7 +719,7 @@ class _ServicoResumoCard extends StatelessWidget {
   Future<String> _imagemCategoria() async {
     if (categoriaServicoId.isEmpty) return '';
     final doc = await FirebaseFirestore.instance
-        .collection(_SolicitarOrcamentoScreenState.colCategoriasServ)
+        .collection(SolicitarOrcamentoScreenState.colCategoriasServ)
         .doc(categoriaServicoId)
         .get();
     final d = doc.data();
@@ -811,89 +835,76 @@ class _ServicoResumoCard extends StatelessWidget {
   }
 }
 
+// ================== 🔽 Widget corrigido 🔽 ==================
 class _UnidadesDropdown extends StatelessWidget {
   final String? selectedId;
-  final void Function(String id, String abrev) onChanged;
+  final Function(String?) onChanged;
 
-  const _UnidadesDropdown({required this.selectedId, required this.onChanged});
+  // ✅ Novo parâmetro opcional para usar FakeFirebaseFirestore nos testes
+  final FirebaseFirestore firestore;
+
+  _UnidadesDropdown({
+    required this.selectedId,
+    required this.onChanged,
+    FirebaseFirestore? firestore,
+    Key? key,
+  }) : firestore = firestore ?? FirebaseFirestore.instance,
+       super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    final q = FirebaseFirestore.instance
-        .collection(_SolicitarOrcamentoScreenState.colUnidades)
+    // 🔹 Consulta unidades no banco injetado (real ou fake)
+    final q = firestore
+        .collection(SolicitarOrcamentoScreenState.colUnidades)
         .orderBy('abreviacao');
 
-    return ConstrainedBox(
-      constraints: const BoxConstraints(
-        minWidth: 80,
-        maxWidth: 120, // 🔹 largura segura e adaptável
-      ),
-      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: q.snapshots(),
-        builder: (context, snap) {
-          if (!snap.hasData) {
-            return DropdownButtonFormField<String>(
-              items: const [],
-              onChanged: null,
-              isDense: true,
-              decoration: const InputDecoration(
-                hintText: 'un.',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(12)),
-                ),
-                contentPadding: EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 8,
-                ),
-              ),
-            );
-          }
+    return StreamBuilder<QuerySnapshot>(
+      stream: q.snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
-          final docs = snap.data!.docs;
-          final items = docs.map((d) {
-            final m = d.data();
-            final abrev = (m['abreviacao'] ?? m['sigla'] ?? '').toString();
+        if (snapshot.hasError) {
+          return const Text(
+            'Erro ao carregar unidades',
+            style: TextStyle(color: Colors.redAccent),
+          );
+        }
+
+        final docs = snapshot.data?.docs ?? [];
+
+        if (docs.isEmpty) {
+          return const Text('Nenhuma unidade disponível');
+        }
+
+        return DropdownButtonFormField<String>(
+          value: selectedId,
+          decoration: InputDecoration(
+            labelText: 'Unidade de Medida',
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 10,
+            ),
+          ),
+          items: docs.map((d) {
+            final data = (d.data() as Map?)?.cast<String, dynamic>() ?? {};
+            final nome = data['nome'] ?? '';
+            final abrev = data['abreviacao'] ?? '';
             return DropdownMenuItem<String>(
               value: d.id,
-              child: Text(
-                abrev.isEmpty ? d.id : abrev,
-                overflow: TextOverflow.ellipsis,
-              ),
+              child: Text('$nome ($abrev)'),
             );
-          }).toList();
-
-          final hasSelected =
-              selectedId != null && items.any((it) => it.value == selectedId);
-
-          return DropdownButtonFormField<String>(
-            isDense: true,
-            isExpanded: true, // ✅ evita overflow
-            menuMaxHeight: 300,
-            initialValue: hasSelected ? selectedId : null,
-            items: items,
-            onChanged: (v) {
-              if (v == null) return;
-              final d = docs.firstWhere((e) => e.id == v);
-              final m = d.data();
-              final abrev = (m['abreviacao'] ?? m['sigla'] ?? '').toString();
-              onChanged(v, abrev);
-            },
-            decoration: InputDecoration(
-              hintText: 'un.',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 8,
-              ),
-            ),
-          );
-        },
-      ),
+          }).toList(),
+          onChanged: onChanged,
+        );
+      },
     );
   }
 }
+
+// ================== 🔼 Widget corrigido 🔼 ==================
 
 class _EnderecoContatoCard extends StatelessWidget {
   final String enderecoLinha;

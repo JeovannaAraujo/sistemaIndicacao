@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 class RecuperarSenhaScreen extends StatefulWidget {
-  const RecuperarSenhaScreen({super.key});
+  final FirebaseAuth? auth; // ✅ injeção via construtor
+
+  const RecuperarSenhaScreen({super.key, this.auth});
 
   @override
   State<RecuperarSenhaScreen> createState() => _RecuperarSenhaScreenState();
@@ -11,10 +13,16 @@ class RecuperarSenhaScreen extends StatefulWidget {
 class _RecuperarSenhaScreenState extends State<RecuperarSenhaScreen> {
   final _emailCtrl = TextEditingController();
   final _formKey = GlobalKey<FormState>();
-  final _auth = FirebaseAuth.instance;
+  late final FirebaseAuth _auth; // ✅ instanciado a partir do widget
 
   bool _enviando = false;
   String? _mensagem;
+
+  @override
+  void initState() {
+    super.initState();
+    _auth = widget.auth ?? FirebaseAuth.instance; // ✅ usa mock se existir
+  }
 
   Future<void> _recuperarSenha() async {
     if (!_formKey.currentState!.validate()) return;
@@ -24,12 +32,8 @@ class _RecuperarSenhaScreenState extends State<RecuperarSenhaScreen> {
       _mensagem = null;
     });
 
-    await FirebaseAuth.instance.setLanguageCode('pt');
-    await FirebaseAuth.instance.sendPasswordResetEmail(
-      email: _emailCtrl.text.trim(),
-    );
-
     try {
+      await _auth.setLanguageCode('pt');
       await _auth.sendPasswordResetEmail(email: _emailCtrl.text.trim());
       setState(() {
         _mensagem =

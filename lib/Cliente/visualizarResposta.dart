@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -9,10 +10,10 @@ class VisualizarRespostaScreen extends StatefulWidget {
 
   @override
   State<VisualizarRespostaScreen> createState() =>
-      _VisualizarRespostaScreenState();
+      VisualizarRespostaScreenState();
 }
 
-class _VisualizarRespostaScreenState extends State<VisualizarRespostaScreen> {
+class VisualizarRespostaScreenState extends State<VisualizarRespostaScreen> {
   static const colSolicitacoes = 'solicitacoesOrcamento';
   final moeda = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
 
@@ -51,15 +52,14 @@ class _VisualizarRespostaScreenState extends State<VisualizarRespostaScreen> {
           final d = snap.data!.data() ?? {};
           final servicoId = (d['servicoId'] ?? '').toString();
           final prestadorId = (d['prestadorId'] ?? '').toString();
-          final prestadorNome = (d['prestadorNome'] ?? '').toString();
           final cidade = (d['clienteEndereco']?['cidade'] ?? '').toString();
           final descricao = (d['descricaoDetalhada'] ?? '').toString();
           final quantidade = (d['quantidade'] ?? '').toString();
           final valorProposto = (d['valorProposto'] as num?)?.toDouble();
           final tempo = (d['tempoEstimadoValor'] ?? '').toString();
           final tempoUn = (d['tempoEstimadoUnidade'] ?? '').toString();
-          final dataInicio = _fmtData(d['dataInicioSugerida']);
-          final dataFim = _fmtData(d['dataFinalPrevista']);
+          final dataInicio = fmtData(d['dataInicioSugerida']);
+          final dataFim = fmtData(d['dataFinalPrevista']);
           final obs = (d['observacoesPrestador'] ?? '').toString();
           final unidadeSelecionadaId = (d['unidadeSelecionadaId'] ?? '')
               .toString();
@@ -69,7 +69,7 @@ class _VisualizarRespostaScreenState extends State<VisualizarRespostaScreen> {
               : servicoUnidadeId;
 
           return FutureBuilder<Map<String, dynamic>>(
-            future: _getInfo(servicoId, prestadorId, unidadeId),
+            future: getInfo(servicoId, prestadorId, unidadeId),
             builder: (context, snap2) {
               if (!snap2.hasData) {
                 return const Center(child: CircularProgressIndicator());
@@ -135,7 +135,7 @@ class _VisualizarRespostaScreenState extends State<VisualizarRespostaScreen> {
 
                     const SizedBox(height: 16),
                     const _SectionTitle('Tempo estimado de execução'),
-                    _ReadonlyBox(_formatTempo(tempo, tempoUn)),
+                    _ReadonlyBox(formatTempo(tempo, tempoUn)),
 
                     const SizedBox(height: 16),
                     const _SectionTitle('Contato do prestador'),
@@ -237,7 +237,7 @@ class _VisualizarRespostaScreenState extends State<VisualizarRespostaScreen> {
 
   // =================== Funções auxiliares ===================
 
-  String _formatTempo(dynamic tempo, String unidade) {
+  String formatTempo(dynamic tempo, String unidade) {
     if (tempo == null || tempo.toString().isEmpty) return '—';
     String valor = tempo.toString().replaceAll('.0', '');
     String unidadeFmt = unidade;
@@ -247,16 +247,20 @@ class _VisualizarRespostaScreenState extends State<VisualizarRespostaScreen> {
     return '$valor $unidadeFmt'.trim();
   }
 
-  static String _fmtData(dynamic ts) {
+  static String fmtData(dynamic ts) {
     if (ts is! Timestamp) return '—';
     return DateFormat('dd/MM/yyyy').format(ts.toDate());
   }
 
-  Future<Map<String, dynamic>> _getInfo(
+  Future<Map<String, dynamic>> getInfo(
     String servicoId,
     String prestadorId,
-    String unidadeId,
-  ) async {
+    String unidadeId, {
+    FirebaseFirestore? firestore, // ✅ injeção opcional
+  }) async {
+    final db =
+        firestore ?? FirebaseFirestore.instance; // ✅ usa o fake ou o real
+
     String unidadeAbrev = '';
     String imagemUrl = '';
     double? valorMin, valorMed, valorMax;
@@ -265,27 +269,17 @@ class _VisualizarRespostaScreenState extends State<VisualizarRespostaScreen> {
     try {
       String unidadeFinalId = unidadeId;
       if (unidadeFinalId.isEmpty && servicoId.isNotEmpty) {
-        // tenta buscar o id da unidade cadastrada no serviço, caso o cliente não tenha escolhido outra
-        final servico = await FirebaseFirestore.instance
-            .collection('servicos')
-            .doc(servicoId)
-            .get();
+        final servico = await db.collection('servicos').doc(servicoId).get();
         unidadeFinalId = (servico.data()?['unidadeId'] ?? '').toString();
       }
 
       if (unidadeFinalId.isNotEmpty) {
-        final u = await FirebaseFirestore.instance
-            .collection('unidades')
-            .doc(unidadeFinalId)
-            .get();
+        final u = await db.collection('unidades').doc(unidadeFinalId).get();
         unidadeAbrev = (u.data()?['abreviacao'] ?? '').toString();
       }
 
       if (servicoId.isNotEmpty) {
-        final servico = await FirebaseFirestore.instance
-            .collection('servicos')
-            .doc(servicoId)
-            .get();
+        final servico = await db.collection('servicos').doc(servicoId).get();
         if (servico.exists) {
           final s = servico.data()!;
           valorMin = (s['valorMinimo'] as num?)?.toDouble();
@@ -294,7 +288,7 @@ class _VisualizarRespostaScreenState extends State<VisualizarRespostaScreen> {
 
           final categoriaId = (s['categoriaId'] ?? '').toString();
           if (categoriaId.isNotEmpty) {
-            final cat = await FirebaseFirestore.instance
+            final cat = await db
                 .collection('categoriasServicos')
                 .doc(categoriaId)
                 .get();
@@ -304,10 +298,7 @@ class _VisualizarRespostaScreenState extends State<VisualizarRespostaScreen> {
       }
 
       if (prestadorId.isNotEmpty) {
-        final p = await FirebaseFirestore.instance
-            .collection('usuarios')
-            .doc(prestadorId)
-            .get();
+        final p = await db.collection('usuarios').doc(prestadorId).get();
         final end = (p.data()?['endereco'] ?? {}) as Map?;
         whatsapp = (end?['whatsapp'] ?? '').toString();
       }
@@ -323,6 +314,69 @@ class _VisualizarRespostaScreenState extends State<VisualizarRespostaScreen> {
       'valorMax': valorMax,
       'whatsapp': whatsapp,
     };
+  }
+}
+
+// --- Mock da tela para teste sem Firebase real ---
+class VisualizarRespostaScreenFake extends VisualizarRespostaScreen {
+  final FakeFirebaseFirestore firestore;
+
+  const VisualizarRespostaScreenFake({
+    super.key,
+    required super.docId,
+    required this.firestore,
+  });
+
+  @override
+  State<VisualizarRespostaScreen> createState() =>
+      _VisualizarRespostaScreenFakeState();
+}
+
+class _VisualizarRespostaScreenFakeState extends VisualizarRespostaScreenState {
+  @override
+  Widget build(BuildContext context) {
+    // substitui o stream pelo fakeDb
+    return Scaffold(
+      appBar: AppBar(title: const Text('Mock da Resposta')),
+      body: FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        future: (widget as VisualizarRespostaScreenFake)
+            .firestore
+            .collection(VisualizarRespostaScreenState.colSolicitacoes)
+            .doc(widget.docId)
+            .get(),
+        builder: (context, snap) {
+          if (!snap.hasData) return const CircularProgressIndicator();
+          final d = snap.data!.data() ?? {};
+          return Column(
+            children: [
+              Text('Status: ${d['status']}'),
+              ElevatedButton(
+                key: const Key('btnAceitar'),
+                onPressed: () async {
+                  await (widget as VisualizarRespostaScreenFake)
+                      .firestore
+                      .collection(VisualizarRespostaScreenState.colSolicitacoes)
+                      .doc(widget.docId)
+                      .update({'status': 'aceita'});
+                },
+                child: const Text('Aceitar'),
+              ),
+              ElevatedButton(
+                key: const Key('btnRecusar'),
+                onPressed: () async {
+                  await (widget as VisualizarRespostaScreenFake)
+                      .firestore
+                      .collection(VisualizarRespostaScreenState.colSolicitacoes)
+                      .doc(widget.docId)
+                      .update({'status': 'recusada_cliente'});
+                },
+                child: const Text('Recusar'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 }
 

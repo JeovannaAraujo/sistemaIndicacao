@@ -61,7 +61,7 @@ class _UnidadeMedScreenState extends State<UnidadeMedScreen> {
                   'ativo': true,
                 };
                 if (isEdicao) {
-                  unidadesRef.doc(unidade!.id).update(data);
+                  unidadesRef.doc(unidade.id).update(data);
                 } else {
                   unidadesRef.add(data);
                 }

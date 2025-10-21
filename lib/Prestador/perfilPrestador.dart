@@ -1,4 +1,3 @@
-// lib/Prestador/perfilPrestador.dart
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -11,33 +10,38 @@ import '../Cliente/homeCliente.dart';
 
 class PerfilPrestador extends StatefulWidget {
   final String userId;
+  final FirebaseFirestore? firestore;
+  final FirebaseAuth? auth;
 
-  const PerfilPrestador({super.key, required this.userId});
+  const PerfilPrestador({
+    super.key,
+    required this.userId,
+    this.firestore,
+    this.auth,
+  });
 
   @override
-  State<PerfilPrestador> createState() => _PerfilPrestadorState();
+  State<PerfilPrestador> createState() => PerfilPrestadorState();
 }
 
-class _PerfilPrestadorState extends State<PerfilPrestador> {
-  final user = FirebaseAuth.instance.currentUser;
+class PerfilPrestadorState extends State<PerfilPrestador> {
+  late FirebaseFirestore db;
+  late FirebaseAuth auth;
+  User? user;
 
-  // ====== Cache simples para nome da categoria profissional ======
   final Map<String, String> _categoriaProfCache = {};
-  Future<String?> _getNomeCategoriaProfById(String id) async {
-    if (id.isEmpty) return null;
-    if (_categoriaProfCache.containsKey(id)) return _categoriaProfCache[id];
-    final snap = await FirebaseFirestore.instance
-        .collection('categoriasProfissionais')
-        .doc(id)
-        .get();
-    final nome = snap.data()?['nome'] as String?;
-    if (nome != null && nome.isNotEmpty) _categoriaProfCache[id] = nome;
-    return nome;
+  Map<String, String> get categoriaProfCache => _categoriaProfCache;
+
+  @override
+  void initState() {
+    super.initState();
+    db = widget.firestore ?? FirebaseFirestore.instance;
+    auth = widget.auth ?? FirebaseAuth.instance;
+    user = auth.currentUser;
   }
 
-  // ====== Helper para extrair nota de formas diferentes ======
-  double? _extrairNotaGenerica(Map<String, dynamic> data) {
-    // tenta nos campos diretos
+  // ====== Extrai nota genérica de vários formatos ======
+  double? extrairNotaGenerica(Map<String, dynamic> data) {
     for (final k in const ['nota', 'rating', 'estrelas', 'notaGeral']) {
       final v = data[k];
       if (v is num) return v.toDouble();
@@ -46,7 +50,7 @@ class _PerfilPrestadorState extends State<PerfilPrestador> {
         if (d != null) return d;
       }
     }
-    // tenta em um mapa "avaliacao"
+
     final aval = data['avaliacao'];
     if (aval is Map<String, dynamic>) {
       for (final k in const ['nota', 'rating', 'estrelas', 'notaGeral']) {
@@ -61,9 +65,20 @@ class _PerfilPrestadorState extends State<PerfilPrestador> {
     return null;
   }
 
-  /// Stream com todas as avaliações deste prestador
-  Stream<Map<String, num>> _streamMediaETotalDoPrestador(String prestadorId) {
-    return FirebaseFirestore.instance
+  // ====== Retorna nome da categoria profissional com cache ======
+  Future<String?> getNomeCategoriaProfById(String id) async {
+    if (id.isEmpty) return null;
+    if (_categoriaProfCache.containsKey(id)) return _categoriaProfCache[id];
+
+    final snap = await db.collection('categoriasProfissionais').doc(id).get();
+    final nome = snap.data()?['nome'] as String?;
+    if (nome != null && nome.isNotEmpty) _categoriaProfCache[id] = nome;
+    return nome;
+  }
+
+  // ====== Stream de avaliações do prestador ======
+  Stream<Map<String, num>> streamMediaETotalDoPrestador(String prestadorId) {
+    return db
         .collection('avaliacoes')
         .where('prestadorId', isEqualTo: prestadorId)
         .snapshots()
@@ -71,7 +86,7 @@ class _PerfilPrestadorState extends State<PerfilPrestador> {
           double soma = 0;
           int qtd = 0;
           for (final d in snap.docs) {
-            final nota = _extrairNotaGenerica(d.data());
+            final nota = extrairNotaGenerica(d.data());
             if (nota != null) {
               soma += nota;
               qtd += 1;
@@ -90,10 +105,8 @@ class _PerfilPrestadorState extends State<PerfilPrestador> {
         automaticallyImplyLeading: false, // 🔥 remove seta de voltar
       ),
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        stream: FirebaseFirestore.instance
-            .collection('usuarios')
-            .doc(widget.userId)
-            .snapshots(),
+        stream: db.collection('usuarios').doc(widget.userId).snapshots(),
+
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
@@ -202,7 +215,7 @@ class _PerfilPrestadorState extends State<PerfilPrestador> {
                                 );
                               }
                               return FutureBuilder<String?>(
-                                future: _getNomeCategoriaProfById(catProfId),
+                                future: getNomeCategoriaProfById(catProfId),
                                 builder: (context, s) {
                                   final nomeCat = s.data ?? 'Categoria';
                                   return Row(
@@ -239,9 +252,7 @@ class _PerfilPrestadorState extends State<PerfilPrestador> {
 
                           // Avaliação (AGORA LENDO TODAS AS AVALIAÇÕES DO PRESTADOR)
                           StreamBuilder<Map<String, num>>(
-                            stream: _streamMediaETotalDoPrestador(
-                              widget.userId,
-                            ),
+                            stream: streamMediaETotalDoPrestador(widget.userId),
                             builder: (context, s) {
                               if (!s.hasData) {
                                 return const SizedBox.shrink(); // retorna algo vazio enquanto carrega

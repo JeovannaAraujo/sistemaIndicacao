@@ -6,12 +6,19 @@ import 'enviarOrcamento.dart';
 
 class DetalhesSolicitacaoScreen extends StatelessWidget {
   final String docId;
-  const DetalhesSolicitacaoScreen({super.key, required this.docId});
+  final FirebaseFirestore? firestore; // ✅ injeção para testes
+
+  const DetalhesSolicitacaoScreen({
+    super.key,
+    required this.docId,
+    this.firestore,
+  });
 
   static const String _colSolicitacoes = 'solicitacoesOrcamento';
 
   @override
   Widget build(BuildContext context) {
+    final db = firestore ?? FirebaseFirestore.instance; // ✅ usa fake se existir
     final moeda = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
 
     return Scaffold(
@@ -22,10 +29,7 @@ class DetalhesSolicitacaoScreen extends StatelessWidget {
         elevation: 0.3,
       ),
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        stream: FirebaseFirestore.instance
-            .collection(_colSolicitacoes)
-            .doc(docId)
-            .snapshots(),
+        stream: db.collection(_colSolicitacoes).doc(docId).snapshots(),
         builder: (context, snap) {
           if (snap.hasError) {
             return Center(
@@ -47,9 +51,7 @@ class DetalhesSolicitacaoScreen extends StatelessWidget {
           }
 
           final d = snap.data!.data()!;
-          final status = (d['status'] ?? '')
-              .toString()
-              .toLowerCase(); // 🔹 Obtém o status
+          final status = (d['status'] ?? '').toString().toLowerCase();
           final estimativa = (d['estimativaValor'] is num)
               ? moeda.format((d['estimativaValor'] as num).toDouble())
               : 'R\$0,00';
@@ -58,19 +60,17 @@ class DetalhesSolicitacaoScreen extends StatelessWidget {
 
           final quantidade = (d['quantidade'] is num)
               ? ((d['quantidade'] as num) % 1 == 0
-                    ? (d['quantidade'] as num).toInt().toString()
-                    : NumberFormat("#.##", "pt_BR").format(d['quantidade']))
+                  ? (d['quantidade'] as num).toInt().toString()
+                  : NumberFormat("#.##", "pt_BR").format(d['quantidade']))
               : (d['quantidade']?.toString() ?? '');
 
           final unAbrev = (d['unidadeSelecionadaAbrev'] ?? '').toString();
 
           final ts = d['dataDesejada'] as Timestamp?;
-          final dataDesejada = ts == null
-              ? ''
-              : DateFormat('dd/MM/yyyy').format(ts.toDate());
-          final horaDesejada = ts == null
-              ? ''
-              : DateFormat('HH:mm').format(ts.toDate());
+          final dataDesejada =
+              ts == null ? '' : DateFormat('dd/MM/yyyy').format(ts.toDate());
+          final horaDesejada =
+              ts == null ? '' : DateFormat('HH:mm').format(ts.toDate());
 
           final imagens = (d['imagens'] is List)
               ? List<String>.from(d['imagens'] as List)
@@ -105,7 +105,6 @@ class DetalhesSolicitacaoScreen extends StatelessWidget {
             return partes.join('. ');
           }
 
-          // 🔹 Verifica se os botões devem ser desativados (status processado)
           final bool isProcessada = [
             'respondida',
             'aceita',
@@ -119,58 +118,50 @@ class DetalhesSolicitacaoScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Estimativa
                 const _SectionTitle('Estimativa de Valor'),
                 const SizedBox(height: 6),
 
-                // 🔹 Verifica se há estimativa válida
                 if (d['estimativaValor'] != null &&
                     d['estimativaValor'] != 0) ...[
                   _ReadonlyField(
                     controller: TextEditingController(text: estimativa),
                   ),
                   const SizedBox(height: 6),
-                  const _HintBox(
-                    children: [
-                      Text(
-                        'Este valor é calculado automaticamente com base na quantidade informada e na média de preços do serviço.',
-                        style: TextStyle(fontSize: 12),
-                      ),
-                      SizedBox(height: 4),
-                      Text(
-                        'Fórmula: Quantidade × Valor Médio por unidade.',
-                        style: TextStyle(fontSize: 12),
-                      ),
-                      SizedBox(height: 4),
-                      Text(
-                        'Este campo é apenas informativo e não pode ser editado manualmente.',
-                        style: TextStyle(fontSize: 12, color: Colors.black54),
-                      ),
-                    ],
-                  ),
+                  const _HintBox(children: [
+                    Text(
+                      'Este valor é calculado automaticamente com base na quantidade informada e na média de preços do serviço.',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Fórmula: Quantidade × Valor Médio por unidade.',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Este campo é apenas informativo e não pode ser editado manualmente.',
+                      style: TextStyle(fontSize: 12, color: Colors.black54),
+                    ),
+                  ]),
                 ] else ...[
-                  const _HintBox(
-                    children: [
-                      Text(
-                        'Não há estimativa de valor para esta solicitação, pois o cliente selecionou uma unidade de medida diferente da cadastrada para o serviço.',
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          color: Colors.deepPurple,
-                          fontWeight: FontWeight.w500,
-                        ),
+                  const _HintBox(children: [
+                    Text(
+                      'Não há estimativa de valor para esta solicitação, pois o cliente selecionou uma unidade de medida diferente da cadastrada para o serviço.',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        color: Colors.deepPurple,
+                        fontWeight: FontWeight.w500,
                       ),
-                    ],
-                  ),
+                    ),
+                  ]),
                 ],
                 const SizedBox(height: 16),
 
-                // Serviço desejado
                 const _SectionTitle('Serviço desejado'),
                 const SizedBox(height: 6),
                 _ReadonlyField(controller: TextEditingController(text: titulo)),
                 const SizedBox(height: 16),
 
-                // Descrição
                 const _SectionTitle('Descrição detalhada da Solicitação'),
                 const SizedBox(height: 6),
                 _ReadonlyField.multiline(
@@ -178,7 +169,6 @@ class DetalhesSolicitacaoScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
 
-                // Quantidade
                 const _SectionTitle('Quantidade ou dimensão'),
                 const SizedBox(height: 6),
                 Row(
@@ -203,17 +193,14 @@ class DetalhesSolicitacaoScreen extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 6),
-                const _HintBox(
-                  children: [
-                    Text(
-                      'Utilize essa informação para calcular o valor do orçamento com base no preço por unidade.',
-                      style: TextStyle(fontSize: 12),
-                    ),
-                  ],
-                ),
+                const _HintBox(children: [
+                  Text(
+                    'Utilize essa informação para calcular o valor do orçamento com base no preço por unidade.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ]),
                 const SizedBox(height: 16),
 
-                // Datas
                 const _SectionTitle('Data desejada para início'),
                 const SizedBox(height: 6),
                 _ReadonlyField(
@@ -240,11 +227,9 @@ class DetalhesSolicitacaoScreen extends StatelessWidget {
                 const SizedBox(height: 20),
                 const _SectionTitle('Informações do cliente'),
                 const SizedBox(height: 10),
-
                 _LabelValue(label: 'Cliente', value: clienteNome),
                 const SizedBox(height: 10),
 
-                // 🔹 Caixa unificada de endereço + WhatsApp
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -274,11 +259,8 @@ class DetalhesSolicitacaoScreen extends StatelessWidget {
                           const SizedBox(height: 8),
                           Row(
                             children: [
-                              const FaIcon(
-                                FontAwesomeIcons.whatsapp,
-                                size: 16,
-                                color: Color(0xFF25D366),
-                              ),
+                              const FaIcon(FontAwesomeIcons.whatsapp,
+                                  size: 16, color: Color(0xFF25D366)),
                               const SizedBox(width: 6),
                               Text(
                                 clienteWhatsapp.isEmpty
@@ -298,20 +280,16 @@ class DetalhesSolicitacaoScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 24),
 
-                // Ações (desativadas se status processado)
                 if (!isProcessada) ...[
-                  // Botão Enviar Orçamento (ativo apenas se pendente)
                   Row(
                     children: [
                       Expanded(
                         child: ElevatedButton(
                           onPressed: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) =>
-                                    EnviarOrcamentoScreen(solicitacaoId: docId),
-                              ),
-                            );
+                            Navigator.of(context).push(MaterialPageRoute(
+                              builder: (_) =>
+                                  EnviarOrcamentoScreen(solicitacaoId: docId),
+                            ));
                           },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.deepPurple,
@@ -327,12 +305,11 @@ class DetalhesSolicitacaoScreen extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 10),
-                  // Botão Recusar (ativo apenas se pendente)
                   Row(
                     children: [
                       Expanded(
                         child: FilledButton.tonal(
-                          onPressed: () => _abrirDialogoRecusar(context),
+                          onPressed: () => _abrirDialogoRecusar(context, db),
                           style: FilledButton.styleFrom(
                             backgroundColor: const Color(0xFFE9D7FF),
                             foregroundColor: Colors.deepPurple,
@@ -346,8 +323,7 @@ class DetalhesSolicitacaoScreen extends StatelessWidget {
                       ),
                     ],
                   ),
-                ] else
-                  ...[],
+                ],
               ],
             ),
           );
@@ -356,9 +332,8 @@ class DetalhesSolicitacaoScreen extends StatelessWidget {
     );
   }
 
-  // ======== Ações ========
-
-  void _abrirDialogoRecusar(BuildContext context) {
+  // ✅ recebe Firestore injetado
+  void _abrirDialogoRecusar(BuildContext context, FirebaseFirestore db) {
     final motivoCtl = TextEditingController();
     showDialog(
       context: context,
@@ -380,14 +355,11 @@ class DetalhesSolicitacaoScreen extends StatelessWidget {
           ),
           FilledButton(
             onPressed: () async {
-              await FirebaseFirestore.instance
-                  .collection(_colSolicitacoes)
-                  .doc(docId)
-                  .update({
-                    'status': 'recusada',
-                    'recusadaEm': FieldValue.serverTimestamp(),
-                    'recusaMotivo': motivoCtl.text.trim(),
-                  });
+              await db.collection(_colSolicitacoes).doc(docId).update({
+                'status': 'recusada',
+                'recusadaEm': FieldValue.serverTimestamp(),
+                'recusaMotivo': motivoCtl.text.trim(),
+              });
               if (context.mounted) Navigator.pop(context);
               if (context.mounted) Navigator.pop(context);
             },

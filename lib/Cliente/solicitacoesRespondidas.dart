@@ -30,8 +30,8 @@ class SolicitacoesRespondidasScreen extends StatelessWidget {
       ),
       body: Column(
         children: [
-          _Tabs(
-            active: _TabKind.respondidas,
+          Tabs(
+            active: TabKind.respondidas,
             onTapEnviadas: () => context.goEnviadas(),
             onTapRespondidas: () {}, // já está nesta aba
             onTapAceitas: () => context.goAceitas(),
@@ -60,7 +60,10 @@ class SolicitacoesRespondidasScreen extends StatelessWidget {
                   itemBuilder: (context, i) {
                     final id = docs[i].id;
                     final d = docs[i].data();
-                    return _PropostaCard(docId: id, dados: d);
+                    return PropostaCard(
+                      docId: id,
+                      dados: d,
+                    );
                   },
                 );
               },
@@ -75,15 +78,15 @@ class SolicitacoesRespondidasScreen extends StatelessWidget {
 
 /* ========================= Abas ========================= */
 
-enum _TabKind { enviadas, respondidas, aceitas }
+enum TabKind { enviadas, respondidas, aceitas }
 
-class _Tabs extends StatelessWidget {
-  final _TabKind active;
+class Tabs extends StatelessWidget {
+  final TabKind active;
   final VoidCallback onTapEnviadas;
   final VoidCallback onTapRespondidas;
   final VoidCallback onTapAceitas;
 
-  const _Tabs({
+  const Tabs({
     required this.active,
     required this.onTapEnviadas,
     required this.onTapRespondidas,
@@ -127,9 +130,9 @@ class _Tabs extends StatelessWidget {
 
     return Row(
       children: [
-        tab('Enviadas', active == _TabKind.enviadas, onTapEnviadas),
-        tab('Respondidas', active == _TabKind.respondidas, onTapRespondidas),
-        tab('Aceitas', active == _TabKind.aceitas, onTapAceitas),
+        tab('Enviadas', active == TabKind.enviadas, onTapEnviadas),
+        tab('Respondidas', active == TabKind.respondidas, onTapRespondidas),
+        tab('Aceitas', active == TabKind.aceitas, onTapAceitas),
       ],
     );
   }
@@ -137,28 +140,39 @@ class _Tabs extends StatelessWidget {
 
 /* ========================= Cache de categoria ========================= */
 
-class _CategoriaRepo {
-  static final Map<String, String> _cache = {};
+class CategoriaRepo {
+  static final Map<String, String> cache = {};
+  static FirebaseFirestore? _firestore; // ✅ injeção mockável
+
+  static void setFirestore(FirebaseFirestore? fs) {
+    _firestore = fs;
+  }
+
   static Future<String> nome(String id) async {
     if (id.isEmpty) return '';
-    if (_cache.containsKey(id)) return _cache[id]!;
-    final snap = await FirebaseFirestore.instance
-        .collection('categoriasProfissionais')
-        .doc(id)
-        .get();
+    if (cache.containsKey(id)) return cache[id]!;
+    final db = _firestore ?? FirebaseFirestore.instance; // ✅ usa mock se existir
+    final snap =
+        await db.collection('categoriasProfissionais').doc(id).get();
     final n = (snap.data()?['nome'] ?? '').toString();
-    _cache[id] = n;
+    cache[id] = n;
     return n;
   }
 }
 
 /* ========================= Card ========================= */
 
-class _PropostaCard extends StatelessWidget {
+class PropostaCard extends StatelessWidget {
   final String docId;
   final Map<String, dynamic> dados;
+  final FirebaseFirestore? firestore; // ✅ novo campo
 
-  const _PropostaCard({required this.docId, required this.dados});
+  const PropostaCard({
+    super.key,
+    required this.docId,
+    required this.dados,
+    this.firestore, // ✅ opcional para testes
+  });
 
   String _fmtDataHora(dynamic ts) {
     if (ts is! Timestamp) return '—';
@@ -174,23 +188,22 @@ class _PropostaCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fs = FirebaseFirestore.instance;
+    final fs = firestore ?? FirebaseFirestore.instance; // ✅ usa fakeDb se houver
     final prestadorId = (dados['prestadorId'] ?? '').toString();
 
     final servicoTitulo = (dados['servicoTitulo'] ?? '').toString();
     final descricao = (dados['descricaoDetalhada'] ?? '').toString();
     final quantidade = (dados['quantidade'] ?? '').toString();
-    final unidadeSelecionadaId = (dados['unidadeSelecionadaId'] ?? '')
-        .toString();
+    final unidadeSelecionadaId =
+        (dados['unidadeSelecionadaId'] ?? '').toString();
     final servicoUnidadeId = (dados['servicoUnidadeId'] ?? '').toString();
 
     Future<String> buscarAbreviacaoUnidade() async {
-      final fs = FirebaseFirestore.instance;
-      final unidadeId = unidadeSelecionadaId.isNotEmpty
-          ? unidadeSelecionadaId
-          : servicoUnidadeId;
+      final db = firestore ?? FirebaseFirestore.instance; // ✅ idem
+      final unidadeId =
+          unidadeSelecionadaId.isNotEmpty ? unidadeSelecionadaId : servicoUnidadeId;
       if (unidadeId.isEmpty) return '';
-      final snap = await fs.collection('unidades').doc(unidadeId).get();
+      final snap = await db.collection('unidades').doc(unidadeId).get();
       return (snap.data()?['abreviacao'] ?? '').toString();
     }
 
@@ -208,7 +221,7 @@ class _PropostaCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ====== Cabeçalho: Imagem, nome do prestador, categoria e cidade ======
+          // ====== Cabeçalho ======
           FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
             future: fs.collection('usuarios').doc(prestadorId).get(),
             builder: (context, snap) {
@@ -236,7 +249,6 @@ class _PropostaCard extends StatelessWidget {
               return Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Foto
                   ClipRRect(
                     borderRadius: BorderRadius.circular(10),
                     child: Container(
@@ -253,8 +265,6 @@ class _PropostaCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 12),
-
-                  // Nome, categoria e cidade
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -271,7 +281,7 @@ class _PropostaCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 2),
                         FutureBuilder<String>(
-                          future: _CategoriaRepo.nome(catId),
+                          future: CategoriaRepo.nome(catId),
                           builder: (context, s2) {
                             final profissao = (s2.data?.isNotEmpty == true)
                                 ? s2.data!
@@ -322,7 +332,6 @@ class _PropostaCard extends StatelessWidget {
 
           const SizedBox(height: 8),
 
-          // ====== Nome do serviço (embaixo da imagem) ======
           if (servicoTitulo.isNotEmpty)
             Text(
               servicoTitulo,
@@ -335,20 +344,15 @@ class _PropostaCard extends StatelessWidget {
 
           const SizedBox(height: 8),
 
-          // ====== Descrição, quantidade e data ======
           RichText(
             text: TextSpan(
               style: const TextStyle(fontSize: 13.5, color: Colors.black87),
               children: [
                 const TextSpan(
                   text: 'Descrição: ',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                  ), // só isso em negrito
+                  style: TextStyle(fontWeight: FontWeight.bold),
                 ),
-                TextSpan(
-                  text: descricao, // texto normal
-                ),
+                TextSpan(text: descricao),
               ],
             ),
           ),
@@ -381,7 +385,6 @@ class _PropostaCard extends StatelessWidget {
 
           const SizedBox(height: 14),
 
-          // ====== Botão Ver Orçamento ======
           GestureDetector(
             onTap: () {
               Navigator.push(

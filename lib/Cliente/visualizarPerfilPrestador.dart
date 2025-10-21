@@ -86,7 +86,7 @@ class VisualizarPerfilPrestador extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _Header(
+                    Header(
                       nome: nome,
                       email: email,
                       fotoUrl: fotoUrl,
@@ -190,7 +190,7 @@ class VisualizarPerfilPrestador extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 8),
-                    _ListaServicos(prestadorId: prestadorId),
+                    ListaServicos(prestadorId: prestadorId),
                   ],
                 ),
               );
@@ -203,7 +203,7 @@ class VisualizarPerfilPrestador extends StatelessWidget {
 }
 
 // ================= CABEÇALHO =================
-class _Header extends StatelessWidget {
+class Header extends StatelessWidget {
   final String nome;
   final String email;
   final String fotoUrl;
@@ -213,7 +213,7 @@ class _Header extends StatelessWidget {
   final double? nota;
   final int? avaliacoes;
 
-  const _Header({
+  const Header({
     required this.nome,
     required this.email,
     required this.fotoUrl,
@@ -340,13 +340,21 @@ class _Header extends StatelessWidget {
 }
 
 // ================= LISTA DE SERVIÇOS =================
-class _ListaServicos extends StatelessWidget {
+class ListaServicos extends StatelessWidget {
   final String prestadorId;
-  const _ListaServicos({required this.prestadorId});
+  final FirebaseFirestore? firestore; // 🔹 torna opcional
+
+  const ListaServicos({
+    super.key,
+    required this.prestadorId,
+    this.firestore, // 🔹 sem valor padrão
+  });
 
   @override
   Widget build(BuildContext context) {
-    final query = FirebaseFirestore.instance
+    final db = firestore ?? FirebaseFirestore.instance; // ✅ fallback seguro
+
+    final query = db
         .collection(VisualizarPerfilPrestador.colServicos)
         .where('prestadorId', isEqualTo: prestadorId)
         .where('ativo', isEqualTo: true);
@@ -382,10 +390,11 @@ class _ListaServicos extends StatelessWidget {
           separatorBuilder: (_, __) => const SizedBox(height: 12),
           itemBuilder: (_, i) {
             final s = docs[i].data();
-            return _ServicoItem(
+            return ServicoItem(
               serviceId: docs[i].id,
               prestadorId: prestadorId,
               data: s,
+              firestore: db, // 🔹 usa o fake se existir
             );
           },
         );
@@ -395,17 +404,21 @@ class _ListaServicos extends StatelessWidget {
 }
 
 // ================= CARD DE SERVIÇO =================
-class _ServicoItem extends StatelessWidget {
+class ServicoItem extends StatelessWidget {
   final String serviceId;
   final String prestadorId;
   final Map<String, dynamic> data;
-  const _ServicoItem({
+  final FirebaseFirestore? firestore; // 🔹 agora opcional
+
+  const ServicoItem({
+    super.key,
     required this.serviceId,
     required this.prestadorId,
     required this.data,
+    this.firestore, // 🔹 sem valor padrão
   });
 
-  String _formatPreco(dynamic v) {
+  String formatPreco(dynamic v) {
     double? valor;
     if (v is num) valor = v.toDouble();
     if (v is String) {
@@ -420,9 +433,10 @@ class _ServicoItem extends StatelessWidget {
     return 'R\$${valor.toStringAsFixed(2).replaceAll('.', ',')}';
   }
 
-  Future<String> _abreviacaoUnidade(String? unidadeId) async {
+  Future<String> abreviacaoUnidade(String? unidadeId) async {
     if (unidadeId == null || unidadeId.isEmpty) return '';
-    final doc = await FirebaseFirestore.instance
+    final db = firestore ?? FirebaseFirestore.instance; // ✅ fallback seguro
+    final doc = await db
         .collection(VisualizarPerfilPrestador.colUnidades)
         .doc(unidadeId)
         .get();
@@ -431,56 +445,16 @@ class _ServicoItem extends StatelessWidget {
     return (d['abreviacao'] ?? d['sigla'] ?? '').toString();
   }
 
-  Future<String> _imagemDaCategoria(String? categoriaServicoId) async {
+  Future<String> imagemDaCategoria(String? categoriaServicoId) async {
     if (categoriaServicoId == null || categoriaServicoId.isEmpty) return '';
-    final doc = await FirebaseFirestore.instance
+    final db = firestore ?? FirebaseFirestore.instance; // ✅ fallback seguro
+    final doc = await db
         .collection(VisualizarPerfilPrestador.colCategoriasServ)
         .doc(categoriaServicoId)
         .get();
     final d = doc.data();
     if (d == null) return '';
     return (d['imagemUrl'] ?? '').toString();
-  }
-
-  Future<Map<String, num>> _mediaQtdDoServicoPorAvaliacoes() async {
-    final fs = FirebaseFirestore.instance;
-
-    final avSnap = await fs
-        .collection('avaliacoes')
-        .where('prestadorId', isEqualTo: prestadorId)
-        .get();
-
-    double soma = 0.0;
-    int qtd = 0;
-
-    for (final av in avSnap.docs) {
-      final avData = av.data();
-      final solicId = (avData['solicitacaoId'] ?? '').toString();
-      if (solicId.isEmpty) continue;
-
-      final solic = await fs
-          .collection('solicitacoesOrcamento')
-          .doc(solicId)
-          .get();
-      final sData = solic.data();
-      if (sData == null) continue;
-
-      final sId = (sData['servicoId'] ?? '').toString();
-      if (sId != serviceId) continue;
-
-      final nRaw = avData['nota'];
-      final n = nRaw is num
-          ? nRaw.toDouble()
-          : (nRaw is String ? double.tryParse(nRaw) ?? 0.0 : 0.0);
-
-      if (n > 0) {
-        soma += n;
-        qtd += 1;
-      }
-    }
-
-    final media = qtd > 0 ? (soma / qtd) : 0.0;
-    return {'media': media, 'qtd': qtd};
   }
 
   @override
@@ -529,7 +503,7 @@ class _ServicoItem extends StatelessWidget {
         return thumb(imagemInline);
       }
       return FutureBuilder<String>(
-        future: _imagemDaCategoria(categoriaServicoId),
+        future: imagemDaCategoria(categoriaServicoId),
         builder: (context, snap) {
           final urlCategoria = snap.data ?? '';
           if (urlCategoria.isNotEmpty) {
@@ -624,13 +598,13 @@ class _ServicoItem extends StatelessWidget {
               child: FutureBuilder<String>(
                 future: unidadeAbrevInline.isNotEmpty
                     ? Future.value(unidadeAbrevInline)
-                    : _abreviacaoUnidade(unidadeId),
+                    : abreviacaoUnidade(unidadeId),
                 builder: (context, snap) {
                   final unidadeAbrev = snap.data ?? '';
                   return Text(
-                    'Mín: ${_formatPreco(valorMin)}   '
-                    'Méd: ${_formatPreco(valorMed)}   '
-                    'Máx: ${_formatPreco(valorMax)}'
+                    'Mín: ${formatPreco(valorMin)}   '
+                    'Méd: ${formatPreco(valorMed)}   '
+                    'Máx: ${formatPreco(valorMax)}'
                     '${unidadeAbrev.isNotEmpty ? '/$unidadeAbrev' : ''}',
                     style: const TextStyle(
                       fontWeight: FontWeight.w700,
