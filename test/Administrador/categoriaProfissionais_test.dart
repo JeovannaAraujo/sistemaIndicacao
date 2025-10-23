@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
-import 'package:myapp/Administrador/categoria_profissionais.dart';
+import 'package:myapp/Administrador/categoriaProfissionais.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

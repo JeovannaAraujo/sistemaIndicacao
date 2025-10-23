@@ -33,7 +33,6 @@ class HomeScreenState extends State<HomeScreen> {
 
   int selectedIndex = 0;
 
-
   // 🔹 Categorias fixas
   static final categoriasFixas = [
     {
@@ -155,7 +154,6 @@ class HomeScreenState extends State<HomeScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            // Nome
                             Text(
                               nome,
                               maxLines: 1,
@@ -168,7 +166,6 @@ class HomeScreenState extends State<HomeScreen> {
                             ),
                             const SizedBox(height: 4),
 
-                            // Cidade
                             if (cidade.isNotEmpty)
                               Row(
                                 children: [
@@ -192,10 +189,8 @@ class HomeScreenState extends State<HomeScreen> {
                                   ),
                                 ],
                               ),
-
                             const SizedBox(height: 6),
 
-                            // WhatsApp (ou e-mail quando vazio)
                             Row(
                               children: [
                                 const FaIcon(
@@ -219,10 +214,8 @@ class HomeScreenState extends State<HomeScreen> {
                                 ),
                               ],
                             ),
-
                             const SizedBox(height: 6),
 
-                            // Ver perfil
                             Align(
                               alignment: Alignment.centerLeft,
                               child: TextButton(
@@ -252,18 +245,7 @@ class HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
 
-                // ===== Itens de menu =====
-                ListTile(
-                  leading: const Icon(Icons.notifications),
-                  title: const Text('Notificações'),
-                  onTap: () {
-                    Navigator.pop(context);
-                  },
-                ),
-                const ListTile(
-                  leading: Icon(Icons.settings),
-                  title: Text('Configurações'),
-                ),
+                // ===== Itens de menu (ajustado) =====
                 ListTile(
                   leading: const Icon(Icons.description),
                   title: const Text('Solicitações'),
@@ -289,11 +271,14 @@ class HomeScreenState extends State<HomeScreen> {
                   leading: const Icon(Icons.logout),
                   title: const Text('Sair'),
                   onTap: () async {
-                    await auth.signOut();
+                    Navigator.pop(context); // 🔹 Fecha o Drawer primeiro
+                    await auth.signOut(); // 🔹 Desloga o usuário
                     if (!context.mounted) return;
-                    Navigator.pushReplacement(
-                      context,
+
+                    // 🔹 Remove todas as telas anteriores e limpa as streams
+                    Navigator.of(context).pushAndRemoveUntil(
                       MaterialPageRoute(builder: (_) => const LoginScreen()),
+                      (route) => false,
                     );
                   },
                 ),

@@ -139,7 +139,7 @@ void main() {
       expect(find.byIcon(Icons.person), findsOneWidget);
     });
 
-    testWidgets('7️⃣ Botão "Perfil Prestador" aparece', (tester) async {
+    testWidgets('7️⃣ Botão "Ver Perfil" aparece', (tester) async {
       await fakeFirestore.collection('usuarios').add({
         'tipoPerfil': 'Prestador',
         'ativo': true,
@@ -156,7 +156,7 @@ void main() {
         ),
       ));
       await tester.pumpAndSettle();
-      expect(find.text('Perfil Prestador'), findsOneWidget);
+      expect(find.text('Ver Perfil'), findsOneWidget);
     });
 
     testWidgets('8️⃣ Botão "Agenda" visível e clicável', (tester) async {

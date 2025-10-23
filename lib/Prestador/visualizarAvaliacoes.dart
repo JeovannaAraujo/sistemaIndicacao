@@ -10,9 +10,9 @@ class ClienteInfo {
 
 class VisualizarAvaliacoesScreen extends StatefulWidget {
   final String prestadorId;
-  final String servicoId; // pode vir vazio; compatibilidade futura
+  final String servicoId; // pode vir vazio
   final String servicoTitulo; // ex.: "Assentamento"
-  final FirebaseFirestore? firestore; // ✅ Injeção para testes
+  final FirebaseFirestore? firestore; // injeção para testes
 
   const VisualizarAvaliacoesScreen({
     super.key,
@@ -41,12 +41,12 @@ class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
 
   // ======== CACHE ========
   final Map<String, ClienteInfo> clienteCache = {};
+  final Map<String, Map<String, dynamic>> servicoCache = {};
 
   @override
   void initState() {
     super.initState();
-    db =
-        widget.firestore ?? FirebaseFirestore.instance; // ✅ usa fake nos testes
+    db = widget.firestore ?? FirebaseFirestore.instance;
     tab = TabController(length: 2, vsync: this);
   }
 
@@ -81,7 +81,7 @@ class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
   }
 
   bool temMidia(Map<String, dynamic> m) {
-    final imgs = m['imagens'];
+    final imgs = m['imagens'] ?? m['imagemUrl'];
     if (imgs is List) return imgs.isNotEmpty;
     if (imgs is String) return imgs.trim().isNotEmpty;
     return false;
@@ -106,6 +106,7 @@ class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
   Future<ClienteInfo> getClienteInfo(String clienteId) async {
     if (clienteId.isEmpty) return const ClienteInfo(nome: 'Cliente');
     if (clienteCache.containsKey(clienteId)) return clienteCache[clienteId]!;
+
     try {
       final doc = await db.collection('usuarios').doc(clienteId).get();
       final data = doc.data() ?? {};
@@ -122,27 +123,68 @@ class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
     }
   }
 
+  /// 🔹 Busca os dados do serviço vinculado a uma solicitação
+  Future<Map<String, dynamic>?> getServicoDaSolicitacao(
+    String solicitacaoId,
+  ) async {
+    if (solicitacaoId.isEmpty) return null;
+    if (servicoCache.containsKey(solicitacaoId))
+      return servicoCache[solicitacaoId];
+
+    try {
+      final doc = await db
+          .collection('solicitacoesOrcamento')
+          .doc(solicitacaoId)
+          .get();
+      if (!doc.exists) return null;
+
+      final data = doc.data()!;
+      final servico = {
+        'servicoId': data['servicoId'],
+        'servicoTitulo': data['servicoTitulo'],
+        'servicoDescricao': data['servicoDescricao'],
+      };
+
+      servicoCache[solicitacaoId] = servico;
+      return servico;
+    } catch (e) {
+      print('Erro ao buscar serviço da solicitação: $e');
+      return null;
+    }
+  }
+
   // ================== CONSULTAS ==================
   Stream<QuerySnapshot<Map<String, dynamic>>> streamAvaliacoesDoServico() {
     return db
         .collection('avaliacoes')
         .where('prestadorId', isEqualTo: widget.prestadorId)
-        .where('servicoTitulo', isEqualTo: widget.servicoTitulo)
-        .orderBy('criadoEm', descending: true)
+        .orderBy('data', descending: true)
         .snapshots();
   }
 
+  /// 🔹 Calcula a média de avaliações do prestador **para o serviço atual**
   Future<Map<String, num>> mediaQtdServico() async {
     double soma = 0;
     int qtd = 0;
 
-    final snap = await db
-        .collection('avaliacoes')
-        .where('prestadorId', isEqualTo: widget.prestadorId)
-        .where('servicoTitulo', isEqualTo: widget.servicoTitulo)
+    // 1️⃣ Buscar todas as solicitações que tenham esse serviçoId
+    final solicitacoesSnap = await db
+        .collection('solicitacoesOrcamento')
+        .where('servicoId', isEqualTo: widget.servicoId)
         .get();
 
-    for (final d in snap.docs) {
+    if (solicitacoesSnap.docs.isEmpty) return {'media': 0, 'qtd': 0};
+
+    // 2️⃣ Extrair os IDs dessas solicitações
+    final idsSolic = solicitacoesSnap.docs.map((d) => d.id).toList();
+
+    // 3️⃣ Buscar todas as avaliações associadas a essas solicitações
+    final avalSnap = await db
+        .collection('avaliacoes')
+        .where('solicitacaoId', whereIn: idsSolic)
+        .get();
+
+    for (final d in avalSnap.docs) {
       final n = nota(d.data());
       if (n != null) {
         soma += n;
@@ -150,26 +192,7 @@ class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
       }
     }
 
-    if (qtd == 0 && widget.servicoId.isNotEmpty) {
-      for (final campo in const ['servicoId', 'servico.id', 'servicoIdRef']) {
-        final s = await db
-            .collection('avaliacoes')
-            .where(campo, isEqualTo: widget.servicoId)
-            .get();
-        if (s.docs.isNotEmpty) {
-          for (final d in s.docs) {
-            final n = nota(d.data());
-            if (n != null) {
-              soma += n;
-              qtd++;
-            }
-          }
-          break;
-        }
-      }
-    }
-
-    final media = qtd == 0 ? 0 : (soma / qtd);
+    final media = qtd == 0 ? 0 : soma / qtd;
     return {'media': media, 'qtd': qtd};
   }
 
@@ -177,7 +200,7 @@ class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
     return db
         .collection('avaliacoes')
         .where('prestadorId', isEqualTo: widget.prestadorId)
-        .orderBy('criadoEm', descending: true)
+        .orderBy('data', descending: true)
         .snapshots();
   }
 
@@ -215,12 +238,15 @@ class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
             ],
           ),
         ),
-        body: const Center(child: Text('Conteúdo das abas...')),
+        body: TabBarView(
+          controller: tab,
+          children: [abaServicoComFiltros(), abaPrestadorComFiltros()],
+        ),
       ),
     );
   }
 
-  // --------- ABA: Serviço (header PINNED; 1 Divider antes dos filtros) ---------
+  // --------- ABA: Serviço ---------
   Widget abaServicoComFiltros() {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: streamAvaliacoesDoServico(),
@@ -238,11 +264,10 @@ class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
 
         return CustomScrollView(
           slivers: [
-            // ===== CABEÇALHO FIXO (não rola) =====
             SliverPersistentHeader(
               pinned: true,
               delegate: _PinnedHeaderDelegate(
-                height: 96, // altura fixa segura
+                height: 96,
                 child: FutureBuilder<Map<String, num>>(
                   future: mediaQtdServico(),
                   builder: (context, m) {
@@ -257,11 +282,7 @@ class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
                 ),
               ),
             ),
-
-            // ✅ Única linha antes dos filtros
             const SliverToBoxAdapter(child: Divider(height: 1)),
-
-            // ===== Filtros (ROLA) =====
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
@@ -275,12 +296,11 @@ class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
                 ),
               ),
             ),
-
-            // ===== Lista (ROLA) =====
             _SliverListaAvaliacoes(
               docs: filtrados,
               nota: nota,
               getClienteInfo: getClienteInfo,
+              getServicoDaSolicitacao: getServicoDaSolicitacao,
             ),
           ],
         );
@@ -288,7 +308,7 @@ class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
     );
   }
 
-  // --------- ABA: Prestador (header PINNED; 1 Divider antes dos filtros) ---------
+  // --------- ABA: Prestador ---------
   Widget abaPrestadorComFiltros() {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: streamAvaliacoesDoPrestador(),
@@ -320,10 +340,7 @@ class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
                 ),
               ),
             ),
-
-            // ✅ Única linha antes dos filtros
             const SliverToBoxAdapter(child: Divider(height: 1)),
-
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
@@ -337,11 +354,11 @@ class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
                 ),
               ),
             ),
-
             _SliverListaAvaliacoes(
               docs: filtrados,
               nota: nota,
               getClienteInfo: getClienteInfo,
+              getServicoDaSolicitacao: getServicoDaSolicitacao,
             ),
           ],
         );
@@ -350,17 +367,13 @@ class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
   }
 }
 
-/* ============================
-   WIDGETS REUTILIZÁVEIS
+/* ============================ 
+   WIDGETS REUTILIZÁVEIS 
    ============================ */
 
-/// Delegate do SliverPersistentHeader com altura FIXA.
-/// Corrige o erro "layoutExtent exceeds paintExtent" forçando o child
-/// a ocupar exatamente a área do header.
 class _PinnedHeaderDelegate extends SliverPersistentHeaderDelegate {
   final double height;
   final Widget child;
-
   _PinnedHeaderDelegate({required this.height, required this.child});
 
   @override
@@ -380,23 +393,17 @@ class _PinnedHeaderDelegate extends SliverPersistentHeaderDelegate {
 
   @override
   double get maxExtent => height;
-
   @override
   double get minExtent => height;
-
   @override
-  bool shouldRebuild(covariant _PinnedHeaderDelegate old) {
-    return height != old.height || child != old.child;
-    // Se quiser rebuildar quando mudar tema, pode retornar true.
-  }
+  bool shouldRebuild(covariant _PinnedHeaderDelegate old) =>
+      height != old.height || child != old.child;
 }
 
-// ---------- Conteúdo do header da aba de SERVIÇO ----------
 class _HeaderServico extends StatelessWidget {
   final double media;
   final int qtd;
   final String titulo;
-
   const _HeaderServico({
     required this.media,
     required this.qtd,
@@ -411,7 +418,6 @@ class _HeaderServico extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Título do serviço (uma linha)
           Text(
             titulo,
             maxLines: 1,
@@ -419,7 +425,6 @@ class _HeaderServico extends StatelessWidget {
             style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 6),
-          // Linha da nota (sem quebra)
           Row(
             children: [
               Text(
@@ -430,11 +435,11 @@ class _HeaderServico extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              const Icon(Icons.star, size: starSize, color: Colors.amber),
-              const Icon(Icons.star, size: starSize, color: Colors.amber),
-              const Icon(Icons.star, size: starSize, color: Colors.amber),
-              const Icon(Icons.star, size: starSize, color: Colors.amber),
-              const Icon(Icons.star, size: starSize, color: Colors.amber),
+              ...List.generate(
+                5,
+                (i) =>
+                    const Icon(Icons.star, size: starSize, color: Colors.amber),
+              ),
               const SizedBox(width: 8),
               Flexible(
                 child: Text(
@@ -452,11 +457,9 @@ class _HeaderServico extends StatelessWidget {
   }
 }
 
-// ---------- Conteúdo do header da aba de PRESTADOR ----------
 class _HeaderPrestador extends StatelessWidget {
   final double media;
   final int qtd;
-
   const _HeaderPrestador({required this.media, required this.qtd});
 
   @override
@@ -471,11 +474,10 @@ class _HeaderPrestador extends StatelessWidget {
             style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
           ),
           const SizedBox(width: 8),
-          const Icon(Icons.star, size: starSize, color: Colors.amber),
-          const Icon(Icons.star, size: starSize, color: Colors.amber),
-          const Icon(Icons.star, size: starSize, color: Colors.amber),
-          const Icon(Icons.star, size: starSize, color: Colors.amber),
-          const Icon(Icons.star, size: starSize, color: Colors.amber),
+          ...List.generate(
+            5,
+            (i) => const Icon(Icons.star, size: starSize, color: Colors.amber),
+          ),
           const SizedBox(width: 8),
           Flexible(
             child: Text(
@@ -491,12 +493,163 @@ class _HeaderPrestador extends StatelessWidget {
   }
 }
 
+// ======== SLIVER: Lista de avaliações ========
+class _SliverListaAvaliacoes extends StatelessWidget {
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
+  final double? Function(Map<String, dynamic>) nota;
+  final Future<ClienteInfo> Function(String clienteId) getClienteInfo;
+  final Future<Map<String, dynamic>?> Function(String solicitacaoId)
+  getServicoDaSolicitacao;
+
+  const _SliverListaAvaliacoes({
+    required this.docs,
+    required this.nota,
+    required this.getClienteInfo,
+    required this.getServicoDaSolicitacao,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (docs.isEmpty) {
+      return const SliverFillRemaining(
+        hasScrollBody: false,
+        child: Center(child: Text('Nenhuma avaliação com os filtros atuais.')),
+      );
+    }
+
+    return SliverList.builder(
+      itemCount: docs.length,
+      itemBuilder: (_, i) {
+        final d = docs[i].data();
+        String titulo = (d['servicoTitulo'] as String?) ?? '';
+        final solicitacaoId = (d['solicitacaoId'] as String?) ?? '';
+        final comentario = (d['comentario'] as String?) ?? '';
+        final n = (nota(d) ?? 0.0).round();
+        final ts = d['data'];
+        DateTime? dt;
+        if (ts is Timestamp) dt = ts.toDate();
+
+        final clienteId = (d['clienteId'] as String?) ?? '';
+
+        return FutureBuilder<Map<String, dynamic>?>(
+          future: (titulo.isEmpty && solicitacaoId.isNotEmpty)
+              ? getServicoDaSolicitacao(solicitacaoId)
+              : Future.value({'servicoTitulo': titulo}),
+          builder: (context, snapServ) {
+            final servicoTitulo =
+                snapServ.data?['servicoTitulo'] ?? titulo ?? '';
+
+            return Padding(
+              padding: EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: Card(
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: const BorderSide(color: Color(0x11000000)),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (servicoTitulo.isNotEmpty)
+                        Text(
+                          servicoTitulo,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+
+                      // FOTO + NOME DO CLIENTE
+
+                      // FOTO + NOME DO CLIENTE
+                      if (clienteId.isNotEmpty)
+                        FutureBuilder<ClienteInfo>(
+                          future: getClienteInfo(clienteId),
+                          builder: (context, snapCli) {
+                            final info =
+                                snapCli.data ??
+                                const ClienteInfo(nome: 'Cliente');
+
+                            return Padding(
+                              padding: const EdgeInsets.only(
+                                top: 8.0,
+                                bottom: 6.0,
+                              ),
+                              child: Row(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 14,
+                                    backgroundColor: const Color(0xFFEDE7FF),
+                                    backgroundImage: (info.fotoUrl != null)
+                                        ? NetworkImage(info.fotoUrl!)
+                                        : null,
+                                    child: (info.fotoUrl == null)
+                                        ? const Icon(
+                                            Icons.person,
+                                            size: 16,
+                                            color: Color(0xFF5B33D6),
+                                          )
+                                        : null,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      info.nome,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Colors.black87,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+
+                      // Estrelas + data
+                      Row(
+                        children: [
+                          ...List.generate(
+                            5,
+                            (idx) => Icon(
+                              idx < n ? Icons.star : Icons.star_border,
+                              size: 16,
+                              color: Colors.amber,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          if (dt != null)
+                            Text(
+                              '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}',
+                              style: const TextStyle(color: Colors.grey),
+                            ),
+                        ],
+                      ),
+
+                      if (comentario.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(comentario),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
 // ---------- Barra de filtros ----------
 class _BarraFiltrosPadrao extends StatelessWidget {
   final int total;
   final int comMidia;
   final bool somenteMidia;
-  final int estrelas; // 0=todas, 1..5 (exato)
+  final int estrelas;
   final ValueChanged<bool> onToggleMidia;
   final ValueChanged<int> onChangeEstrelas;
 
@@ -623,7 +776,7 @@ class _FiltroPill extends StatelessWidget {
 }
 
 class _DropdownEstrelasExato extends StatelessWidget {
-  final int value; // 0..5
+  final int value;
   final ValueChanged<int> onChanged;
   final double width;
   final double height;
@@ -695,137 +848,6 @@ class _DropdownEstrelasExato extends StatelessWidget {
               .toList(),
         ),
       ),
-    );
-  }
-}
-
-// ======== SLIVER: Lista de avaliações ========
-class _SliverListaAvaliacoes extends StatelessWidget {
-  final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
-  final double? Function(Map<String, dynamic>) nota;
-  final Future<ClienteInfo> Function(String clienteId) getClienteInfo;
-
-  const _SliverListaAvaliacoes({
-    required this.docs,
-    required this.nota,
-    required this.getClienteInfo,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    if (docs.isEmpty) {
-      return const SliverFillRemaining(
-        hasScrollBody: false,
-        child: Center(child: Text('Nenhuma avaliação com os filtros atuais.')),
-      );
-    }
-
-    return SliverList.builder(
-      itemCount: docs.length,
-      itemBuilder: (_, i) {
-        final d = docs[i].data();
-        final titulo = (d['servicoTitulo'] as String?) ?? '';
-        final comentario = (d['comentario'] as String?) ?? '';
-        final n = (nota(d) ?? 0.0).round(); // exibimos estrelas inteiras
-        final ts = d['criadoEm'];
-        DateTime? dt;
-        if (ts is Timestamp) dt = ts.toDate();
-
-        final clienteId = (d['clienteId'] as String?) ?? '';
-
-        return Padding(
-          padding: EdgeInsets.fromLTRB(16, i == 0 ? 8 : 8, 16, 8),
-          child: Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: const BorderSide(color: Color(0x11000000)),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (titulo.isNotEmpty)
-                    Text(
-                      titulo,
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-
-                  // FOTO + NOME DO CLIENTE
-                  if (clienteId.isNotEmpty)
-                    FutureBuilder<ClienteInfo>(
-                      future: getClienteInfo(clienteId),
-                      builder: (context, snap) {
-                        final info =
-                            snap.data ?? const ClienteInfo(nome: 'Cliente');
-
-                        return Padding(
-                          padding: const EdgeInsets.only(top: 8.0, bottom: 6.0),
-                          child: Row(
-                            children: [
-                              CircleAvatar(
-                                radius: 14,
-                                backgroundColor: const Color(0xFFEDE7FF),
-                                backgroundImage: (info.fotoUrl != null)
-                                    ? NetworkImage(info.fotoUrl!)
-                                    : null,
-                                child: (info.fotoUrl == null)
-                                    ? const Icon(
-                                        Icons.person,
-                                        size: 16,
-                                        color: Color(0xFF5B33D6),
-                                      )
-                                    : null,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  info.nome,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: Colors.black87,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-
-                  // Estrelas + data
-                  Row(
-                    children: [
-                      ...List.generate(
-                        5,
-                        (idx) => Icon(
-                          idx < n ? Icons.star : Icons.star_border,
-                          size: 16,
-                          color: Colors.amber,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      if (dt != null)
-                        Text(
-                          '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}',
-                          style: const TextStyle(color: Colors.grey),
-                        ),
-                    ],
-                  ),
-
-                  if (comentario.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Text(comentario),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        );
-      },
     );
   }
 }

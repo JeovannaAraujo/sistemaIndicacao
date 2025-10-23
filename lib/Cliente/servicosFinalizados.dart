@@ -1,9 +1,8 @@
+// lib/Cliente/servicosFinalizados.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
-
-// importa a aba "Minhas avaliações" separada
+import 'avaliarPrestador.dart';
 import 'avaliacoes.dart';
 
 class ServicosFinalizadosScreen extends StatefulWidget {
@@ -42,10 +41,22 @@ class _ServicosFinalizadosScreenState extends State<ServicosFinalizadosScreen>
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF5B2CF6),
-        title: const Text('Serviços Finalizados'),
+        backgroundColor: Colors.white,
+        elevation: 0.5,
+        iconTheme: const IconThemeData(color: Colors.deepPurple),
+        title: const Text(
+          'Serviços Finalizados',
+          style: TextStyle(
+            color: Colors.deepPurple,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
         bottom: TabBar(
           controller: _tab,
+          labelColor: Colors.deepPurple,
+          unselectedLabelColor: Colors.grey,
+          indicatorColor: Colors.deepPurple,
+          indicatorWeight: 2.5,
           tabs: const [
             Tab(text: 'Finalizados'),
             Tab(text: 'Minhas avaliações'),
@@ -83,15 +94,17 @@ class TabFinalizados extends StatelessWidget {
 
     return StreamBuilder<QuerySnapshot>(
       stream: firestore
-          .collection('servicos')
+          .collection('solicitacoesOrcamento')
           .where('clienteId', isEqualTo: userId)
-          .where('status', isEqualTo: 'finalizado')
+          .where('status', isEqualTo: 'finalizada')
           .snapshots(),
       builder: (context, snapshot) {
+        // ✅ Ajuste: primeiro checa se ainda está carregando
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
 
+        // ✅ Só mostra “Nenhum serviço” depois que stream emitiu algo
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
           return const Center(child: Text('Nenhum serviço finalizado.'));
         }
@@ -102,167 +115,171 @@ class TabFinalizados extends StatelessWidget {
           itemCount: servicos.length,
           itemBuilder: (context, index) {
             final servico = servicos[index].data() as Map<String, dynamic>;
-            final data = servico['dataFim'] != null
-                ? (servico['dataFim'] is Timestamp
-                    ? (servico['dataFim'] as Timestamp).toDate()
-                    : servico['dataFim'] as DateTime)
-                : null;
 
-            return Card(
-              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: ListTile(
-                title: Text(servico['descricao'] ?? 'Sem descrição'),
-                subtitle: data != null
-                    ? Text('Concluído em ${DateFormat('dd/MM/yyyy').format(data)}')
-                    : const Text('Sem data definida'),
-                trailing: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF5B2CF6),
-                  ),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => AvaliarServicoScreen(
-                          servicoId: servicos[index].id,
-                          prestadorId: servico['prestadorId'] ?? '',
-                          firestore: firestore,
-                          auth: auth,
-                        ),
-                      ),
+            final servicoId = servicos[index].id;
+            final titulo = servico['servicoTitulo'] ?? 'Sem título';
+            final descricao = servico['servicoDescricao'] ?? '';
+            final prestador = servico['prestadorNome'] ?? 'Sem prestador';
+            final cidade = servico['clienteEndereco']?['cidade'] ?? '';
+            final servicoIdRef = servico['servicoId'] ?? '';
+
+            return FutureBuilder<DocumentSnapshot>(
+              future: firestore.collection('servicos').doc(servicoIdRef).get(),
+              builder: (context, snapServ) {
+                if (snapServ.connectionState == ConnectionState.waiting) {
+                  return const SizedBox.shrink();
+                }
+
+                String imagemUrl = '';
+                if (snapServ.hasData && snapServ.data!.exists) {
+                  final servicoData =
+                      snapServ.data!.data() as Map<String, dynamic>;
+                  final catId = servicoData['categoriaId'] ?? '';
+                  if (catId.isNotEmpty) {
+                    return FutureBuilder<DocumentSnapshot>(
+                      future: firestore
+                          .collection('categoriasServicos')
+                          .doc(catId)
+                          .get(),
+                      builder: (context, snapCat) {
+                        if (snapCat.connectionState == ConnectionState.waiting) {
+                          return const SizedBox.shrink();
+                        }
+                        if (snapCat.hasData && snapCat.data!.exists) {
+                          imagemUrl =
+                              (snapCat.data!.data() as Map)['imagemUrl'] ?? '';
+                        }
+                        return _buildCard(
+                          context,
+                          imagemUrl,
+                          titulo,
+                          descricao,
+                          prestador,
+                          cidade,
+                          servicoId,
+                        );
+                      },
                     );
-                  },
-                  child: const Text('Avaliar'),
-                ),
-              ),
+                  }
+                }
+
+                return _buildCard(
+                  context,
+                  imagemUrl,
+                  titulo,
+                  descricao,
+                  prestador,
+                  cidade,
+                  servicoId,
+                );
+              },
             );
           },
         );
       },
     );
   }
-}
 
-class AvaliarServicoScreen extends StatefulWidget {
-  final String servicoId;
-  final String prestadorId;
-  final FirebaseFirestore firestore;
-  final FirebaseAuth auth;
-
-  const AvaliarServicoScreen({
-    super.key,
-    required this.servicoId,
-    required this.prestadorId,
-    required this.firestore,
-    required this.auth,
-  });
-
-  @override
-  State<AvaliarServicoScreen> createState() => _AvaliarServicoScreenState();
-}
-
-class _AvaliarServicoScreenState extends State<AvaliarServicoScreen> {
-  double nota = 5;
-  bool enviando = false;
-
- Future<void> enviarAvaliacao() async {
-  setState(() => enviando = true);
-
-  final clienteId = widget.auth.currentUser?.uid;
-
-  // 🧱 Evita criar avaliação sem login
-  if (clienteId == null || clienteId.isEmpty) {
-    setState(() => enviando = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Usuário não autenticado.')),
-    );
-    return;
-  }
-
-  try {
-    // ✅ Cria avaliação
-    await widget.firestore.collection('avaliacoes').add({
-      'servicoId': widget.servicoId,
-      'prestadorId': widget.prestadorId,
-      'clienteId': clienteId,
-      'nota': nota,
-      'data': DateTime.now(),
-    });
-
-    // ✅ Atualiza status do serviço, se existir
-    final servicoRef =
-        widget.firestore.collection('servicos').doc(widget.servicoId);
-
-    final servicoSnap = await servicoRef.get();
-    if (servicoSnap.exists) {
-      await servicoRef.update({'status': 'avaliada'});
-    } else {
-      debugPrint(
-          '⚠️ Serviço ${widget.servicoId} não encontrado — ignorando update.');
-    }
-
-    // ✅ Mostra sucesso
-    if (mounted) {
-      setState(() => enviando = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Avaliação enviada com sucesso!')),
-      );
-      Navigator.pop(context);
-    }
-  } catch (e) {
-    // ⚠️ Captura erro geral (inclusive do fake firestore)
-    debugPrint('❌ Erro ao enviar avaliação: $e');
-    if (mounted) {
-      setState(() => enviando = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Erro ao enviar avaliação.')),
-      );
-    }
-  }
-}
-
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Avaliar Serviço'),
-        backgroundColor: const Color(0xFF5B2CF6),
+  Widget _buildCard(
+    BuildContext context,
+    String imagemUrl,
+    String titulo,
+    String descricao,
+    String prestador,
+    String cidade,
+    String solicitacaoId,
+  ) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x22000000),
+            blurRadius: 6,
+            offset: Offset(0, 3),
+          ),
+        ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
+      child: ListTile(
+        leading: SizedBox(
+          width: 64,
+          height: 64,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: imagemUrl.isNotEmpty
+                ? Image.network(imagemUrl, fit: BoxFit.cover)
+                : Container(
+                    color: const Color(0xFFD1C4E9),
+                    child: const Icon(
+                      Icons.image_outlined,
+                      color: Colors.deepPurple,
+                    ),
+                  ),
+          ),
+        ),
+        title: Text(
+          titulo,
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Avalie o serviço realizado:'),
-            Slider(
-              value: nota,
-              min: 0,
-              max: 5,
-              divisions: 5,
-              label: nota.toString(),
-              onChanged: enviando ? null : (v) => setState(() => nota = v),
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: enviando ? null : enviarAvaliacao,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF5B2CF6),
+            if (descricao.isNotEmpty)
+              Text(
+                descricao,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.black54, fontSize: 13),
               ),
-              child: enviando
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: 2,
-                      ),
-                    )
-                  : const Text('Enviar Avaliação'),
-            ),
+            const SizedBox(height: 6),
+            Text('Prestador: $prestador',
+                style: const TextStyle(fontSize: 13.5)),
+            if (cidade.isNotEmpty)
+              Row(
+                children: [
+                  const Icon(Icons.location_on_outlined,
+                      size: 14, color: Colors.black54),
+                  const SizedBox(width: 3),
+                  Flexible(
+                    child: Text(
+                      cidade,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          color: Colors.black54, fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
           ],
+        ),
+        trailing: ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.deepPurple,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            textStyle: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 13.5,
+            ),
+          ),
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => AvaliarPrestadorScreen(
+                  solicitacaoId: solicitacaoId,
+                  firestore: firestore,
+                  auth: auth,
+                ),
+              ),
+            );
+          },
+          child: const Text('Avaliar'),
         ),
       ),
     );

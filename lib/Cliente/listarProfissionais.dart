@@ -10,22 +10,26 @@ class ProfissionaisPorCategoriaScreen extends StatelessWidget {
   // ✅ Adicione esta linha
   final FirebaseFirestore firestore;
 
- ProfissionaisPorCategoriaScreen({
+  ProfissionaisPorCategoriaScreen({
     super.key,
     required this.categoriaId,
     required this.categoriaNome,
     FirebaseFirestore? firestore,
   }) : firestore = firestore ?? FirebaseFirestore.instance;
 
-
   @override
   Widget build(BuildContext context) {
     // Consulta SEM orderBy (evita índice composto obrigatório).
-final query = firestore
-    .collection('usuarios')
-    .where('tipoPerfil', isEqualTo: 'Prestador')
-    .where('ativo', isEqualTo: true)
-    .where('categoriaProfissionalId', isEqualTo: categoriaId);
+    final query = firestore
+        .collection('usuarios')
+        .where('ativo', isEqualTo: true)
+        .where('categoriaProfissionalId', isEqualTo: categoriaId)
+        .where(
+          Filter.or(
+            Filter('tipoPerfil', isEqualTo: 'Prestador'),
+            Filter('tipoPerfil', isEqualTo: 'Ambos'),
+          ),
+        );
 
     // .orderBy('criadoEm', descending: true); // <- se quiser usar, crie índice composto
 
@@ -214,11 +218,6 @@ class _ProfessionalCard extends StatelessWidget {
                         ],
                       ],
                       const SizedBox(width: 4),
-                      const Icon(
-                        Icons.chevron_right,
-                        color: Colors.black45,
-                        size: 20,
-                      ),
                     ],
                   ),
                   const SizedBox(height: 4),
@@ -297,7 +296,7 @@ class _ProfessionalCard extends StatelessWidget {
                               borderRadius: BorderRadius.circular(10),
                             ),
                           ),
-                          child: const Text('Perfil Prestador'),
+                          child: const Text('Ver Perfil'),
                         ),
                       ),
                       const SizedBox(width: 8),

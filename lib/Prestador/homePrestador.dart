@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../Login/login.dart';
 import 'agendaPrestador.dart';
 import 'editarServico.dart';
@@ -431,42 +432,176 @@ class HomePrestadorScreenState extends State<HomePrestadorScreen> {
                 (dados?['endereco'] as Map<String, dynamic>?) ?? {};
             final whatsapp = (endereco['whatsapp'] ?? '') as String;
             final cidade = (endereco['cidade'] ?? '') as String;
+            final fotoUrl = (dados?['fotoUrl'] ?? '') as String?;
+            final catProfId =
+                (dados?['categoriaProfissionalId'] ?? '') as String?;
 
             return ListView(
+              padding: EdgeInsets.zero,
               children: [
                 DrawerHeader(
                   decoration: const BoxDecoration(color: Colors.deepPurple),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  margin: EdgeInsets.zero,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      Text(
-                        nome,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
+                      CircleAvatar(
+                        radius: 30,
+                        backgroundColor: Colors.white,
+                        backgroundImage: (fotoUrl != null && fotoUrl.isNotEmpty)
+                            ? NetworkImage(fotoUrl)
+                            : null,
+                        child: (fotoUrl == null || fotoUrl.isEmpty)
+                            ? const Icon(
+                                Icons.person,
+                                size: 40,
+                                color: Colors.deepPurple,
+                              )
+                            : null,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              nome,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+
+                            // Categoria + Cidade
+                            FutureBuilder<
+                              DocumentSnapshot<Map<String, dynamic>>
+                            >(
+                              future:
+                                  (catProfId != null && catProfId.isNotEmpty)
+                                  ? db
+                                        .collection('categoriasProfissionais')
+                                        .doc(catProfId)
+                                        .get()
+                                  : null,
+                              builder: (context, catSnap) {
+                                final catNome =
+                                    (catSnap.data?.data()?['nome']
+                                        as String?) ??
+                                    'Profissional';
+                                return Row(
+                                  children: [
+                                    Flexible(
+                                      child: Text(
+                                        catNome,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                    if (cidade.isNotEmpty) ...[
+                                      const SizedBox(width: 6),
+                                      const Text(
+                                        '|',
+                                        style: TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      const Icon(
+                                        Icons.location_on,
+                                        size: 14,
+                                        color: Colors.white70,
+                                      ),
+                                      const SizedBox(width: 2),
+                                      Flexible(
+                                        child: Text(
+                                          cidade,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            color: Colors.white70,
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                );
+                              },
+                            ),
+                            const SizedBox(height: 6),
+
+                            // WhatsApp
+                            Row(
+                              children: [
+                                const FaIcon(
+                                  FontAwesomeIcons.whatsapp,
+                                  size: 16,
+                                  color: Colors.white,
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    whatsapp.isNotEmpty
+                                        ? whatsapp
+                                        : (u?.email ?? ''),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+
+                            // Ver perfil
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: TextButton(
+                                style: TextButton.styleFrom(
+                                  foregroundColor: Colors.white,
+                                  padding: EdgeInsets.zero,
+                                  minimumSize: const Size(0, 0),
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                onPressed: () {
+                                  context.goPerfil(replace: false);
+                                },
+                                child: const Text(
+                                  'Ver perfil',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      if (cidade.isNotEmpty)
-                        Text(
-                          cidade,
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 14,
-                          ),
-                        ),
-                      if (whatsapp.isNotEmpty)
-                        Text(
-                          'WhatsApp: $whatsapp',
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 14,
-                          ),
-                        ),
                     ],
                   ),
                 ),
 
+                // ======= MENU =======
                 ListTile(
                   leading: const Icon(Icons.assignment),
                   title: const Text('Solicitações'),
@@ -480,13 +615,40 @@ class HomePrestadorScreenState extends State<HomePrestadorScreen> {
                             return _Badge(count: c, small: true);
                           },
                         ),
-
                   onTap: () => context.goSolicitacoes(replace: false),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.calendar_month),
+                  title: const Text('Agenda'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const AgendaPrestadorScreen(),
+                      ),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.check_circle),
+                  title: const Text('Serviços Finalizados'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            const ServicosFinalizadosPrestadorScreen(),
+                      ),
+                    );
+                  },
                 ),
                 ListTile(
                   leading: const Icon(Icons.logout),
                   title: const Text('Sair'),
                   onTap: () async {
+                    Navigator.pop(context);
                     await auth.signOut();
                     if (context.mounted) {
                       Navigator.pushReplacement(
@@ -501,6 +663,7 @@ class HomePrestadorScreenState extends State<HomePrestadorScreen> {
           },
         ),
       ),
+
       appBar: AppBar(
         backgroundColor: Colors.white,
         foregroundColor: Colors.deepPurple,
@@ -678,6 +841,7 @@ class _ServiceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      margin: const EdgeInsets.symmetric(vertical: 6),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -685,69 +849,98 @@ class _ServiceCard extends StatelessWidget {
         boxShadow: const [
           BoxShadow(
             color: Color(0x14000000),
-            blurRadius: 10,
-            offset: Offset(0, 3),
+            blurRadius: 8,
+            offset: Offset(0, 2),
           ),
         ],
       ),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ======= Cabeçalho (imagem + textos + avaliações)
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Padding(
-                padding: const EdgeInsets.only(top: 16),
+              // 📷 Miniatura
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
                 child: _CategoriaThumb(
                   categoriaId: categoriaId,
                   db: FirebaseFirestore.instance,
                 ),
               ),
               const SizedBox(width: 12),
+
+              // 🧾 Texto e avaliações
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Stack(
                   children: [
-                    Align(
-                      alignment: Alignment.topRight,
-                      child: ratingBuilder(),
-                    ),
-                    Text(
-                      nome,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    if (descricao.isNotEmpty)
-                      Text(
-                        descricao,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Colors.black87),
-                      ),
-                    FutureBuilder<String?>(
-                      future: getNomeCategoria(categoriaId),
-                      builder: (context, catSnap) {
-                        final catNome = catSnap.data;
-                        return Text(
-                          (catNome != null && catNome.isNotEmpty)
-                              ? catNome
-                              : 'Categoria',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey,
+                    Padding(
+                      padding: const EdgeInsets.only(right: 70, top: 2),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 2),
+                          Text(
+                            nome,
+                            style: const TextStyle(
+                              fontSize: 15.5,
+                              fontWeight: FontWeight.w700,
+                              height: 1.2,
+                            ),
                           ),
-                        );
-                      },
+                          if (descricao.isNotEmpty)
+                            Text(
+                              descricao,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.black87,
+                                fontSize: 13,
+                                height: 1.2,
+                              ),
+                            ),
+                          FutureBuilder<String?>(
+                            future: getNomeCategoria(categoriaId),
+                            builder: (context, catSnap) {
+                              final catNome = catSnap.data;
+                              return Text(
+                                (catNome != null && catNome.isNotEmpty)
+                                    ? catNome
+                                    : 'Categoria',
+                                style: const TextStyle(
+                                  fontSize: 12.5,
+                                  color: Colors.grey,
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 6),
+
+                    // ⭐ Avaliações no canto superior direito
+                    Positioned(
+                      top: 0,
+                      right: 0,
+                      child: DefaultTextStyle.merge(
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Colors.black87,
+                          height: 1.2,
+                        ),
+                        child: ratingBuilder(),
+                      ),
+                    ),
                   ],
                 ),
               ),
             ],
           ),
+
+          const SizedBox(height: 10), // 🔹 espaçamento mais equilibrado
+          // 💰 Valores
           FutureBuilder<String?>(
             future: getNomeUnidade(unidadeId),
             builder: (context, uniSnap) {
@@ -758,32 +951,48 @@ class _ServiceCard extends StatelessWidget {
               final vMax = (data['valorMaximo'] ?? 0) as num;
               String format(num n) =>
                   n.toDouble().toStringAsFixed(2).replaceAll('.', ',');
-              return Text(
-                'Min: R\$${format(vMin)}   Méd: R\$${format(vMed)}   Máx: R\$${format(vMax)}/$unidadeAbrev',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  color: Colors.deepPurple,
-                  fontSize: 12,
+
+              return Padding(
+                padding: const EdgeInsets.only(top: 2, bottom: 6),
+                child: Text(
+                  'Min: R\$${format(vMin)}   Méd: R\$${format(vMed)}   Máx: R\$${format(vMax)}/$unidadeAbrev',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: Colors.deepPurple,
+                    fontSize: 12.5,
+                  ),
                 ),
               );
             },
           ),
+
           const SizedBox(height: 12),
+          // ====== Rodapé: Editar à esquerda | Ativo à direita
           Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               ElevatedButton(
                 onPressed: onEditar,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.deepPurple.withOpacity(0.08),
-                  foregroundColor: Colors.deepPurple,
+                  elevation: 0,
+                  backgroundColor: Colors.deepPurple, // 🔹 Cor mais viva
+                  foregroundColor: Colors.white, // 🔹 Texto branco
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
                   ),
+                  textStyle: const TextStyle(fontWeight: FontWeight.w600),
                 ),
                 child: const Text('Editar'),
               ),
               const Spacer(),
-              const Text('Ativo'),
+              const Text(
+                'Ativo',
+                style: TextStyle(fontWeight: FontWeight.w500),
+              ),
               const SizedBox(width: 8),
               Switch.adaptive(
                 value: ativo,

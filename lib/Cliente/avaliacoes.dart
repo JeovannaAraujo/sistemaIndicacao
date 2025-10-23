@@ -16,69 +16,7 @@ class MinhasAvaliacoesTab extends StatelessWidget {
   String fmtData(dynamic ts) {
     if (ts is! Timestamp) return '—';
     final d = ts.toDate();
-    return DateFormat('dd/MM/yyyy').format(d);
-  }
-
-  String duracaoFromSolic(Map<String, dynamic>? s) {
-    if (s == null) return '—';
-    final num? v = (s['tempoEstimadoValor'] as num?);
-    final un = (s['tempoEstimadoUnidade'] ?? '').toString().trim();
-    if (v != null && v > 0 && un.isNotEmpty) {
-      final plural = v == 1 ? '' : 's';
-      return '${v.toString().replaceAll('.0', '')} $un$plural';
-    }
-    final ini = s['dataInicioSugerida'];
-    final fim = s['dataFinalizacaoReal'] ?? s['dataFinalPrevista'];
-    if (ini is Timestamp && fim is Timestamp) {
-      final d1 = DateTime(ini.toDate().year, ini.toDate().month, ini.toDate().day);
-      final d2 = DateTime(fim.toDate().year, fim.toDate().month, fim.toDate().day);
-      final dias = d2.difference(d1).inDays.abs();
-      final total = (dias <= 0) ? 1 : dias + 1;
-      return '$total ${total == 1 ? "dia" : "dias"}';
-    }
-    return '—';
-  }
-
-  Future<void> marcarAvaliadaSeNecessario({
-    required String solicitacaoId,
-    required String clienteUid,
-    required double nota,
-    required String comentario,
-    FirebaseFirestore? firestore,
-  }) async {
-    if (solicitacaoId.isEmpty) return;
-    final fs = firestore ?? FirebaseFirestore.instance;
-    final ref = fs.collection('solicitacoesOrcamento').doc(solicitacaoId);
-
-    await fs.runTransaction((tx) async {
-      final snap = await tx.get(ref);
-      if (!snap.exists) return;
-      final data = (snap.data() ?? {});
-      final statusAtual = (data['status'] ?? '').toString();
-
-      if (statusAtual == 'finalizada') {
-        tx.update(ref, {
-          'status': 'avaliada',
-          'avaliadaEm': FieldValue.serverTimestamp(),
-          'atualizadoEm': FieldValue.serverTimestamp(),
-        });
-
-        final histRef = ref.collection('historico').doc();
-        tx.set(histRef, {
-          'tipo': 'avaliada_cliente',
-          'quando': FieldValue.serverTimestamp(),
-          'por': clienteUid,
-          'em': FieldValue.serverTimestamp(),
-          'porUid': clienteUid,
-          'porRole': 'Cliente',
-          'statusDe': statusAtual,
-          'statusPara': 'avaliada',
-          'mensagem': 'Cliente avaliou o serviço.',
-          'nota': nota,
-          'comentario': comentario,
-        });
-      }
-    });
+    return DateFormat('dd/MM/yyyy – HH:mm').format(d);
   }
 
   @override
@@ -90,7 +28,7 @@ class MinhasAvaliacoesTab extends StatelessWidget {
     final stream = fs
         .collection('avaliacoes')
         .where('clienteId', isEqualTo: uid)
-        .orderBy('criadoEm', descending: true)
+        .orderBy('data', descending: true)
         .snapshots();
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -115,15 +53,10 @@ class MinhasAvaliacoesTab extends StatelessWidget {
           itemBuilder: (context, i) {
             final av = docs[i].data();
 
-            final titulo = (av['servicoTitulo'] ?? '').toString();
-            final valorTxt = (av['valorTexto'] ?? '').toString();
-            final nota = (av['nota'] as num?)?.toDouble() ?? 0;
             final comentario = (av['comentario'] ?? '').toString();
-            final criadoEm = av['criadoEm'] is Timestamp
-                ? DateFormat('dd/MM/yyyy – HH:mm')
-                    .format((av['criadoEm'] as Timestamp).toDate())
-                : '—';
-
+            final nota = (av['nota'] as num?)?.toDouble() ?? 0;
+            final data = fmtData(av['data']);
+            final imagemUrl = av['imagemUrl']?.toString();
             final prestadorId = (av['prestadorId'] ?? '').toString();
             final solicitacaoId = (av['solicitacaoId'] ?? '').toString();
 
@@ -142,8 +75,8 @@ class MinhasAvaliacoesTab extends StatelessWidget {
               future: fut,
               builder: (context, fsnap) {
                 String prestadorNome = 'Prestador';
-                String periodo = '';
-                String duracao = '—';
+                String servicoTitulo = '';
+                String cidade = '';
 
                 if (fsnap.hasData) {
                   final u = fsnap.data![0] as DocumentSnapshot<Map<String, dynamic>>?;
@@ -152,23 +85,11 @@ class MinhasAvaliacoesTab extends StatelessWidget {
                       : null;
 
                   final udata = u?.data() ?? const <String, dynamic>{};
+                  final sdata = s?.data() ?? const <String, dynamic>{};
+
                   prestadorNome = (udata['nome'] ?? 'Prestador').toString();
-
-                  final sdata = s?.data();
-                  if (sdata != null) {
-                    final ini = fmtData(sdata['dataInicioSugerida']);
-                    final fim = fmtData(sdata['dataFinalizacaoReal'] ?? sdata['dataFinalPrevista']);
-                    if (ini != '—' || fim != '—') periodo = '$ini – $fim';
-                    duracao = duracaoFromSolic(sdata);
-
-                    marcarAvaliadaSeNecessario(
-                      solicitacaoId: solicitacaoId,
-                      clienteUid: uid,
-                      nota: nota,
-                      comentario: comentario,
-                      firestore: fs,
-                    );
-                  }
+                  servicoTitulo = (sdata['servicoTitulo'] ?? '').toString();
+                  cidade = (sdata['clienteEndereco']?['cidade'] ?? '').toString();
                 }
 
                 return Container(
@@ -181,54 +102,33 @@ class MinhasAvaliacoesTab extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (titulo.isNotEmpty)
+                      if (servicoTitulo.isNotEmpty)
                         Text(
-                          titulo,
+                          servicoTitulo,
                           style: const TextStyle(
                             fontWeight: FontWeight.w700,
                             fontSize: 15.5,
                           ),
                         ),
-                      Padding(
-                        padding: const EdgeInsets.only(top: 2.0),
-                        child: Text(
-                          'Prestador: $prestadorNome',
-                          style: const TextStyle(
-                            fontSize: 12.5,
-                            color: Colors.black54,
-                          ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Prestador: $prestadorNome',
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          color: Colors.black54,
                         ),
                       ),
-                      if (periodo.isNotEmpty) ...[
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            const Icon(Icons.calendar_today_outlined, size: 14),
-                            const SizedBox(width: 6),
-                            Text(periodo, style: const TextStyle(fontSize: 12.5)),
-                          ],
-                        ),
-                      ],
-                      if (duracao.isNotEmpty && duracao != '—') ...[
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            const Icon(Icons.timelapse, size: 14),
-                            const SizedBox(width: 6),
-                            Text('Duração: $duracao', style: const TextStyle(fontSize: 12.5)),
-                          ],
-                        ),
-                      ],
-                      if (valorTxt.isNotEmpty) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          valorTxt,
-                          style: const TextStyle(
-                            color: Color(0xFF5E35B1),
-                            fontWeight: FontWeight.w800,
+                      if (cidade.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.location_on_outlined, size: 14, color: Colors.deepPurple),
+                              const SizedBox(width: 4),
+                              Text(cidade, style: const TextStyle(fontSize: 12.5)),
+                            ],
                           ),
                         ),
-                      ],
                       const SizedBox(height: 8),
                       StarsReadOnly(rating: nota),
                       const SizedBox(height: 6),
@@ -237,8 +137,19 @@ class MinhasAvaliacoesTab extends StatelessWidget {
                         style: const TextStyle(fontSize: 13.5),
                       ),
                       const SizedBox(height: 6),
+                      if (imagemUrl != null)
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(
+                            imagemUrl,
+                            height: 100,
+                            width: double.infinity,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                      const SizedBox(height: 8),
                       Text(
-                        'Enviado em $criadoEm',
+                        'Enviado em $data',
                         style: const TextStyle(
                           fontSize: 12,
                           color: Colors.black54,

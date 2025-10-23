@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:myapp/Cliente/visualizarSolicitacao.dart';
+import 'visualizarResposta.dart';
 import 'rotasNavegacao.dart';
 
 class SolicitacoesAceitasScreen extends StatelessWidget {
@@ -73,7 +75,7 @@ class SolicitacoesAceitasScreen extends StatelessWidget {
   }
 }
 
-/* ========================= Widgets ========================= */
+/* ========================= Tabs ========================= */
 
 enum TabKind { enviadas, respondidas, aceitas }
 
@@ -137,6 +139,8 @@ class Tabs extends StatelessWidget {
 
 /* ========================= Categoria Repo ========================= */
 
+/* ========================= Categoria Repo ========================= */
+
 class CategoriaRepoAceita {
   static final Map<String, String> _cache = {};
   static FirebaseFirestore firestore = FirebaseFirestore.instance;
@@ -144,7 +148,10 @@ class CategoriaRepoAceita {
   static Future<String> nome(String id) async {
     if (id.isEmpty) return '';
     if (_cache.containsKey(id)) return _cache[id]!;
-    final snap = await firestore.collection('categoriasProfissionais').doc(id).get();
+    final snap = await firestore
+        .collection('categoriasProfissionais')
+        .doc(id)
+        .get();
     final n = (snap.data()?['nome'] ?? '').toString();
     _cache[id] = n;
     return n;
@@ -156,7 +163,7 @@ class CategoriaRepoAceita {
 class CardAceita extends StatelessWidget {
   final String id;
   final Map<String, dynamic> dados;
-  final FirebaseFirestore? firestore; // 👈 injeção adicionada
+  final FirebaseFirestore? firestore; // ✅ restaurado para testes
 
   const CardAceita({
     required this.id,
@@ -167,15 +174,13 @@ class CardAceita extends StatelessWidget {
   String _fmtMoeda(num? v) => v == null
       ? '—'
       : NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$').format(v);
-
   String _fmtData(dynamic ts) =>
       ts is Timestamp ? DateFormat('dd/MM/yyyy').format(ts.toDate()) : '—';
 
   @override
   Widget build(BuildContext context) {
-    final fs = firestore ?? FirebaseFirestore.instance;
+    final fs = firestore ?? FirebaseFirestore.instance; // ✅ usa fakeDb se passar
     final prestadorId = (dados['prestadorId'] ?? '').toString();
-
     final servico = (dados['servicoTitulo'] ?? '').toString();
     final valor = (dados['valorProposto'] as num?);
     final dataInicio = dados['dataInicioSugerida'];
@@ -185,8 +190,14 @@ class CardAceita extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.black12),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x22000000),
+            blurRadius: 6,
+            offset: Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -196,34 +207,113 @@ class CardAceita extends StatelessWidget {
             builder: (context, snap) {
               final u = snap.data?.data() ?? const <String, dynamic>{};
               final nome = (u['nome'] ?? '').toString();
+              final fotoUrl = (u['fotoUrl'] ?? '').toString();
+              final end = (u['endereco'] is Map)
+                  ? (u['endereco'] as Map).cast<String, dynamic>()
+                  : <String, dynamic>{};
+              String cidade = (end['cidade'] ?? u['cidade'] ?? '').toString();
+              String uf = (end['uf'] ?? u['uf'] ?? '').toString();
+              String local = cidade.trim();
+              if (uf.isNotEmpty &&
+                  !RegExp('\\b$uf\\b', caseSensitive: false).hasMatch(local)) {
+                local = local.isEmpty ? uf : '$local, $uf';
+              }
 
               final catId = (u['categoriaProfissionalId'] ?? '').toString();
 
               return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.person, size: 28, color: Colors.deepPurple),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: FutureBuilder<String>(
-                      future: CategoriaRepoAceita.nome(catId),
-                      builder: (context, s2) {
-                        final cat = (s2.data ?? '').toString();
-                        return Text(
-                          nome.isEmpty ? 'Prestador' : '$nome – $cat',
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        );
-                      },
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      width: 56,
+                      height: 56,
+                      color: Colors.grey.shade300,
+                      child: (fotoUrl.isNotEmpty)
+                          ? Image.network(fotoUrl, fit: BoxFit.cover)
+                          : const Icon(Icons.person,
+                              size: 28, color: Colors.white70),
                     ),
                   ),
-                  const Text(
-                    'Aceita',
-                    style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          nome.isEmpty ? 'Prestador' : nome,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        FutureBuilder<String>(
+                          future: CategoriaRepoAceita.nome(catId), // ✅ compatível com teste
+                          builder: (context, s2) {
+                            final cat = (s2.data ?? '').toString();
+                            return Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    cat,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      color: Colors.black54,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                const Icon(
+                                  Icons.location_on_outlined,
+                                  size: 14,
+                                  color: Colors.black45,
+                                ),
+                                const SizedBox(width: 3),
+                                Flexible(
+                                  child: Text(
+                                    local.isEmpty ? '—' : local,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      color: Colors.black54,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF4CAF50),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text(
+                      'Aceita',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
                 ],
               );
             },
           ),
-
           const SizedBox(height: 10),
           if (servico.isNotEmpty)
             Text(
@@ -231,15 +321,41 @@ class CardAceita extends StatelessWidget {
               style: const TextStyle(
                 fontWeight: FontWeight.w700,
                 color: Colors.deepPurple,
+                fontSize: 15,
               ),
             ),
           _linhaInfo('Valor proposto:', _fmtMoeda(valor)),
           _linhaInfo('Início previsto:', _fmtData(dataInicio)),
           _linhaInfo('Término previsto:', _fmtData(dataFinal)),
+          const SizedBox(height: 14),
+          _BotaoRoxo(
+            label: 'Ver orçamento',
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => VisualizarRespostaScreen(docId: id),
+                ),
+              );
+            },
+          ),
           const SizedBox(height: 10),
-          const Text('Ver orçamento'),
-          const Text('Ver solicitação'),
-          const Text('Cancelar serviço'),
+          _BotaoRoxo(
+            label: 'Ver solicitação',
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => VisualizarSolicitacaoScreen(docId: id),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 10),
+          _BotaoVermelho(
+            label: 'Cancelar serviço',
+            onTap: () => _confirmarCancelamento(context),
+          ),
         ],
       ),
     );
@@ -258,6 +374,144 @@ class CardAceita extends StatelessWidget {
             ),
             TextSpan(text: v),
           ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmarCancelamento(BuildContext context) async {
+    final motivoCtl = TextEditingController();
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cancelar serviço'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Informe o motivo do cancelamento:'),
+            const SizedBox(height: 8),
+            TextField(
+              controller: motivoCtl,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: 'Ex.: imprevisto, mudança de planos...',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Voltar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Confirmar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar == true && motivoCtl.text.trim().isNotEmpty) {
+      await (firestore ?? FirebaseFirestore.instance)
+          .collection('solicitacoesOrcamento')
+          .doc(id)
+          .update({
+        'status': 'cancelada',
+        'motivoCancelamento': motivoCtl.text.trim(),
+        'canceladaEm': FieldValue.serverTimestamp(),
+      });
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Serviço cancelado com sucesso.')),
+        );
+      }
+    }
+  }
+}
+
+/* ========================= Botões ========================= */
+
+class _BotaoRoxo extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+
+  const _BotaoRoxo({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF7C4DFF), Color(0xFF651FFF)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x22000000),
+              blurRadius: 6,
+              offset: Offset(0, 3),
+            ),
+          ],
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+            fontSize: 15,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BotaoVermelho extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+
+  const _BotaoVermelho({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFFFF5252), Color(0xFFD50000)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x22000000),
+              blurRadius: 6,
+              offset: Offset(0, 3),
+            ),
+          ],
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+            fontSize: 15,
+          ),
         ),
       ),
     );

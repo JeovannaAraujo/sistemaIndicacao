@@ -439,31 +439,46 @@ class ReadonlyField extends StatelessWidget {
   }) : multiline = false;
 
   const ReadonlyField.multiline({required this.controller})
-    : multiline = true,
-      centered = false,
-      trailingIcon = null;
+      : multiline = true,
+        centered = false,
+        trailingIcon = null;
 
   @override
   Widget build(BuildContext context) {
-    return TextField(
-      controller: controller,
-      readOnly: true,
-      minLines: multiline ? 3 : 1,
-      maxLines: multiline ? 5 : 1,
-      textAlign: centered ? TextAlign.center : TextAlign.start,
-      decoration: InputDecoration(
-        suffixIcon: trailingIcon == null ? null : Icon(trailingIcon),
-        filled: true,
-        fillColor: Colors.white,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 12,
-          vertical: 12,
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x33000000),
+            blurRadius: 6,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: TextField(
+        controller: controller,
+        readOnly: true,
+        minLines: multiline ? 3 : 1,
+        maxLines: multiline ? 5 : 1,
+        textAlign: centered ? TextAlign.center : TextAlign.start,
+        decoration: InputDecoration(
+          suffixIcon: trailingIcon == null ? null : Icon(trailingIcon),
+          hintText: '—',
+          hintStyle: const TextStyle(color: Colors.black38),
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: 14,
+          ),
         ),
       ),
     );
   }
 }
+
 
 class LabelValue extends StatelessWidget {
   final String label;

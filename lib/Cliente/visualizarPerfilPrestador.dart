@@ -227,15 +227,9 @@ class Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Color(0xFFEDE7F6), Color(0xFFFFFFFF)],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
-        borderRadius: BorderRadius.all(Radius.circular(12)),
-      ),
+      color: Colors.white, // 🔹 fundo uniforme
       padding: const EdgeInsets.all(12),
+
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

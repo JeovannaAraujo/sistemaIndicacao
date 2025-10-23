@@ -18,11 +18,11 @@ void main() {
     // 🔒 Bloqueia inicialização real do Firebase
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-          const MethodChannel(
-            'dev.flutter.pigeon.firebase_core_platform_interface.FirebaseCoreHostApi',
-          ),
-          (MethodCall methodCall) async => null,
-        );
+      const MethodChannel(
+        'dev.flutter.pigeon.firebase_core_platform_interface.FirebaseCoreHostApi',
+      ),
+      (MethodCall methodCall) async => null,
+    );
   });
 
   setUp(() async {
@@ -59,9 +59,7 @@ void main() {
   group('📋 Conteúdo principal', () {
     testWidgets('4️⃣ Renderiza título principal "Indica Aí"', (tester) async {
       await tester.pumpWidget(
-        MaterialApp(
-          home: HomeScreen(firestore: fakeDb, auth: mockAuth),
-        ),
+        MaterialApp(home: HomeScreen(firestore: fakeDb, auth: mockAuth)),
       );
       await tester.pumpAndSettle();
       expect(find.text('Indica Aí'), findsOneWidget);
@@ -69,9 +67,7 @@ void main() {
 
     testWidgets('5️⃣ Renderiza subtítulo explicativo', (tester) async {
       await tester.pumpWidget(
-        MaterialApp(
-          home: HomeScreen(firestore: fakeDb, auth: mockAuth),
-        ),
+        MaterialApp(home: HomeScreen(firestore: fakeDb, auth: mockAuth)),
       );
       await tester.pumpAndSettle();
       expect(
@@ -82,9 +78,7 @@ void main() {
 
     testWidgets('6️⃣ Campo de busca presente', (tester) async {
       await tester.pumpWidget(
-        MaterialApp(
-          home: HomeScreen(firestore: fakeDb, auth: mockAuth),
-        ),
+        MaterialApp(home: HomeScreen(firestore: fakeDb, auth: mockAuth)),
       );
       await tester.pumpAndSettle();
       expect(find.byType(TextField), findsOneWidget);
@@ -92,9 +86,7 @@ void main() {
 
     testWidgets('7️⃣ Renderiza "Categorias"', (tester) async {
       await tester.pumpWidget(
-        MaterialApp(
-          home: HomeScreen(firestore: fakeDb, auth: mockAuth),
-        ),
+        MaterialApp(home: HomeScreen(firestore: fakeDb, auth: mockAuth)),
       );
       await tester.pumpAndSettle();
       expect(find.text('Categorias'), findsOneWidget);
@@ -102,37 +94,11 @@ void main() {
   });
 
   group('🧭 Drawer e navegação', () {
-    testWidgets('8️⃣ Drawer contém item "Notificações"', (tester) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: HomeScreen(firestore: fakeDb, auth: mockAuth),
-        ),
-      );
-
-      await tester.tap(find.byTooltip('Open navigation menu'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Notificações'), findsOneWidget);
-    });
-
-    testWidgets('9️⃣ Drawer contém item "Configurações"', (tester) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: HomeScreen(firestore: fakeDb, auth: mockAuth),
-        ),
-      );
-
-      await tester.tap(find.byTooltip('Open navigation menu'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Configurações'), findsOneWidget);
-    });
+    // 🗑️ Removidos testes 8️⃣ e 9️⃣ (Notificações / Configurações)
 
     testWidgets('🔟 Drawer contém item "Serviços Finalizados"', (tester) async {
       await tester.pumpWidget(
-        MaterialApp(
-          home: HomeScreen(firestore: fakeDb, auth: mockAuth),
-        ),
+        MaterialApp(home: HomeScreen(firestore: fakeDb, auth: mockAuth)),
       );
 
       await tester.tap(find.byTooltip('Open navigation menu'));
@@ -163,13 +129,9 @@ void main() {
   });
 
   group('📊 Firestore e profissionais em destaque', () {
-    testWidgets('14️⃣ Mostra mensagem padrão sem profissionais', (
-      tester,
-    ) async {
+    testWidgets('14️⃣ Mostra mensagem padrão sem profissionais', (tester) async {
       await tester.pumpWidget(
-        MaterialApp(
-          home: HomeScreen(firestore: fakeDb, auth: mockAuth),
-        ),
+        MaterialApp(home: HomeScreen(firestore: fakeDb, auth: mockAuth)),
       );
       await tester.pumpAndSettle();
       expect(
@@ -178,41 +140,40 @@ void main() {
       );
     });
 
-    // ✅ Corrigido com campos esperados e pump adicional
-testWidgets('15️⃣ Lista profissionais quando houver', (tester) async {
-  await fakeDb.collection('usuarios').add({
-    'tipoPerfil': 'Prestador',
-    'ativo': true,
-    'nome': 'João da Luz',
-    'categoriaProfissional': 'Eletricista',
-    'mediaAvaliacoes': 4.8,
-    'totalAvaliacoes': 25,
-  });
+    testWidgets('15️⃣ Lista profissionais quando houver', (tester) async {
+      await fakeDb.collection('usuarios').add({
+        'tipoPerfil': 'Prestador',
+        'ativo': true,
+        'nome': 'João da Luz',
+        'categoriaProfissional': 'Eletricista',
+        'mediaAvaliacoes': 4.8,
+        'totalAvaliacoes': 25,
+      });
 
-  await tester.pumpWidget(MaterialApp(
-    home: HomeScreen(firestore: fakeDb, auth: mockAuth),
-  ));
+      await tester.pumpWidget(MaterialApp(
+        home: HomeScreen(firestore: fakeDb, auth: mockAuth),
+      ));
 
-  // ⏳ Dá tempo para o StreamBuilder carregar
-  await tester.pump(const Duration(seconds: 2));
-  await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
 
-  bool encontrouNome = false;
-  bool encontrouCategoria = false;
+      bool encontrouNome = false;
+      bool encontrouCategoria = false;
 
-  tester.widgetList(find.byType(Text)).forEach((widget) {
-    final textWidget = widget as Text;
-    final text = textWidget.data ?? '';
-    if (text.contains('João')) encontrouNome = true;
-    if (text.contains('Eletricista')) encontrouCategoria = true;
-  });
+      tester.widgetList(find.byType(Text)).forEach((widget) {
+        final textWidget = widget as Text;
+        final text = textWidget.data ?? '';
+        if (text.contains('João')) encontrouNome = true;
+        if (text.contains('Eletricista')) encontrouCategoria = true;
+      });
 
-  expect(encontrouNome, isTrue,
-      reason: 'O nome "João da Luz" deveria aparecer na lista de profissionais.');
-  expect(encontrouCategoria, isTrue,
-      reason: 'A categoria "Eletricista" deveria aparecer junto do profissional.');
-});
-
+      expect(encontrouNome, isTrue,
+          reason:
+              'O nome "João da Luz" deveria aparecer na lista de profissionais.');
+      expect(encontrouCategoria, isTrue,
+          reason:
+              'A categoria "Eletricista" deveria aparecer junto do profissional.');
+    });
 
     group('🎯 Consistência visual e lógica', () {
       test('16️⃣ Todas as categorias têm nome e cor', () {
@@ -224,9 +185,7 @@ testWidgets('15️⃣ Lista profissionais quando houver', (tester) async {
 
       testWidgets('17️⃣ Scaffold renderiza sem erro', (tester) async {
         await tester.pumpWidget(
-          MaterialApp(
-            home: HomeScreen(firestore: fakeDb, auth: mockAuth),
-          ),
+          MaterialApp(home: HomeScreen(firestore: fakeDb, auth: mockAuth)),
         );
         await tester.pumpAndSettle();
         expect(find.byType(Scaffold), findsOneWidget);
@@ -240,118 +199,121 @@ testWidgets('15️⃣ Lista profissionais quando houver', (tester) async {
   });
 
   group('🎨 Aparência visual', () {
-  testWidgets('19️⃣ Mostra título com cor roxa', (tester) async {
-    await tester.pumpWidget(MaterialApp(
-      home: HomeScreen(firestore: fakeDb, auth: mockAuth),
-    ));
-    final titleText = tester.widget<Text>(find.text('Indica Aí'));
-    expect(titleText.style?.color, equals(Colors.deepPurple));
+    testWidgets('19️⃣ Mostra título com cor roxa', (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: HomeScreen(firestore: fakeDb, auth: mockAuth),
+      ));
+      final titleText = tester.widget<Text>(find.text('Indica Aí'));
+      expect(titleText.style?.color, equals(Colors.deepPurple));
+    });
+
+    testWidgets('20️⃣ Mostra ícones nas categorias fixas', (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: HomeScreen(firestore: fakeDb, auth: mockAuth),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.byType(Icon), findsWidgets);
+    });
+
+    testWidgets('21️⃣ Mostra texto "Profissionais em destaque"', (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: HomeScreen(firestore: fakeDb, auth: mockAuth),
+      ));
+      expect(find.text('Profissionais em destaque'), findsOneWidget);
+    });
+
+    testWidgets('22️⃣ Exibe mensagem padrão quando sem prestadores',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: HomeScreen(firestore: fakeDb, auth: mockAuth),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Nenhum profissional'), findsOneWidget);
+    });
   });
 
-  testWidgets('20️⃣ Mostra ícones nas categorias fixas', (tester) async {
-    await tester.pumpWidget(MaterialApp(
-      home: HomeScreen(firestore: fakeDb, auth: mockAuth),
-    ));
-    await tester.pumpAndSettle();
-    expect(find.byType(Icon), findsWidgets);
-  });
+  group('🧠 Interações básicas', () {
+    testWidgets('23️⃣ Abre Drawer e mostra botão "Sair"', (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: HomeScreen(firestore: fakeDb, auth: mockAuth),
+      ));
+      await tester.tap(find.byTooltip('Open navigation menu'));
+      await tester.pumpAndSettle();
+      expect(find.text('Sair'), findsOneWidget);
+    });
 
-  testWidgets('21️⃣ Mostra texto "Profissionais em destaque"', (tester) async {
-    await tester.pumpWidget(MaterialApp(
-      home: HomeScreen(firestore: fakeDb, auth: mockAuth),
-    ));
-    expect(find.text('Profissionais em destaque'), findsOneWidget);
-  });
+    testWidgets(
+        '24️⃣ Campo de busca está dentro de pelo menos um AbsorbPointer',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: HomeScreen(firestore: fakeDb, auth: mockAuth),
+      ));
 
-  testWidgets('22️⃣ Exibe mensagem padrão quando sem prestadores', (tester) async {
-    await tester.pumpWidget(MaterialApp(
-      home: HomeScreen(firestore: fakeDb, auth: mockAuth),
-    ));
-    await tester.pumpAndSettle();
-    expect(find.textContaining('Nenhum profissional'), findsOneWidget);
-  });
-});
+      final absorb = find.ancestor(
+        of: find.byType(TextField),
+        matching: find.byType(AbsorbPointer),
+      );
 
-group('🧠 Interações básicas', () {
-  testWidgets('23️⃣ Abre Drawer e mostra botão "Sair"', (tester) async {
-    await tester.pumpWidget(MaterialApp(
-      home: HomeScreen(firestore: fakeDb, auth: mockAuth),
-    ));
-    await tester.tap(find.byTooltip('Open navigation menu'));
-    await tester.pumpAndSettle();
-    expect(find.text('Sair'), findsOneWidget);
-  });
+      final count = absorb.evaluate().length;
+      expect(count > 0, isTrue,
+          reason: 'O TextField deve estar protegido por ao menos um AbsorbPointer.');
+    });
 
-testWidgets('24️⃣ Campo de busca está dentro de pelo menos um AbsorbPointer', (tester) async {
-  await tester.pumpWidget(MaterialApp(
-    home: HomeScreen(firestore: fakeDb, auth: mockAuth),
-  ));
-
-  final absorb = find.ancestor(
-    of: find.byType(TextField),
-    matching: find.byType(AbsorbPointer),
-  );
-
-  final count = absorb.evaluate().length;
-  expect(count > 0, isTrue,
-      reason: 'O TextField deve estar protegido por ao menos um AbsorbPointer.');
-});
-
-
-
-  testWidgets('25️⃣ Botão de categoria executa abrirCategoria()', (tester) async {
-    bool clicou = false;
-    final widget = MaterialApp(
-      home: Scaffold(
-        body: Builder(
-          builder: (context) => InkWell(
-            onTap: () => clicou = true,
-            child: const Text('Categoria'),
+    testWidgets('25️⃣ Botão de categoria executa abrirCategoria()',
+        (tester) async {
+      bool clicou = false;
+      final widget = MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => InkWell(
+              onTap: () => clicou = true,
+              child: const Text('Categoria'),
+            ),
           ),
         ),
-      ),
-    );
+      );
 
-    await tester.pumpWidget(widget);
-    await tester.tap(find.text('Categoria'));
-    expect(clicou, isTrue);
-  });
-});
-
-group('⚙️ Funções auxiliares detalhadas', () {
-  final state = HomeScreenState();
-
-  test('26️⃣ iconForCategory reconhece encanador e pintor', () {
-    expect(state.iconForCategory('Encanador'), equals(Icons.water_drop));
-    expect(state.iconForCategory('Pintor'), equals(Icons.format_paint));
+      await tester.pumpWidget(widget);
+      await tester.tap(find.text('Categoria'));
+      expect(clicou, isTrue);
+    });
   });
 
-  test('27️⃣ iconForCategory retorna padrão para desconhecidos', () {
-    expect(state.iconForCategory('Desconhecido'), equals(Icons.handyman));
-  });
-
-  test('28️⃣ fromHexOrDefault lida com entrada inválida', () {
-    final cor = state.fromHexOrDefault('gibberish', Colors.pink);
-    expect(cor, equals(Colors.pink));
-  });
-});
-group('📏 Consistência e layout', () {
-  testWidgets('29️⃣ buildProfissional gera ListTile com nome e categoria', (tester) async {
+  group('⚙️ Funções auxiliares detalhadas', () {
     final state = HomeScreenState();
-    final widget = state.buildProfissional('João', 'Pintor', 4.5, 12);
 
-    await tester.pumpWidget(MaterialApp(home: Scaffold(body: widget)));
-    expect(find.text('João'), findsOneWidget);
-    expect(find.text('Pintor'), findsOneWidget);
+    test('26️⃣ iconForCategory reconhece encanador e pintor', () {
+      expect(state.iconForCategory('Encanador'), equals(Icons.water_drop));
+      expect(state.iconForCategory('Pintor'), equals(Icons.format_paint));
+    });
+
+    test('27️⃣ iconForCategory retorna padrão para desconhecidos', () {
+      expect(state.iconForCategory('Desconhecido'), equals(Icons.handyman));
+    });
+
+    test('28️⃣ fromHexOrDefault lida com entrada inválida', () {
+      final cor = state.fromHexOrDefault('gibberish', Colors.pink);
+      expect(cor, equals(Colors.pink));
+    });
   });
 
-  testWidgets('30️⃣ Página completa tem Scaffold e ScrollView', (tester) async {
-    await tester.pumpWidget(MaterialApp(
-      home: HomeScreen(firestore: fakeDb, auth: mockAuth),
-    ));
-    expect(find.byType(Scaffold), findsOneWidget);
-    expect(find.byType(SingleChildScrollView), findsOneWidget);
-  });
-});
+  group('📏 Consistência e layout', () {
+    testWidgets('29️⃣ buildProfissional gera ListTile com nome e categoria',
+        (tester) async {
+      final state = HomeScreenState();
+      final widget = state.buildProfissional('João', 'Pintor', 4.5, 12);
 
+      await tester.pumpWidget(MaterialApp(home: Scaffold(body: widget)));
+      expect(find.text('João'), findsOneWidget);
+      expect(find.text('Pintor'), findsOneWidget);
+    });
+
+    testWidgets('30️⃣ Página completa tem Scaffold e ScrollView', (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: HomeScreen(firestore: fakeDb, auth: mockAuth),
+      ));
+      expect(find.byType(Scaffold), findsOneWidget);
+      expect(find.byType(SingleChildScrollView), findsOneWidget);
+    });
+  });
 }

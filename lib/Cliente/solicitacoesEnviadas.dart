@@ -161,7 +161,8 @@ class Tabs extends StatelessWidget {
 
 class CategoriaRepo {
   static final Map<String, String> _cache = {};
-  static FirebaseFirestore firestore = FirebaseFirestore.instance; // 🔹 injetável
+  static FirebaseFirestore firestore =
+      FirebaseFirestore.instance; // 🔹 injetável
 
   static Future<String> nome(String id) async {
     if (id.isEmpty) return '';
@@ -185,8 +186,8 @@ class CategoriaRepo {
 class CardEnviada extends StatelessWidget {
   final Map<String, dynamic> dados;
   final String docId;
-  final FirebaseFirestore? firestore; 
-  const CardEnviada({required this.dados, required this.docId, this.firestore,});
+  final FirebaseFirestore? firestore;
+  const CardEnviada({required this.dados, required this.docId, this.firestore});
 
   String _fmtDataHora(DateTime? dt) {
     if (dt == null) return '—';
