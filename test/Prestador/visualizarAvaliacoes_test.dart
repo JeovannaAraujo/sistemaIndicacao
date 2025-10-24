@@ -5,7 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:myapp/Prestador/visualizarAvaliacoes.dart';
 
 /// 🔧 Cria um QueryDocumentSnapshot real usando o FakeFirebaseFirestore.
-/// Isso evita erros com classes 'sealed' no Firestore moderno.
 Future<QueryDocumentSnapshot<Map<String, dynamic>>> fakeDoc(
   Map<String, dynamic> data,
 ) async {
@@ -103,14 +102,25 @@ void main() {
 
   group('📊 Consultas Firestore com ciclo real de widget', () {
     testWidgets('mediaQtdServico() calcula média corretamente', (tester) async {
+      // 🔧 Corrigido: criar solicitações vinculadas ao serviço
+      final s1 = await fakeDb.collection('solicitacoesOrcamento').add({
+        'servicoId': 'serv123',
+        'servicoTitulo': 'Pintura',
+      });
+      final s2 = await fakeDb.collection('solicitacoesOrcamento').add({
+        'servicoId': 'serv123',
+        'servicoTitulo': 'Pintura',
+      });
+
+      // 🔧 E criar avaliações associadas às solicitações
       await fakeDb.collection('avaliacoes').add({
         'prestadorId': 'prest123',
-        'servicoTitulo': 'Pintura',
+        'solicitacaoId': s1.id,
         'nota': 4.0,
       });
       await fakeDb.collection('avaliacoes').add({
         'prestadorId': 'prest123',
-        'servicoTitulo': 'Pintura',
+        'solicitacaoId': s2.id,
         'nota': 2.0,
       });
 
