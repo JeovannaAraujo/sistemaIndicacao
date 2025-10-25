@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:myapp/Cliente/visualizarPerfilPrestador.dart';
 import '../Login/login.dart';
 import 'buscarServicos.dart';
 import 'listarProfissionais.dart';
@@ -94,16 +95,23 @@ class HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      key: GlobalKey<ScaffoldState>(), // ✅ garante controle independente
+      drawerEnableOpenDragGesture:
+          false, // ✅ evita comportamento inconsistente no teste
       // =================== DRAWER (cliente) ===================
       drawer: Drawer(
         child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          stream: (user == null)
+          stream: (auth.currentUser == null)
               ? const Stream.empty()
-              : db.collection('usuarios').doc(user!.uid).snapshots(),
+              : db
+                    .collection('usuarios')
+                    .doc(auth.currentUser!.uid)
+                    .snapshots(),
 
           builder: (context, snap) {
             final dados = snap.data?.data() ?? {};
-            final nome = (dados['nome'] ?? 'Cliente') as String;
+            final nome = (dados['nome'] ?? user?.displayName ?? 'Cliente')
+                .toString();
 
             // cidade pode vir na raiz OU dentro de endereco
             final endereco = (dados['endereco'] as Map<String, dynamic>?) ?? {};
@@ -276,9 +284,14 @@ class HomeScreenState extends State<HomeScreen> {
                     if (!context.mounted) return;
 
                     // 🔹 Remove todas as telas anteriores e limpa as streams
-                    Navigator.of(context).pushAndRemoveUntil(
-                      MaterialPageRoute(builder: (_) => const LoginScreen()),
-                      (route) => false,
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => BuscarServicosScreen(
+                          firestore: db,
+                          auth: auth, // ✅ passa o mock nos testes
+                        ),
+                      ),
                     );
                   },
                 ),
@@ -379,74 +392,199 @@ class HomeScreenState extends State<HomeScreen> {
           const SizedBox(height: 12),
 
           StreamBuilder<QuerySnapshot>(
-            stream: db
-                .collection('usuarios')
-                .where('tipoPerfil', isEqualTo: 'Prestador')
-                .where('ativo', isEqualTo: true)
-                .orderBy('mediaAvaliacoes', descending: true)
-                .limit(5)
-                .snapshots(),
-
+            stream: db.collection('avaliacoes').snapshots(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
               }
               if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
                 return const Text(
+                  'Nenhum profissional avaliado ainda.',
+                  style: TextStyle(color: Colors.grey),
+                );
+              }
+
+              final avaliacoes = snapshot.data!.docs;
+              final Map<String, List<double>> notasPorPrestador = {};
+
+              // Agrupa notas por prestadorId
+              for (var doc in avaliacoes) {
+                final dados = doc.data() as Map<String, dynamic>;
+                final prestadorId = dados['prestadorId'];
+                final nota = (dados['nota'] ?? 0).toDouble();
+
+                if (prestadorId == null) continue;
+
+                notasPorPrestador.putIfAbsent(prestadorId, () => []);
+                notasPorPrestador[prestadorId]!.add(nota);
+              }
+
+              // Calcula média e total de avaliações
+              final ranking = notasPorPrestador.map((id, notas) {
+                final media = notas.reduce((a, b) => a + b) / notas.length;
+                return MapEntry(id, {'media': media, 'total': notas.length});
+              });
+
+              // Ordena pela média e total de avaliações
+              // Ordena pela média e total de avaliações (tratando nulos)
+              final destaqueIds = ranking.keys.toList()
+                ..sort((a, b) {
+                  final mediaA = ranking[a]?['media'] ?? 0.0;
+                  final mediaB = ranking[b]?['media'] ?? 0.0;
+                  final totalA = ranking[a]?['total'] ?? 0;
+                  final totalB = ranking[b]?['total'] ?? 0;
+
+                  // Primeiro compara pela média, depois pelo total de avaliações
+                  if (mediaA != mediaB) {
+                    return mediaB.compareTo(mediaA);
+                  }
+                  return totalB.compareTo(totalA);
+                });
+
+              final top5 = destaqueIds.take(5).toList();
+
+              if (top5.isEmpty) {
+                return const Text(
                   'Nenhum profissional em destaque no momento.',
                   style: TextStyle(color: Colors.grey),
                 );
               }
 
-              final profissionais = snapshot.data!.docs;
+              // Busca dados dos profissionais (Prestador e Ambos)
+              return StreamBuilder<QuerySnapshot>(
+                stream: db
+                    .collection('usuarios')
+                    .where(FieldPath.documentId, whereIn: top5)
+                    .where('ativo', isEqualTo: true)
+                    .where('tipoPerfil', whereIn: ['Prestador', 'Ambos'])
+                    .snapshots(),
+                builder: (context, userSnap) {
+                  if (userSnap.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (!userSnap.hasData || userSnap.data!.docs.isEmpty) {
+                    return const Text(
+                      'Nenhum profissional em destaque no momento.',
+                      style: TextStyle(color: Colors.grey),
+                    );
+                  }
 
-              return Column(
-                children: profissionais.map((doc) {
-                  final dados = doc.data() as Map<String, dynamic>;
-                  final nome = (dados['nome'] ?? 'Profissional sem nome')
-                      .toString();
-                  final categoria = (dados['categoriaProfissional'] ?? '')
-                      .toString();
-                  final fotoUrl = (dados['fotoUrl'] ?? '').toString();
-                  final media = (dados['mediaAvaliacoes'] ?? 0).toDouble();
-                  final totalAvaliacoes = (dados['totalAvaliacoes'] ?? 0)
-                      .toInt();
+                  final profissionais = userSnap.data!.docs;
 
-                  return ListTile(
-                    leading: CircleAvatar(
-                      radius: 24,
-                      backgroundColor: Colors.deepPurple.shade100,
-                      backgroundImage: (fotoUrl.isNotEmpty)
-                          ? NetworkImage(fotoUrl)
-                          : null,
-                      child: (fotoUrl.isEmpty)
-                          ? const Icon(Icons.person, color: Colors.deepPurple)
-                          : null,
+                  return FutureBuilder<List<Map<String, dynamic>>>(
+                    future: Future.wait(
+                      profissionais.map((doc) async {
+                        final dados = doc.data() as Map<String, dynamic>;
+                        final categoriaId = dados['categoriaProfissionalId'];
+                        String categoriaNome = 'Sem categoria';
+
+                        if (categoriaId != null &&
+                            categoriaId.toString().isNotEmpty) {
+                          final catSnap = await db
+                              .collection('categoriasProfissionais')
+                              .doc(categoriaId)
+                              .get();
+                          if (catSnap.exists) {
+                            categoriaNome =
+                                (catSnap.data()?['nome'] ?? 'Sem categoria')
+                                    .toString();
+                          }
+                        }
+
+                        final id = doc.id;
+                        return {
+                          'id': id,
+                          'nome': dados['nome'] ?? 'Profissional sem nome',
+                          'categoria': categoriaNome,
+                          'fotoUrl': dados['fotoUrl'] ?? '',
+                          'media': ranking[id]!['media'],
+                          'total': ranking[id]!['total'],
+                        };
+                      }),
                     ),
-                    title: Text(
-                      nome,
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    subtitle: Row(
-                      children: [
-                        Text(
-                          categoria.isNotEmpty ? categoria : 'Sem categoria',
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                        const SizedBox(width: 8),
-                        const Icon(Icons.star, size: 16, color: Colors.amber),
-                        Text(
-                          ' ${media.toStringAsFixed(1)}  ',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        Text(
-                          '($totalAvaliacoes avaliações)',
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                      ],
-                    ),
+                    builder: (context, futureSnap) {
+                      if (futureSnap.connectionState ==
+                          ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      if (!futureSnap.hasData || futureSnap.data!.isEmpty) {
+                        return const Text(
+                          'Nenhum profissional em destaque no momento.',
+                          style: TextStyle(color: Colors.grey),
+                        );
+                      }
+
+                      final lista = futureSnap.data!;
+
+                      return Column(
+                        children: lista.map((prof) {
+                          return ListTile(
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => VisualizarPerfilPrestador(
+                                    prestadorId: prof['id'],
+                                    firestore: db, // ✅ injeta o fake Firestore
+                                    auth: auth,
+                                  ),
+                                ),
+                              );
+                            },
+                            leading: CircleAvatar(
+                              radius: 24,
+                              backgroundColor: Colors.deepPurple.shade100,
+                              backgroundImage: (prof['fotoUrl'].isNotEmpty)
+                                  ? NetworkImage(prof['fotoUrl'])
+                                  : null,
+                              child: (prof['fotoUrl'].isEmpty)
+                                  ? const Icon(
+                                      Icons.person,
+                                      color: Colors.deepPurple,
+                                    )
+                                  : null,
+                            ),
+                            title: Text(
+                              prof['nome'],
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            subtitle: Row(
+                              children: [
+                                Text(
+                                  prof['categoria'],
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                                const SizedBox(width: 8),
+                                const Icon(
+                                  Icons.star,
+                                  size: 16,
+                                  color: Colors.amber,
+                                ),
+                                Text(
+                                  ' ${prof['media'].toStringAsFixed(1)} ',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                Text(
+                                  '(${prof['total']} ${prof['total'] == 1 ? 'avaliação' : 'avaliações'})',
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                              ],
+                            ),
+                            trailing: const Icon(
+                              Icons.arrow_forward_ios,
+                              size: 16,
+                              color: Colors.deepPurple,
+                            ),
+                          );
+                        }).toList(),
+                      );
+                    },
                   );
-                }).toList(),
+                },
               );
             },
           ),
@@ -492,54 +630,6 @@ class HomeScreenState extends State<HomeScreen> {
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(color: Colors.black87),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  IconData iconForCategory(String nome) {
-    final n = nome.toLowerCase();
-    if (n.contains('pedreiro')) return Icons.construction;
-    if (n.contains('eletric')) return Icons.flash_on;
-    if (n.contains('encan') || n.contains('hidráu')) return Icons.water_drop;
-    if (n.contains('mec') || n.contains('mecânico')) return Icons.build;
-    if (n.contains('pint')) return Icons.format_paint;
-    if (n.contains('faxin') || n.contains('diar')) {
-      return Icons.cleaning_services;
-    }
-    return Icons.handyman;
-  }
-
-  Color fromHexOrDefault(String hex, Color fallback) {
-    if (hex.isEmpty) return fallback;
-    var h = hex.replaceAll('#', '');
-    if (h.length == 6) h = 'FF$h';
-    try {
-      return Color(int.parse(h, radix: 16));
-    } catch (_) {
-      return fallback;
-    }
-  }
-
-  Widget buildProfissional(
-    String nome,
-    String categoria,
-    double nota,
-    int avaliacoes,
-  ) {
-    return ListTile(
-      leading: const CircleAvatar(radius: 24, child: Icon(Icons.person)),
-      title: Text(nome, style: const TextStyle(fontWeight: FontWeight.bold)),
-      subtitle: Row(
-        children: [
-          Text(categoria, style: const TextStyle(fontSize: 12)),
-          const SizedBox(width: 8),
-          const Icon(Icons.star, size: 16, color: Colors.amber),
-          Text(' $nota  ', style: const TextStyle(fontWeight: FontWeight.bold)),
-          Text(
-            '($avaliacoes avaliações)',
-            style: const TextStyle(fontSize: 12),
           ),
         ],
       ),

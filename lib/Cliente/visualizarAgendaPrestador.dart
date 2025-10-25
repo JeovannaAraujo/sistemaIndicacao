@@ -277,9 +277,26 @@ class VisualizarAgendaPrestadorState extends State<VisualizarAgendaPrestador> {
     const clrToday = Color(0xFF673AB7); // hoje roxo
 
     Color bgFor(DateTime day) {
-      if (_isBusy(day)) return clrBusy;
-      if (!isWorkday(day)) return clrWeekend;
-      return clrAvail;
+      final today = _today;
+      final ymd = _ymd(day);
+
+      // 1️⃣ Dias anteriores a hoje → cinza
+      if (ymd.isBefore(today)) {
+        return const Color.fromARGB(255, 199, 190, 190);
+      }
+
+      // 2️⃣ Dias ocupados (em andamento ou aceitos) → cinza
+      if (_isBusy(day)) {
+        return const Color.fromARGB(255, 199, 190, 190);
+      }
+
+      // 3️⃣ Fim de semana → cinza
+      if (!isWorkday(day)) {
+        return const Color.fromARGB(255, 199, 190, 190);
+      }
+
+      // 4️⃣ Demais dias (disponíveis e futuros) → verde
+      return const Color.fromARGB(255, 109, 221, 140);
     }
 
     Widget cell(DateTime day, Color bg, {Border? border, Color? text}) {

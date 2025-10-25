@@ -1,5 +1,6 @@
 // lib/Cliente/visualizarPerfilPrestador.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'visualizarAgendaPrestador.dart';
@@ -8,7 +9,15 @@ import '../Prestador/visualizarAvaliacoes.dart';
 
 class VisualizarPerfilPrestador extends StatelessWidget {
   final String prestadorId;
-  const VisualizarPerfilPrestador({super.key, required this.prestadorId});
+  final FirebaseFirestore? firestore;
+  final FirebaseAuth? auth;
+
+  const VisualizarPerfilPrestador({
+    super.key,
+    required this.prestadorId,
+    this.firestore,
+    this.auth,
+  });
 
   static const String colUsuarios = 'usuarios';
   static const String colCategoriasProf = 'categoriasProfissionais';
@@ -18,9 +27,8 @@ class VisualizarPerfilPrestador extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final docRef = FirebaseFirestore.instance
-        .collection(colUsuarios)
-        .doc(prestadorId);
+    final db = firestore ?? FirebaseFirestore.instance;
+    final docRef = db.collection(colUsuarios).doc(prestadorId);
 
     return Scaffold(
       appBar: AppBar(),
@@ -63,14 +71,10 @@ class VisualizarPerfilPrestador extends StatelessWidget {
           final pagamentos = (d['meiosPagamento'] is List)
               ? List<String>.from(d['meiosPagamento'])
               : <String>[];
-
           final Future<DocumentSnapshot<Map<String, dynamic>>?> catFuture =
               categoriaId.isEmpty
               ? Future.value(null)
-              : FirebaseFirestore.instance
-                    .collection(colCategoriasProf)
-                    .doc(categoriaId)
-                    .get();
+              : db.collection(colCategoriasProf).doc(categoriaId).get();
 
           return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>?>(
             future: catFuture,
@@ -87,6 +91,7 @@ class VisualizarPerfilPrestador extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Header(
+                      prestadorId: prestadorId,
                       nome: nome,
                       email: email,
                       fotoUrl: fotoUrl,
@@ -95,6 +100,8 @@ class VisualizarPerfilPrestador extends StatelessWidget {
                       whatsapp: whatsapp,
                       nota: nota,
                       avaliacoes: avaliacoes,
+                      firestore:
+                          firestore, // ✅ injeta o FakeFirebaseFirestore no Header
                     ),
 
                     if (descricao.isNotEmpty) ...[
@@ -190,7 +197,10 @@ class VisualizarPerfilPrestador extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 8),
-                    ListaServicos(prestadorId: prestadorId),
+                    ListaServicos(
+                      prestadorId: prestadorId,
+                      firestore: db, // ✅ injeta o mesmo fakeDb usado no teste
+                    ),
                   ],
                 ),
               );
@@ -204,6 +214,7 @@ class VisualizarPerfilPrestador extends StatelessWidget {
 
 // ================= CABEÇALHO =================
 class Header extends StatelessWidget {
+  final String prestadorId;
   final String nome;
   final String email;
   final String fotoUrl;
@@ -212,9 +223,11 @@ class Header extends StatelessWidget {
   final String whatsapp;
   final double? nota;
   final int? avaliacoes;
+  final FirebaseFirestore? firestore;
 
   const Header({
     required this.nome,
+    required this.prestadorId,
     required this.email,
     required this.fotoUrl,
     required this.categoria,
@@ -222,14 +235,17 @@ class Header extends StatelessWidget {
     required this.whatsapp,
     required this.nota,
     required this.avaliacoes,
+    this.firestore,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: Colors.white, // 🔹 fundo uniforme
-      padding: const EdgeInsets.all(12),
+    // ✅ Adicione esta linha logo aqui:
+    final db = firestore ?? FirebaseFirestore.instance;
 
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.all(12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -306,23 +322,45 @@ class Header extends StatelessWidget {
                   ),
                 const SizedBox(height: 6),
                 if (nota != null)
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.star, size: 16, color: Colors.amber),
-                      const SizedBox(width: 4),
-                      Text(
-                        nota!.toStringAsFixed(1),
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      if (avaliacoes != null) ...[
-                        const SizedBox(width: 4),
-                        Text(
-                          '(${avaliacoes!} avaliações)',
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                      ],
-                    ],
+                  FutureBuilder<Map<String, num>>(
+                    // 🔹 Agora o db existe aqui
+                    future: db
+                        .collection('avaliacoes')
+                        .where('prestadorId', isEqualTo: prestadorId)
+                        .get()
+                        .then((snap) {
+                          double soma = 0;
+                          for (final d in snap.docs) {
+                            final n = (d.data()['nota'] ?? 0).toDouble();
+                            soma += n;
+                          }
+                          final media = snap.docs.isEmpty
+                              ? 0
+                              : soma / snap.docs.length;
+                          return {'media': media, 'qtd': snap.docs.length};
+                        }),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData) return const SizedBox.shrink();
+                      final media = (snapshot.data!['media'] ?? 0).toDouble();
+                      final qtd = (snapshot.data!['qtd'] ?? 0).toInt();
+
+                      return Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.star, size: 16, color: Colors.amber),
+                          const SizedBox(width: 4),
+                          Text(
+                            media.toStringAsFixed(1),
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '($qtd avaliações)',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ],
+                      );
+                    },
                   ),
               ],
             ),
@@ -508,6 +546,7 @@ class ServicoItem extends StatelessWidget {
       );
     }
 
+    final db = firestore ?? FirebaseFirestore.instance;
     return Card(
       elevation: 0.5,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -535,17 +574,67 @@ class ServicoItem extends StatelessWidget {
                 },
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
+
                   children: [
                     const Icon(Icons.star, size: 16, color: Colors.amber),
                     const SizedBox(width: 4),
-                    Text(
-                      (nota ?? 0).toStringAsFixed(1),
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      '(${(avaliacoes ?? 0)} avaliações)',
-                      style: const TextStyle(fontSize: 12),
+
+                    FutureBuilder<Map<String, num>>(
+                      future: db
+                          .collection('avaliacoes')
+                          .where('prestadorId', isEqualTo: prestadorId)
+                          .get()
+                          .then((snap) async {
+                            double soma = 0;
+                            int qtd = 0;
+
+                            // Percorre cada avaliação e verifica se pertence a este serviço
+                            for (final d in snap.docs) {
+                              final dados = d.data();
+                              final solicitacaoId = dados['solicitacaoId'];
+                              if (solicitacaoId != null) {
+                                final solicitacaoSnap = await db
+                                    .collection('solicitacoesOrcamento')
+                                    .doc(solicitacaoId)
+                                    .get();
+
+                                if (solicitacaoSnap.exists &&
+                                    solicitacaoSnap.data()?['servicoId'] ==
+                                        serviceId) {
+                                  soma += (dados['nota'] ?? 0).toDouble();
+                                  qtd++;
+                                }
+                              }
+                            }
+
+                            final media = qtd == 0 ? 0 : soma / qtd;
+                            return {'media': media, 'qtd': qtd};
+                          }),
+                      builder: (context, snapshot) {
+                        if (!snapshot.hasData) {
+                          return const SizedBox.shrink();
+                        }
+                        final media = (snapshot.data!['media'] ?? 0).toDouble();
+                        final qtd = (snapshot.data!['qtd'] ?? 0).toInt();
+
+                        return Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const SizedBox(width: 4),
+                            Text(
+                              media.toStringAsFixed(1),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              '($qtd ${qtd == 1 ? 'avaliação' : 'avaliações'})',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ],
+                        );
+                      },
                     ),
                   ],
                 ),

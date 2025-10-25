@@ -37,10 +37,17 @@ void main() {
 
   // -------------------- CREATE --------------------
   group('🧩 CREATE (Criação)', () {
-    testWidgets('3️⃣ Renderiza cabeçalho do prestador corretamente', (tester) async {
-      await tester.pumpWidget(const MaterialApp(
+    testWidgets('3️⃣ Renderiza cabeçalho do prestador com média simulada', (tester) async {
+      await fakeDb.collection('avaliacoes').add({
+        'prestadorId': 'p1',
+        'nota': 5,
+        'solicitacaoId': 'sol1',
+      });
+
+      await tester.pumpWidget(MaterialApp(
         home: Scaffold(
           body: Header(
+            prestadorId: 'p1',
             nome: 'João da Silva',
             email: 'joao@email.com',
             fotoUrl: '',
@@ -49,22 +56,26 @@ void main() {
             whatsapp: '64 99999-9999',
             nota: 4.5,
             avaliacoes: 12,
+            firestore: fakeDb, // ✅ injeta fakeDb
           ),
         ),
       ));
+
+      // 🔹 Dá tempo pro FutureBuilder resolver
+      await tester.pump(const Duration(seconds: 1));
       await tester.pumpAndSettle();
 
       expect(find.text('João da Silva'), findsOneWidget);
       expect(find.textContaining('Eletricista'), findsOneWidget);
       expect(find.textContaining('Rio Verde'), findsOneWidget);
-      expect(find.textContaining('4.5'), findsOneWidget);
-      expect(find.textContaining('12 avaliações'), findsOneWidget);
+      expect(find.textContaining('5.0'), findsWidgets);
     });
 
     testWidgets('4️⃣ Mostra texto padrão quando campos vazios', (tester) async {
-      await tester.pumpWidget(const MaterialApp(
+      await tester.pumpWidget(MaterialApp(
         home: Scaffold(
           body: Header(
+            prestadorId: 'p1',
             nome: '',
             email: '',
             fotoUrl: '',
@@ -73,9 +84,12 @@ void main() {
             whatsapp: '',
             nota: null,
             avaliacoes: null,
+            firestore: fakeDb, // ✅ injeta fakeDb
           ),
         ),
       ));
+
+      await tester.pump(const Duration(seconds: 1));
       await tester.pumpAndSettle();
 
       expect(find.text('Categoria não informada'), findsOneWidget);
@@ -86,15 +100,16 @@ void main() {
   // -------------------- UPDATE --------------------
   group('🧠 UPDATE (Atualização)', () {
     test('5️⃣ ServicoItem.abreviacaoUnidade retorna sigla do FakeFirestore', () async {
-      await fakeDb.collection(VisualizarPerfilPrestador.colUnidades).doc('u1').set({
-        'abreviacao': 'm²',
-      });
+      await fakeDb
+          .collection(VisualizarPerfilPrestador.colUnidades)
+          .doc('u1')
+          .set({'abreviacao': 'm²'});
 
       final item = ServicoItem(
         serviceId: 's1',
         prestadorId: 'p1',
         data: const {},
-        firestore: fakeDb, // 🔹 injeção fake
+        firestore: fakeDb,
       );
 
       final res = await item.abreviacaoUnidade('u1');
@@ -111,7 +126,7 @@ void main() {
         serviceId: 's1',
         prestadorId: 'p1',
         data: const {},
-        firestore: fakeDb, // 🔹 injeção fake
+        firestore: fakeDb,
       );
 
       final res = await item.imagemDaCategoria('c1');
@@ -129,8 +144,7 @@ void main() {
         firestore: fakeDb,
       );
 
-      final res = await item.abreviacaoUnidade('');
-      expect(res, '');
+      expect(await item.abreviacaoUnidade(''), '');
     });
 
     test('8️⃣ imagemDaCategoria retorna vazio quando id é nulo ou inexistente', () async {
@@ -141,8 +155,7 @@ void main() {
         firestore: fakeDb,
       );
 
-      final res = await item.imagemDaCategoria('');
-      expect(res, '');
+      expect(await item.imagemDaCategoria(''), '');
     });
   });
 
@@ -153,13 +166,51 @@ void main() {
         home: Scaffold(
           body: ListaServicos(
             prestadorId: 'p1',
-            firestore: fakeDb, // 🔹 usa fake Firestore
+            firestore: fakeDb,
           ),
         ),
       ));
       await tester.pump(const Duration(milliseconds: 300));
 
       expect(find.textContaining('Nenhum serviço cadastrado'), findsOneWidget);
+    });
+
+    testWidgets('🔟 Renderiza ServicoItem com média e avaliações', (tester) async {
+      // simula avaliação real
+      await fakeDb.collection('avaliacoes').add({
+        'prestadorId': 'p1',
+        'solicitacaoId': 'sol1',
+        'nota': 5,
+      });
+
+      await fakeDb.collection('solicitacoesOrcamento').doc('sol1').set({
+        'servicoId': 's1',
+      });
+
+      final data = {
+        'titulo': 'Teste Serviço',
+        'descricao': 'Descrição top',
+        'categoriaId': 'c1',
+        'unidadeId': 'u1',
+      };
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ServicoItem(
+            serviceId: 's1',
+            prestadorId: 'p1',
+            data: data,
+            firestore: fakeDb,
+          ),
+        ),
+      ));
+
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Teste Serviço'), findsOneWidget);
+      expect(find.textContaining('5.0'), findsWidgets);
+      expect(find.textContaining('1 avaliação'), findsWidgets);
     });
   });
 }

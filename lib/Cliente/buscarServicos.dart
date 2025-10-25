@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:custom_info_window/custom_info_window.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter/services.dart';
 import 'rotasNavegacao.dart';
@@ -15,8 +16,8 @@ import 'package:geolocator/geolocator.dart';
 
 class BuscarServicosScreen extends StatefulWidget {
   final FirebaseFirestore? firestore;
-
-  const BuscarServicosScreen({super.key, this.firestore});
+  final FirebaseAuth? auth;
+  const BuscarServicosScreen({super.key, this.firestore, this.auth});
 
   @override
   State<BuscarServicosScreen> createState() => BuscarServicosScreenState();
@@ -114,13 +115,14 @@ class BuscarServicosScreenState extends State<BuscarServicosScreen> {
 
   // Construtor padrão
   BuscarServicosScreenState();
-
+  late FirebaseAuth auth;
   @override
   void initState() {
     super.initState();
 
     // Inicializa o Firestore — usa o fake se fornecido no widget, senão o real
     _db ??= widget.firestore ?? FirebaseFirestore.instance;
+    auth = widget.auth ?? FirebaseAuth.instance;
 
     // Evita execução desnecessária em ambiente de teste
     if (!mounted) return;
@@ -773,7 +775,6 @@ class BuscarServicosScreenState extends State<BuscarServicosScreen> {
 
     // 🧠 Cria horário apenas para o mesmo dia (ignorando fusos e datas cruzadas)
     final selecionadoHoje = DateTime(agora.year, agora.month, agora.day, h, m);
-
 
     // 🚫 Se data selecionada é o mesmo dia e hora já passou
     if (isSameDay(dataSelecionada!, agora) && selecionadoHoje.isBefore(agora)) {
