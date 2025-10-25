@@ -662,8 +662,6 @@ Future<void> buscarCep(String maskCep) async {
         }
       }
 
-      print('🔎 GEO FINAL => $geo (${geo.runtimeType})'); // debug
-
       // =====================================
       // 🔹 DADOS BÁSICOS DO USUÁRIO
       // =====================================

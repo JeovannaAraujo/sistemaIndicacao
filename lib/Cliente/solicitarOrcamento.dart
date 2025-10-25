@@ -200,7 +200,6 @@ Future<List<String>> uploadImagens(String docId) async {
       if (storage is MockFirebaseStorage) {
         final fakeUrl = 'https://fake.storage/$fname';
         urls.add(fakeUrl);
-        debugPrint('🧪 Mock detectado, retornando URL fake: $fakeUrl');
         continue;
       }
 

@@ -47,8 +47,6 @@ class FakePrestadorBottomNav extends StatelessWidget {
         BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Perfil'),
       ],
       onTap: (i) {
-        // Simula a troca de abas
-        debugPrint('Aba selecionada: $i');
       },
     );
   }

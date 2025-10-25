@@ -92,7 +92,6 @@ class EditarPerfilClienteState extends State<EditarPerfilCliente> {
     final doc = await ref.get();
 
     if (!doc.exists) {
-      debugPrint('⚠️ Documento não encontrado para ${widget.userId}');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Perfil não encontrado.')),
@@ -203,7 +202,6 @@ class EditarPerfilClienteState extends State<EditarPerfilCliente> {
       try {
         await FirebaseStorage.instance.ref().child(fotoPath!).delete();
       } catch (_) {
-        debugPrint('⚠️ Erro ignorado ao deletar do Storage (modo teste)');
       }
     }
 

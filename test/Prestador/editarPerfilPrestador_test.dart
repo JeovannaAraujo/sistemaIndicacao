@@ -145,8 +145,6 @@ void main() {
     final doc = await fakeDb.collection('usuarios').doc(userId).get();
     expect(doc.data()?['fotoUrl'], isNull);
     expect(doc.data()?['fotoPath'], isNull);
-
-    print('✅ Foto removida!');
   });
 
   // ============================================================

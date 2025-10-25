@@ -774,7 +774,6 @@ class BuscarServicosScreenState extends State<BuscarServicosScreen> {
     // 🧠 Cria horário apenas para o mesmo dia (ignorando fusos e datas cruzadas)
     final selecionadoHoje = DateTime(agora.year, agora.month, agora.day, h, m);
 
-    print('⏰ DEBUG => selecionadoHoje: $selecionadoHoje | agora: $agora');
 
     // 🚫 Se data selecionada é o mesmo dia e hora já passou
     if (isSameDay(dataSelecionada!, agora) && selecionadoHoje.isBefore(agora)) {
