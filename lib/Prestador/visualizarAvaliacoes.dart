@@ -10,9 +10,9 @@ class ClienteInfo {
 
 class VisualizarAvaliacoesScreen extends StatefulWidget {
   final String prestadorId;
-  final String servicoId; // pode vir vazio
-  final String servicoTitulo; // ex.: "Assentamento"
-  final FirebaseFirestore? firestore; // injeção para testes
+  final String servicoId;
+  final String servicoTitulo;
+  final FirebaseFirestore? firestore;
 
   const VisualizarAvaliacoesScreen({
     super.key,
@@ -40,8 +40,7 @@ class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
   int sEstrelas = 0;
 
   // ======== CACHE ========
-  final Map<String, ClienteInfo> clienteCache = {};
-  final Map<String, Map<String, dynamic>> servicoCache = {};
+  final Map<String, String> clienteCache = {};
 
   @override
   void initState() {
@@ -58,31 +57,14 @@ class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
 
   // ================== HELPERS ==================
   double? nota(Map<String, dynamic> m) {
-    for (final k in const ['nota', 'rating', 'estrelas', 'notaGeral']) {
-      final v = m[k];
-      if (v is num) return v.toDouble();
-      if (v is String) {
-        final d = double.tryParse(v);
-        if (d != null) return d;
-      }
-    }
-    final aval = m['avaliacao'];
-    if (aval is Map<String, dynamic>) {
-      for (final k in const ['nota', 'rating', 'estrelas', 'notaGeral']) {
-        final v = aval[k];
-        if (v is num) return v.toDouble();
-        if (v is String) {
-          final d = double.tryParse(v);
-          if (d != null) return d;
-        }
-      }
-    }
+    final v = m['nota'];
+    if (v is num) return v.toDouble();
+    if (v is String) return double.tryParse(v);
     return null;
   }
 
   bool temMidia(Map<String, dynamic> m) {
-    final imgs = m['imagens'] ?? m['imagemUrl'];
-    if (imgs is List) return imgs.isNotEmpty;
+    final imgs = m['imagemUrl'];
     if (imgs is String) return imgs.trim().isNotEmpty;
     return false;
   }
@@ -103,99 +85,65 @@ class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
     }).toList();
   }
 
-  Future<ClienteInfo> getClienteInfo(String clienteId) async {
-    if (clienteId.isEmpty) return const ClienteInfo(nome: 'Cliente');
+  Future<String> getClienteNome(String clienteId) async {
+    if (clienteId.isEmpty) return 'Cliente';
     if (clienteCache.containsKey(clienteId)) return clienteCache[clienteId]!;
 
     try {
       final doc = await db.collection('usuarios').doc(clienteId).get();
-      final data = doc.data() ?? {};
-      final nome = (data['nome'] as String?)?.trim();
-      final foto = (data['fotoUrl'] as String?)?.trim();
-      final info = ClienteInfo(
-        nome: (nome == null || nome.isEmpty) ? 'Cliente' : nome,
-        fotoUrl: (foto != null && foto.isNotEmpty) ? foto : null,
-      );
-      clienteCache[clienteId] = info;
-      return info;
+      final nome = (doc.data()?['nome'] as String?)?.trim();
+      final nomeFinal = (nome == null || nome.isEmpty) ? 'Cliente' : nome;
+      clienteCache[clienteId] = nomeFinal;
+      return nomeFinal;
     } catch (_) {
-      return const ClienteInfo(nome: 'Cliente');
+      return 'Cliente';
     }
   }
 
-  /// 🔹 Busca os dados do serviço vinculado a uma solicitação
-  Future<Map<String, dynamic>?> getServicoDaSolicitacao(
-    String solicitacaoId,
-  ) async {
-    if (solicitacaoId.isEmpty) return null;
-    if (servicoCache.containsKey(solicitacaoId))
-      return servicoCache[solicitacaoId];
+  // ================== CONSULTAS CORRETAS ==================
 
-    try {
-      final doc = await db
-          .collection('solicitacoesOrcamento')
-          .doc(solicitacaoId)
-          .get();
-      if (!doc.exists) return null;
-
-      final data = doc.data()!;
-      final servico = {
-        'servicoId': data['servicoId'],
-        'servicoTitulo': data['servicoTitulo'],
-        'servicoDescricao': data['servicoDescricao'],
-      };
-
-      servicoCache[solicitacaoId] = servico;
-      return servico;
-    } catch (e) {
-      print('Erro ao buscar serviço da solicitação: $e');
-      return null;
-    }
-  }
-
-  // ================== CONSULTAS ==================
+  /// 🔹 AVALIAÇÕES DO SERVIÇO: Apenas deste serviço específico
   Stream<QuerySnapshot<Map<String, dynamic>>> streamAvaliacoesDoServico() {
+    if (widget.servicoId.isEmpty) {
+      return const Stream.empty();
+    }
+
+    // ✅ Filtro DIRETO no Firestore: apenas avaliações deste serviço
     return db
         .collection('avaliacoes')
         .where('prestadorId', isEqualTo: widget.prestadorId)
+        .where('servicoId', isEqualTo: widget.servicoId)
         .orderBy('data', descending: true)
         .snapshots();
   }
 
-  /// 🔹 Calcula a média de avaliações do prestador **para o serviço atual**
+  /// 🔹 MÉDIA DO SERVIÇO: Apenas deste serviço específico
   Future<Map<String, num>> mediaQtdServico() async {
+    if (widget.servicoId.isEmpty) return {'media': 0, 'qtd': 0};
+
+    final snap = await db
+        .collection('avaliacoes')
+        .where('prestadorId', isEqualTo: widget.prestadorId)
+        .where('servicoId', isEqualTo: widget.servicoId) // ✅ Apenas este serviço
+        .get();
+
     double soma = 0;
     int qtd = 0;
-
-    // 1️⃣ Buscar todas as solicitações que tenham esse serviçoId
-    final solicitacoesSnap = await db
-        .collection('solicitacoesOrcamento')
-        .where('servicoId', isEqualTo: widget.servicoId)
-        .get();
-
-    if (solicitacoesSnap.docs.isEmpty) return {'media': 0, 'qtd': 0};
-
-    // 2️⃣ Extrair os IDs dessas solicitações
-    final idsSolic = solicitacoesSnap.docs.map((d) => d.id).toList();
-
-    // 3️⃣ Buscar todas as avaliações associadas a essas solicitações
-    final avalSnap = await db
-        .collection('avaliacoes')
-        .where('solicitacaoId', whereIn: idsSolic)
-        .get();
-
-    for (final d in avalSnap.docs) {
+    
+    for (final d in snap.docs) {
       final n = nota(d.data());
       if (n != null) {
         soma += n;
         qtd++;
       }
     }
-
-    final media = qtd == 0 ? 0 : soma / qtd;
+    
+    final media = qtd == 0 ? 0 : (soma / qtd);
+    print('🎯 Média do SERVIÇO ${widget.servicoId}: $media ($qtd avaliações)');
     return {'media': media, 'qtd': qtd};
   }
 
+  /// 🔹 AVALIAÇÕES DO PRESTADOR: TODAS as avaliações (todos os serviços)
   Stream<QuerySnapshot<Map<String, dynamic>>> streamAvaliacoesDoPrestador() {
     return db
         .collection('avaliacoes')
@@ -204,10 +152,11 @@ class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
         .snapshots();
   }
 
+  /// 🔹 MÉDIA DO PRESTADOR: TODAS as avaliações (todos os serviços)
   Future<Map<String, num>> mediaQtdPrestador() async {
     final snap = await db
         .collection('avaliacoes')
-        .where('prestadorId', isEqualTo: widget.prestadorId)
+        .where('prestadorId', isEqualTo: widget.prestadorId) // ✅ Todas as avaliações
         .get();
 
     double soma = 0;
@@ -220,41 +169,44 @@ class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
       }
     }
     final media = qtd == 0 ? 0 : (soma / qtd);
+    print('🎯 Média do PRESTADOR ${widget.prestadorId}: $media ($qtd avaliações)');
     return {'media': media, 'qtd': qtd};
   }
 
   // ================== UI ==================
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Avaliações'),
-          bottom: const TabBar(
-            tabs: [
-              Tab(text: 'Avaliações do serviço'),
-              Tab(text: 'Avaliações do Prestador'),
-            ],
-          ),
-        ),
-        body: TabBarView(
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Avaliações'),
+        bottom: TabBar(
           controller: tab,
-          children: [abaServicoComFiltros(), abaPrestadorComFiltros()],
+          tabs: const [
+            Tab(text: 'Avaliações do serviço'),
+            Tab(text: 'Avaliações do Prestador'),
+          ],
         ),
+      ),
+      body: TabBarView(
+        controller: tab,
+        children: [abaServicoComFiltros(), abaPrestadorComFiltros()],
       ),
     );
   }
 
-  // --------- ABA: Serviço ---------
+  // --------- ABA: Serviço (APENAS este serviço) ---------
   Widget abaServicoComFiltros() {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: streamAvaliacoesDoServico(),
       builder: (context, snap) {
+        print('🔍 Avaliações do SERVIÇO ${widget.servicoId}: ${snap.data?.docs.length ?? 0}');
+        
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
+        
         final docs = snap.data?.docs ?? const [];
+        print('📊 Total de avaliações deste serviço: ${docs.length}');
 
         final filtrados = aplicarFiltros(
           docs: docs,
@@ -262,18 +214,20 @@ class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
           estrelasExatas: sEstrelas,
         );
 
+        print('🎯 Filtrados deste serviço: ${filtrados.length}');
+
         return CustomScrollView(
           slivers: [
             SliverPersistentHeader(
               pinned: true,
-              delegate: _PinnedHeaderDelegate(
+              delegate: PinnedHeaderDelegate(
                 height: 96,
                 child: FutureBuilder<Map<String, num>>(
                   future: mediaQtdServico(),
                   builder: (context, m) {
                     final media = (m.data?['media'] ?? 0).toDouble();
                     final qtd = (m.data?['qtd'] ?? 0).toInt();
-                    return _HeaderServico(
+                    return HeaderServico(
                       media: media,
                       qtd: qtd,
                       titulo: widget.servicoTitulo,
@@ -285,7 +239,7 @@ class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                child: _BarraFiltrosPadrao(
+                child: BarraFiltrosPadrao(
                   total: docs.length,
                   comMidia: docs.where((d) => temMidia(d.data())).length,
                   somenteMidia: sSomenteMidia,
@@ -295,11 +249,9 @@ class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
                 ),
               ),
             ),
-            _SliverListaAvaliacoes(
+            SliverListaAvaliacoes(
               docs: filtrados,
-              nota: nota,
-              getClienteInfo: getClienteInfo,
-              getServicoDaSolicitacao: getServicoDaSolicitacao,
+              getClienteNome: getClienteNome,
             ),
           ],
         );
@@ -307,11 +259,13 @@ class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
     );
   }
 
-  // --------- ABA: Prestador ---------
+  // --------- ABA: Prestador (TODOS os serviços) ---------
   Widget abaPrestadorComFiltros() {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: streamAvaliacoesDoPrestador(),
       builder: (context, snap) {
+        print('🔍 Avaliações do PRESTADOR ${widget.prestadorId}: ${snap.data?.docs.length ?? 0}');
+        
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
@@ -323,18 +277,20 @@ class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
           estrelasExatas: pEstrelas,
         );
 
+        print('🎯 Filtrados do prestador: ${filtrados.length}');
+
         return CustomScrollView(
           slivers: [
             SliverPersistentHeader(
               pinned: true,
-              delegate: _PinnedHeaderDelegate(
+              delegate: PinnedHeaderDelegate(
                 height: 84,
                 child: FutureBuilder<Map<String, num>>(
                   future: mediaQtdPrestador(),
                   builder: (context, m) {
                     final media = (m.data?['media'] ?? 0).toDouble();
                     final qtd = (m.data?['qtd'] ?? 0).toInt();
-                    return _HeaderPrestador(media: media, qtd: qtd);
+                    return HeaderPrestador(media: media, qtd: qtd);
                   },
                 ),
               ),
@@ -343,7 +299,7 @@ class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                child: _BarraFiltrosPadrao(
+                child: BarraFiltrosPadrao(
                   total: docs.length,
                   comMidia: docs.where((d) => temMidia(d.data())).length,
                   somenteMidia: pSomenteMidia,
@@ -353,11 +309,9 @@ class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
                 ),
               ),
             ),
-            _SliverListaAvaliacoes(
+            SliverListaAvaliacoes(
               docs: filtrados,
-              nota: nota,
-              getClienteInfo: getClienteInfo,
-              getServicoDaSolicitacao: getServicoDaSolicitacao,
+              getClienteNome: getClienteNome,
             ),
           ],
         );
@@ -370,10 +324,10 @@ class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
    WIDGETS REUTILIZÁVEIS 
    ============================ */
 
-class _PinnedHeaderDelegate extends SliverPersistentHeaderDelegate {
+class PinnedHeaderDelegate extends SliverPersistentHeaderDelegate {
   final double height;
   final Widget child;
-  _PinnedHeaderDelegate({required this.height, required this.child});
+  PinnedHeaderDelegate({required this.height, required this.child});
 
   @override
   Widget build(
@@ -395,15 +349,15 @@ class _PinnedHeaderDelegate extends SliverPersistentHeaderDelegate {
   @override
   double get minExtent => height;
   @override
-  bool shouldRebuild(covariant _PinnedHeaderDelegate old) =>
+  bool shouldRebuild(covariant PinnedHeaderDelegate old) =>
       height != old.height || child != old.child;
 }
 
-class _HeaderServico extends StatelessWidget {
+class HeaderServico extends StatelessWidget {
   final double media;
   final int qtd;
   final String titulo;
-  const _HeaderServico({
+  const HeaderServico({
     required this.media,
     required this.qtd,
     required this.titulo,
@@ -456,10 +410,10 @@ class _HeaderServico extends StatelessWidget {
   }
 }
 
-class _HeaderPrestador extends StatelessWidget {
+class HeaderPrestador extends StatelessWidget {
   final double media;
   final int qtd;
-  const _HeaderPrestador({required this.media, required this.qtd});
+  const HeaderPrestador({required this.media, required this.qtd});
 
   @override
   Widget build(BuildContext context) {
@@ -493,18 +447,13 @@ class _HeaderPrestador extends StatelessWidget {
 }
 
 // ======== SLIVER: Lista de avaliações ========
-class _SliverListaAvaliacoes extends StatelessWidget {
+class SliverListaAvaliacoes extends StatelessWidget {
   final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
-  final double? Function(Map<String, dynamic>) nota;
-  final Future<ClienteInfo> Function(String clienteId) getClienteInfo;
-  final Future<Map<String, dynamic>?> Function(String solicitacaoId)
-  getServicoDaSolicitacao;
+  final Future<String> Function(String clienteId) getClienteNome;
 
-  const _SliverListaAvaliacoes({
+  const SliverListaAvaliacoes({
     required this.docs,
-    required this.nota,
-    required this.getClienteInfo,
-    required this.getServicoDaSolicitacao,
+    required this.getClienteNome,
   });
 
   @override
@@ -512,131 +461,115 @@ class _SliverListaAvaliacoes extends StatelessWidget {
     if (docs.isEmpty) {
       return const SliverFillRemaining(
         hasScrollBody: false,
-        child: Center(child: Text('Nenhuma avaliação com os filtros atuais.')),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.star_outline, size: 64, color: Colors.grey),
+              SizedBox(height: 16),
+              Text(
+                'Nenhuma avaliação encontrada',
+                style: TextStyle(fontSize: 16, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
       );
     }
 
     return SliverList.builder(
       itemCount: docs.length,
       itemBuilder: (_, i) {
-        final d = docs[i].data();
-        String titulo = (d['servicoTitulo'] as String?) ?? '';
-        final solicitacaoId = (d['solicitacaoId'] as String?) ?? '';
-        final comentario = (d['comentario'] as String?) ?? '';
-        final n = (nota(d) ?? 0.0).round();
-        final ts = d['data'];
+        final d = docs[i];
+        final data = d.data();
+        
+        final comentario = (data['comentario'] as String?) ?? '';
+        final nota = (data['nota'] as num?)?.toDouble() ?? 0.0;
+        final n = nota.round();
+        final ts = data['data'];
         DateTime? dt;
         if (ts is Timestamp) dt = ts.toDate();
 
-        final clienteId = (d['clienteId'] as String?) ?? '';
+        final clienteId = (data['clienteId'] as String?) ?? '';
 
-        return FutureBuilder<Map<String, dynamic>?>(
-          future: (titulo.isEmpty && solicitacaoId.isNotEmpty)
-              ? getServicoDaSolicitacao(solicitacaoId)
-              : Future.value({'servicoTitulo': titulo}),
-          builder: (context, snapServ) {
-            final servicoTitulo =
-                snapServ.data?['servicoTitulo'] ?? titulo ?? '';
-
-            return Padding(
-              padding: EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: Card(
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  side: const BorderSide(color: Color(0x11000000)),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (servicoTitulo.isNotEmpty)
-                        Text(
-                          servicoTitulo,
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
-
-                      // FOTO + NOME DO CLIENTE
-
-                      // FOTO + NOME DO CLIENTE
-                      if (clienteId.isNotEmpty)
-                        FutureBuilder<ClienteInfo>(
-                          future: getClienteInfo(clienteId),
-                          builder: (context, snapCli) {
-                            final info =
-                                snapCli.data ??
-                                const ClienteInfo(nome: 'Cliente');
-
-                            return Padding(
-                              padding: const EdgeInsets.only(
-                                top: 8.0,
-                                bottom: 6.0,
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: Card(
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: const BorderSide(color: Color(0x11000000)),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // FOTO + NOME DO CLIENTE
+                  if (clienteId.isNotEmpty)
+                    FutureBuilder<String>(
+                      future: getClienteNome(clienteId),
+                      builder: (context, snapCli) {
+                        final nome = snapCli.data ?? 'Cliente';
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8.0),
+                          child: Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 14,
+                                backgroundColor: const Color(0xFFEDE7FF),
+                                child: const Icon(
+                                  Icons.person,
+                                  size: 16,
+                                  color: Color(0xFF5B33D6),
+                                ),
                               ),
-                              child: Row(
-                                children: [
-                                  CircleAvatar(
-                                    radius: 14,
-                                    backgroundColor: const Color(0xFFEDE7FF),
-                                    backgroundImage: (info.fotoUrl != null)
-                                        ? NetworkImage(info.fotoUrl!)
-                                        : null,
-                                    child: (info.fotoUrl == null)
-                                        ? const Icon(
-                                            Icons.person,
-                                            size: 16,
-                                            color: Color(0xFF5B33D6),
-                                          )
-                                        : null,
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  nome,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.black87,
+                                    fontWeight: FontWeight.w600,
                                   ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      info.nome,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: Colors.black87,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ),
-                                ],
+                                ),
                               ),
-                            );
-                          },
-                        ),
-
-                      // Estrelas + data
-                      Row(
-                        children: [
-                          ...List.generate(
-                            5,
-                            (idx) => Icon(
-                              idx < n ? Icons.star : Icons.star_border,
-                              size: 16,
-                              color: Colors.amber,
-                            ),
+                            ],
                           ),
-                          const SizedBox(width: 8),
-                          if (dt != null)
-                            Text(
-                              '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}',
-                              style: const TextStyle(color: Colors.grey),
-                            ),
-                        ],
-                      ),
+                        );
+                      },
+                    ),
 
-                      if (comentario.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Text(comentario),
-                      ],
+                  // Estrelas + data
+                  Row(
+                    children: [
+                      ...List.generate(
+                        5,
+                        (idx) => Icon(
+                          idx < n ? Icons.star : Icons.star_border,
+                          size: 16,
+                          color: Colors.amber,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      if (dt != null)
+                        Text(
+                          '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}',
+                          style: const TextStyle(color: Colors.grey),
+                        ),
                     ],
                   ),
-                ),
+
+                  if (comentario.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(comentario),
+                  ],
+                ],
               ),
-            );
-          },
+            ),
+          ),
         );
       },
     );
@@ -644,7 +577,7 @@ class _SliverListaAvaliacoes extends StatelessWidget {
 }
 
 // ---------- Barra de filtros ----------
-class _BarraFiltrosPadrao extends StatelessWidget {
+class BarraFiltrosPadrao extends StatelessWidget {
   final int total;
   final int comMidia;
   final bool somenteMidia;
@@ -652,7 +585,7 @@ class _BarraFiltrosPadrao extends StatelessWidget {
   final ValueChanged<bool> onToggleMidia;
   final ValueChanged<int> onChangeEstrelas;
 
-  const _BarraFiltrosPadrao({
+  const BarraFiltrosPadrao({
     required this.total,
     required this.comMidia,
     required this.somenteMidia,
@@ -669,7 +602,7 @@ class _BarraFiltrosPadrao extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: _FiltroPill(
+          child: FiltroPill(
             label: 'Todas',
             count: total,
             selected: !somenteMidia && estrelas == 0,
@@ -683,7 +616,7 @@ class _BarraFiltrosPadrao extends StatelessWidget {
         ),
         const SizedBox(width: _gap),
         Expanded(
-          child: _FiltroPill(
+          child: FiltroPill(
             label: 'Com Mídia',
             count: comMidia,
             selected: somenteMidia,
@@ -694,7 +627,7 @@ class _BarraFiltrosPadrao extends StatelessWidget {
         ),
         const SizedBox(width: _gap),
         Expanded(
-          child: _DropdownEstrelasExato(
+          child: DropdownEstrelasExato(
             value: estrelas,
             onChanged: onChangeEstrelas,
             width: double.infinity,
@@ -706,7 +639,7 @@ class _BarraFiltrosPadrao extends StatelessWidget {
   }
 }
 
-class _FiltroPill extends StatelessWidget {
+class FiltroPill extends StatelessWidget {
   final String label;
   final int count;
   final bool selected;
@@ -714,7 +647,7 @@ class _FiltroPill extends StatelessWidget {
   final double height;
   final VoidCallback onTap;
 
-  const _FiltroPill({
+  const FiltroPill({
     required this.label,
     required this.count,
     required this.selected,
@@ -774,13 +707,13 @@ class _FiltroPill extends StatelessWidget {
   }
 }
 
-class _DropdownEstrelasExato extends StatelessWidget {
+class DropdownEstrelasExato extends StatelessWidget {
   final int value;
   final ValueChanged<int> onChanged;
   final double width;
   final double height;
 
-  const _DropdownEstrelasExato({
+  const DropdownEstrelasExato({
     required this.value,
     required this.onChanged,
     required this.width,

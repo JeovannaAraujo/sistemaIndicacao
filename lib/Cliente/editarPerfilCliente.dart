@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'dart:io';
 
 class EditarPerfilCliente extends StatefulWidget {
   final String userId;
@@ -42,6 +43,7 @@ class EditarPerfilClienteState extends State<EditarPerfilCliente> {
 
   // estado
   bool carregando = true;
+  bool salvando = false;
   String tipoPerfil = 'Cliente';
   String? categoriaProfId;
   String tempoExperiencia = '';
@@ -53,6 +55,7 @@ class EditarPerfilClienteState extends State<EditarPerfilCliente> {
   String? fotoUrl;
   String? fotoPath;
   bool _enviandoFoto = false;
+  XFile? _fotoSelecionada;
 
   // streams
   late final Stream<QuerySnapshot<Map<String, dynamic>>> categoriasStream;
@@ -150,36 +153,58 @@ class EditarPerfilClienteState extends State<EditarPerfilCliente> {
   }
 }
 
-
+  /// 🔹 Seleciona foto da galeria e faz upload para o Firebase Storage
   Future<void> _selecionarFotoPerfil() async {
     try {
       final picker = ImagePicker();
       final XFile? img = await picker.pickImage(
         source: ImageSource.gallery,
         maxWidth: 1024,
+        maxHeight: 1024,
         imageQuality: 80,
       );
+      
       if (img == null) return;
 
-      setState(() => _enviandoFoto = true);
-      final bytes = await img.readAsBytes();
+      setState(() {
+        _fotoSelecionada = img;
+        _enviandoFoto = true;
+      });
 
-      final String path =
-          'usuarios/${widget.userId}/perfil_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      // Fazer upload da imagem para o Firebase Storage
+      final bytes = await img.readAsBytes();
+      final String path = 'usuarios/${widget.userId}/perfil_${DateTime.now().millisecondsSinceEpoch}.jpg';
       final ref = FirebaseStorage.instance.ref().child(path);
 
-      await ref.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
+      // Upload para o Storage
+      final uploadTask = ref.putData(
+        bytes, 
+        SettableMetadata(contentType: 'image/jpeg')
+      );
+      
+      await uploadTask;
       final url = await ref.getDownloadURL();
 
+      // Atualizar no Firestore
       await db.collection('usuarios').doc(widget.userId).set({
         'fotoUrl': url,
         'fotoPath': path,
         'atualizadoEm': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
+      // Deletar foto antiga se existir
+      if (fotoPath != null && fotoPath!.isNotEmpty && fotoPath != path) {
+        try {
+          await FirebaseStorage.instance.ref().child(fotoPath!).delete();
+        } catch (e) {
+          debugPrint('⚠️ Erro ao deletar foto antiga: $e');
+        }
+      }
+
       setState(() {
         fotoUrl = url;
         fotoPath = path;
+        _fotoSelecionada = null;
       });
 
       if (mounted) {
@@ -188,20 +213,25 @@ class EditarPerfilClienteState extends State<EditarPerfilCliente> {
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Falha ao enviar: $e')));
+      debugPrint('❌ Erro ao fazer upload da foto: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Falha ao enviar foto: $e')),
+        );
+      }
     } finally {
       if (mounted) setState(() => _enviandoFoto = false);
     }
   }
 
+  /// 🔹 Remove foto do perfil (Storage e Firestore)
  Future<void> removerFotoPerfil() async {
   try {
     if (fotoPath != null && fotoPath!.isNotEmpty) {
       try {
         await FirebaseStorage.instance.ref().child(fotoPath!).delete();
       } catch (_) {
+        debugPrint('⚠️ Foto não encontrada no Storage, continuando...');
       }
     }
 
@@ -215,6 +245,7 @@ class EditarPerfilClienteState extends State<EditarPerfilCliente> {
       setState(() {
         fotoUrl = null;
         fotoPath = null;
+        _fotoSelecionada = null;
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -224,25 +255,55 @@ class EditarPerfilClienteState extends State<EditarPerfilCliente> {
       // Garante que o teste veja as variáveis zeradas
       fotoUrl = null;
       fotoPath = null;
+      _fotoSelecionada = null;
     }
   } catch (e) {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erro ao remover: $e')),
+        SnackBar(content: Text('Erro ao remover foto: $e')),
       );
     } else {
       debugPrint('⚠️ Erro ao remover foto (sem contexto ativo): $e');
       fotoUrl = null;
       fotoPath = null;
+      _fotoSelecionada = null;
     }
   }
 }
 
+  /// 🔹 Atualiza o email no Firebase Authentication
+  Future<void> _atualizarEmailNoAuth(String novoEmail) async {
+    try {
+      final user = _auth.currentUser;
+      if (user != null && user.email != novoEmail) {
+        await user.verifyBeforeUpdateEmail(novoEmail);
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Link de verificação enviado para o novo email.'),
+              duration: Duration(seconds: 5),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Erro ao atualizar email no Auth: $e');
+      rethrow;
+    }
+  }
 
+  /// 🔹 Valida se o email foi alterado
+  bool _emailFoiAlterado(String emailOriginal) {
+    return emailCtrl.text.trim() != emailOriginal;
+  }
+
+  /// 🔹 Salva todas as alterações do perfil
  Future<void> salvar() async {
   if (formKey.currentState == null || !formKey.currentState!.validate()) return;
   if (!mounted) return;
 
+  // Validações para prestadores
   if (tipoPerfil == 'Prestador' || tipoPerfil == 'Ambos') {
     if (categoriaProfId == null || categoriaProfId!.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -264,11 +325,24 @@ class EditarPerfilClienteState extends State<EditarPerfilCliente> {
     }
   }
 
+  setState(() => salvando = true);
+
   try {
     final ref = db.collection('usuarios').doc(widget.userId);
+    final doc = await ref.get();
+    final dadosAtuais = doc.data() ?? {};
+    final emailOriginal = (dadosAtuais['email'] ?? '') as String;
+    final novoEmail = emailCtrl.text.trim();
 
-    await ref.set({
+    // 🔹 ATUALIZAR EMAIL NO AUTH SE MUDOU
+    if (_emailFoiAlterado(emailOriginal)) {
+      await _atualizarEmailNoAuth(novoEmail);
+    }
+
+    // 🔹 ATUALIZAR DADOS NO FIRESTORE
+    final dadosAtualizacao = {
       'nome': nomeCtrl.text.trim(),
+      'email': novoEmail, // Sempre atualiza o email no Firestore
       'tipoPerfil': tipoPerfil,
       'categoriaProfissionalId': categoriaProfId,
       'descricao': descricaoCtrl.text.trim(),
@@ -286,26 +360,52 @@ class EditarPerfilClienteState extends State<EditarPerfilCliente> {
         'whatsapp': whatsappCtrl.text.trim(),
       },
       'atualizadoEm': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    };
+
+    await ref.set(dadosAtualizacao, SetOptions(merge: true));
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Perfil atualizado!')),
+        const SnackBar(content: Text('Perfil atualizado com sucesso!')),
       );
+      
+      // Se o email foi alterado, mostra mensagem adicional
+      if (_emailFoiAlterado(emailOriginal)) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Verificação de Email Necessária'),
+              content: const Text(
+                'Enviamos um link de verificação para seu novo email. '
+                'Por favor, verifique seu email para continuar usando sua conta normalmente.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        });
+      }
+      
       Navigator.pop(context);
     }
   } catch (e) {
+    debugPrint('❌ Erro ao salvar perfil: $e');
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Erro ao salvar: $e')),
       );
-    } else {
-      debugPrint('⚠️ Erro ao salvar perfil (sem contexto ativo): $e');
     }
+  } finally {
+    if (mounted) setState(() => salvando = false);
   }
 }
 
-
+  /// 🔹 Exclui conta do usuário
   Future<void> excluirConta() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -330,24 +430,33 @@ class EditarPerfilClienteState extends State<EditarPerfilCliente> {
     if (ok != true) return;
 
     try {
+      // Remover foto do Storage se existir
       if (fotoPath != null && fotoPath!.isNotEmpty) {
         await FirebaseStorage.instance.ref().child(fotoPath!).delete();
       }
 
+      // Remover dados do Firestore
       await db.collection('usuarios').doc(widget.userId).delete();
+      
+      // Remover usuário do Authentication
       final user = _auth.currentUser;
       if (user != null && user.uid == widget.userId) {
         await user.delete();
       }
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Conta excluída.')));
-      Navigator.of(context).popUntil((r) => r.isFirst);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Conta excluída com sucesso.')),
+        );
+        Navigator.of(context).popUntil((r) => r.isFirst);
+      }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Não foi possível excluir: $e')));
+      debugPrint('❌ Erro ao excluir conta: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Não foi possível excluir a conta: $e')),
+        );
+      }
     }
   }
 
@@ -368,15 +477,15 @@ class EditarPerfilClienteState extends State<EditarPerfilCliente> {
     final inputDecoration = const InputDecorationTheme(
       border: OutlineInputBorder(
         borderRadius: BorderRadius.all(Radius.circular(12)),
-        borderSide: BorderSide(color: Colors.black12), // cinza claro padrão
+        borderSide: BorderSide(color: Colors.black12),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.all(Radius.circular(12)),
-        borderSide: BorderSide(color: Colors.black12), // mantém o cinza claro
+        borderSide: BorderSide(color: Colors.black12),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.all(Radius.circular(12)),
-        borderSide: BorderSide(color: Colors.deepPurple), // roxo no foco
+        borderSide: BorderSide(color: Colors.deepPurple),
       ),
       contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
     );
@@ -384,7 +493,11 @@ class EditarPerfilClienteState extends State<EditarPerfilCliente> {
     return Theme(
       data: Theme.of(context).copyWith(inputDecorationTheme: inputDecoration),
       child: Scaffold(
-        appBar: AppBar(title: const Text('Editar Perfil')),
+        appBar: AppBar(
+          title: const Text('Editar Perfil'),
+          backgroundColor: Colors.deepPurple,
+          foregroundColor: Colors.white,
+        ),
         body: carregando
             ? const Center(child: CircularProgressIndicator())
             : SingleChildScrollView(
@@ -402,11 +515,13 @@ class EditarPerfilClienteState extends State<EditarPerfilCliente> {
                             CircleAvatar(
                               radius: 48,
                               backgroundColor: Colors.deepPurple.shade50,
-                              backgroundImage:
-                                  (fotoUrl != null && fotoUrl!.isNotEmpty)
-                                  ? NetworkImage(fotoUrl!)
-                                  : null,
-                              child: (fotoUrl == null || fotoUrl!.isEmpty)
+                              backgroundImage: _fotoSelecionada != null
+                                  ? FileImage(File(_fotoSelecionada!.path))
+                                  : (fotoUrl != null && fotoUrl!.isNotEmpty)
+                                      ? NetworkImage(fotoUrl!)
+                                      : null,
+                              child: (_fotoSelecionada == null && 
+                                     (fotoUrl == null || fotoUrl!.isEmpty))
                                   ? const Icon(
                                       Icons.person,
                                       size: 48,
@@ -445,7 +560,9 @@ class EditarPerfilClienteState extends State<EditarPerfilCliente> {
                           ],
                         ),
                       ),
+                      
                       const SizedBox(height: 12),
+                      
                       Center(
                         child: Text(
                           nomeCtrl.text.isNotEmpty ? nomeCtrl.text : 'Seu nome',
@@ -455,6 +572,7 @@ class EditarPerfilClienteState extends State<EditarPerfilCliente> {
                           ),
                         ),
                       ),
+                      
                       if (fotoUrl != null && fotoUrl!.isNotEmpty)
                         Center(
                           child: TextButton.icon(
@@ -464,7 +582,9 @@ class EditarPerfilClienteState extends State<EditarPerfilCliente> {
                           ),
                         ),
 
+                      // === INFORMAÇÕES PESSOAIS ===
                       secTitle('Informações Pessoais'),
+                      
                       DropdownButtonFormField<String>(
                         value: tipoPerfil,
                         items: const [
@@ -488,7 +608,9 @@ class EditarPerfilClienteState extends State<EditarPerfilCliente> {
                           labelText: 'Tipo de perfil',
                         ),
                       ),
+                      
                       const SizedBox(height: 15),
+                      
                       TextFormField(
                         controller: nomeCtrl,
                         decoration: const InputDecoration(
@@ -498,15 +620,26 @@ class EditarPerfilClienteState extends State<EditarPerfilCliente> {
                             (v == null || v.isEmpty) ? 'Obrigatório' : null,
                         onChanged: (_) => setState(() {}),
                       ),
+                      
                       const SizedBox(height: 15),
+                      
                       TextFormField(
                         controller: emailCtrl,
-                        readOnly: true,
                         decoration: const InputDecoration(
-                          labelText: 'E-mail (não editável)',
+                          labelText: 'E-mail',
+                          hintText: 'Seu endereço de email',
                         ),
+                        keyboardType: TextInputType.emailAddress,
+                        validator: (v) {
+                          if (v == null || v.isEmpty) return 'Obrigatório';
+                          if (!v.contains('@') || !v.contains('.')) {
+                            return 'Email inválido';
+                          }
+                          return null;
+                        },
                       ),
 
+                      // ... (resto do código permanece igual)
                       secTitle('Endereço e Contato'),
                       TextFormField(
                         controller: whatsappCtrl,
@@ -672,7 +805,7 @@ class EditarPerfilClienteState extends State<EditarPerfilCliente> {
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
-                          onPressed: salvar,
+                          onPressed: salvando ? null : salvar,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.deepPurple,
                             padding: const EdgeInsets.symmetric(vertical: 16),
@@ -680,21 +813,30 @@ class EditarPerfilClienteState extends State<EditarPerfilCliente> {
                               borderRadius: BorderRadius.circular(14),
                             ),
                           ),
-                          child: const Text(
-                            'Salvar',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
+                          child: salvando
+                              ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Text(
+                                  'Salvar Alterações',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                         ),
                       ),
                       const SizedBox(height: 12),
                       SizedBox(
                         width: double.infinity,
                         child: OutlinedButton(
-                          onPressed: () => Navigator.pop(context),
+                          onPressed: salvando ? null : () => Navigator.pop(context),
                           style: OutlinedButton.styleFrom(
                             side: const BorderSide(color: Colors.deepPurple),
                             shape: RoundedRectangleBorder(
@@ -715,7 +857,7 @@ class EditarPerfilClienteState extends State<EditarPerfilCliente> {
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
-                          onPressed: excluirConta,
+                          onPressed: salvando ? null : excluirConta,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.red.shade600,
                             padding: const EdgeInsets.symmetric(vertical: 16),

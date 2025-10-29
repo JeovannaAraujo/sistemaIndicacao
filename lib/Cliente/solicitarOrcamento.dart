@@ -70,7 +70,7 @@ class SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
   @override
   void initState() {
     super.initState();
-    db = widget.firestore ?? db;
+    db = widget.firestore ?? FirebaseFirestore.instance; // ✅ corrigido
     auth = widget.auth ?? FirebaseAuth.instance;
     _loadAll();
   }
@@ -185,37 +185,38 @@ class SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
     });
   }
 
-Future<List<String>> uploadImagens(String docId) async {
-  final List<String> urls = [];
+  Future<List<String>> uploadImagens(String docId) async {
+    final List<String> urls = [];
 
-  final storage = widget.storage ?? FirebaseStorage.instance;
+    final storage = widget.storage ?? FirebaseStorage.instance;
 
-  for (final x in imagens) {
-    try {
-      final file = File(x.path);
-      final fname = '${DateTime.now().millisecondsSinceEpoch}_${x.name}';
-      final ref = storage.ref().child('solicitacoes/$docId/$fname');
+    for (final x in imagens) {
+      try {
+        final file = File(x.path);
+        final fname = '${DateTime.now().millisecondsSinceEpoch}_${x.name}';
+        final ref = storage.ref().child('solicitacoes/$docId/$fname');
 
-      // 🔹 Detecta se é mock: ignora upload real
-      if (storage is MockFirebaseStorage) {
-        final fakeUrl = 'https://fake.storage/$fname';
-        urls.add(fakeUrl);
-        continue;
+        // 🔹 Detecta se é mock: ignora upload real
+        if (storage is MockFirebaseStorage) {
+          final fakeUrl = 'https://fake.storage/$fname';
+          urls.add(fakeUrl);
+          continue;
+        }
+
+        // 🔹 Upload real (somente se não for mock)
+        final snap = await ref.putFile(file);
+        final url = await snap.ref.getDownloadURL();
+        urls.add(url);
+      } catch (e) {
+        debugPrint('⚠️ uploadImagens fallback: $e');
+        urls.add(
+          'https://fallback.storage/${DateTime.now().millisecondsSinceEpoch}.jpg',
+        );
       }
-
-      // 🔹 Upload real (somente se não for mock)
-      final snap = await ref.putFile(file);
-      final url = await snap.ref.getDownloadURL();
-      urls.add(url);
-    } catch (e) {
-      debugPrint('⚠️ uploadImagens fallback: $e');
-      urls.add('https://fallback.storage/${DateTime.now().millisecondsSinceEpoch}.jpg');
     }
+
+    return urls;
   }
-
-  return urls;
-}
-
 
   Future<void> enviar() async {
     if (docServico == null || docPrestador == null || docCliente == null) {
@@ -889,11 +890,10 @@ class _UnidadesDropdown extends StatelessWidget {
           ),
           items: docs.map((d) {
             final data = (d.data() as Map?)?.cast<String, dynamic>() ?? {};
-            final nome = data['nome'] ?? '';
-            final abrev = data['abreviacao'] ?? '';
+                       final abrev = data['abreviacao'] ?? '';
             return DropdownMenuItem<String>(
               value: d.id,
-              child: Text('$nome ($abrev)'),
+              child: Text('$abrev'),
             );
           }).toList(),
           onChanged: onChanged,

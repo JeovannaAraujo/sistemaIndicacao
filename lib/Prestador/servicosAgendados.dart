@@ -35,8 +35,8 @@ class ServicosAgendadosScreenState extends State<ServicosAgendadosScreen> {
   @override
   void initState() {
     super.initState();
-    db = widget.firestore ?? db;
-    auth = widget.auth ?? auth;
+    db = widget.firestore ?? FirebaseFirestore.instance;
+    auth = widget.auth ?? FirebaseAuth.instance;
   }
 
 

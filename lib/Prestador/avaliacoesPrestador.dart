@@ -2,7 +2,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
-/// ✅ Classe pública para usar em testes e em FutureBuilder
 class ClienteInfo {
   final String nome;
   final String? fotoUrl;
@@ -10,10 +9,9 @@ class ClienteInfo {
   const ClienteInfo({required this.nome, this.fotoUrl});
 }
 
-/// Tela principal: visualização de avaliações do prestador
 class VisualizarAvaliacoesPrestador extends StatefulWidget {
   final String prestadorId;
-  final FirebaseFirestore? firestore; // ✅ injeção para testes
+  final FirebaseFirestore? firestore;
 
   const VisualizarAvaliacoesPrestador({
     super.key,
@@ -29,13 +27,11 @@ class VisualizarAvaliacoesPrestador extends StatefulWidget {
 class VisualizarAvaliacoesPrestadorState
     extends State<VisualizarAvaliacoesPrestador> {
   late final FirebaseFirestore firestore;
-  String prestadorId = ''; // ✅ valor padrão evita LateInitializationError
+  late String prestadorId;
 
-  // ===== filtros =====
   bool somenteMidia = false;
-  int estrelas = 0; // 0=todas, 1..5 (exatas)
+  int estrelas = 0;
 
-  // cache de clientes
   final Map<String, ClienteInfo> clienteCache = {};
 
   @override
@@ -45,34 +41,17 @@ class VisualizarAvaliacoesPrestadorState
     prestadorId = widget.prestadorId;
   }
 
-  // ---------- helpers ----------
   double? nota(Map<String, dynamic> m) {
-    for (final k in const ['nota', 'rating', 'estrelas', 'notaGeral']) {
-      final v = m[k];
-      if (v is num) return v.toDouble();
-      if (v is String) {
-        final d = double.tryParse(v);
-        if (d != null) return d;
-      }
-    }
-    final aval = m['avaliacao'];
-    if (aval is Map<String, dynamic>) {
-      for (final k in const ['nota', 'rating', 'estrelas', 'notaGeral']) {
-        final v = aval[k];
-        if (v is num) return v.toDouble();
-        if (v is String) {
-          final d = double.tryParse(v);
-          if (d != null) return d;
-        }
-      }
-    }
+    final v = m['nota'];
+    if (v is num) return v.toDouble();
+    if (v is String) return double.tryParse(v);
     return null;
   }
 
   bool temMidia(Map<String, dynamic> m) {
-    final imgs = m['imagens'];
-    if (imgs is List) return imgs.isNotEmpty;
-    if (imgs is String) return imgs.trim().isNotEmpty;
+    final img = m['imagemUrl'];
+    if (img is String) return img.trim().isNotEmpty;
+    if (img is List) return img.isNotEmpty;
     return false;
   }
 
@@ -111,12 +90,11 @@ class VisualizarAvaliacoesPrestadorState
     }
   }
 
-  // ---------- consultas ----------
   Stream<QuerySnapshot<Map<String, dynamic>>> streamAvaliacoesDoPrestador() {
     return firestore
         .collection('avaliacoes')
         .where('prestadorId', isEqualTo: prestadorId)
-        .orderBy('criadoEm', descending: true)
+        .orderBy('data', descending: true)
         .snapshots();
   }
 
@@ -135,7 +113,8 @@ class VisualizarAvaliacoesPrestadorState
         qtd++;
       }
     }
-    final media = qtd == 0 ? 0 : (soma / qtd);
+
+    final media = qtd == 0 ? 0 : soma / qtd;
     return {'media': media, 'qtd': qtd};
   }
 
@@ -159,11 +138,10 @@ class VisualizarAvaliacoesPrestadorState
 
           return CustomScrollView(
             slivers: [
-              // Header fixo com média e total
               SliverPersistentHeader(
                 pinned: true,
                 delegate: PinnedHeaderDelegate(
-                  height: 84,
+                  height: 110,
                   child: FutureBuilder<Map<String, num>>(
                     future: mediaQtdPrestador(),
                     builder: (context, m) {
@@ -174,16 +152,14 @@ class VisualizarAvaliacoesPrestadorState
                   ),
                 ),
               ),
-
-              const SliverToBoxAdapter(child: Divider(height: 1)),
-
-              // Filtros
+              // 👉 Filtros no mesmo estilo dos outros módulos
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
                   child: BarraFiltrosPadrao(
                     total: docs.length,
-                    comMidia: docs.where((d) => temMidia(d.data())).length,
+                    comMidia:
+                        docs.where((d) => temMidia(d.data())).length,
                     somenteMidia: somenteMidia,
                     estrelas: estrelas,
                     onToggleMidia: (v) => setState(() => somenteMidia = v),
@@ -191,8 +167,6 @@ class VisualizarAvaliacoesPrestadorState
                   ),
                 ),
               ),
-
-              // Lista
               SliverListaAvaliacoes(
                 docs: filtrados,
                 nota: nota,
@@ -206,85 +180,13 @@ class VisualizarAvaliacoesPrestadorState
   }
 }
 
-/* ============================================================
-   Widgets reutilizáveis (agora públicos para testes)
-   ============================================================ */
-
-class PinnedHeaderDelegate extends SliverPersistentHeaderDelegate {
-  final double height;
-  final Widget child;
-
-  PinnedHeaderDelegate({required this.height, required this.child});
-
-  @override
-  Widget build(
-    BuildContext context,
-    double shrinkOffset,
-    bool overlapsContent,
-  ) {
-    return SizedBox.expand(
-      child: Material(
-        color: Theme.of(context).scaffoldBackgroundColor,
-        elevation: overlapsContent ? 1 : 0,
-        child: child,
-      ),
-    );
-  }
-
-  @override
-  double get maxExtent => height;
-
-  @override
-  double get minExtent => height;
-
-  @override
-  bool shouldRebuild(covariant PinnedHeaderDelegate old) {
-    return height != old.height || child != old.child;
-  }
-}
-
-class HeaderPrestador extends StatelessWidget {
-  final double media;
-  final int qtd;
-
-  const HeaderPrestador({required this.media, required this.qtd});
-
-  @override
-  Widget build(BuildContext context) {
-    const starSize = 16.0;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-      child: Row(
-        children: [
-          Text(
-            media.toStringAsFixed(1),
-            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(width: 8),
-          ...List.generate(
-            5,
-            (_) => const Icon(Icons.star, size: starSize, color: Colors.amber),
-          ),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Text(
-              '($qtd avaliações)',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.black87),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
+// ======================= COMPONENTES =======================
 
 class BarraFiltrosPadrao extends StatelessWidget {
   final int total;
   final int comMidia;
   final bool somenteMidia;
-  final int estrelas; // 0=todas, 1..5 (exato)
+  final int estrelas;
   final ValueChanged<bool> onToggleMidia;
   final ValueChanged<int> onChangeEstrelas;
 
@@ -297,9 +199,6 @@ class BarraFiltrosPadrao extends StatelessWidget {
     required this.onChangeEstrelas,
   });
 
-  static const double _pillHeight = 54;
-  static const double _gap = 12;
-
   @override
   Widget build(BuildContext context) {
     return Row(
@@ -309,32 +208,26 @@ class BarraFiltrosPadrao extends StatelessWidget {
             label: 'Todas',
             count: total,
             selected: !somenteMidia && estrelas == 0,
-            width: double.infinity,
-            height: _pillHeight,
             onTap: () {
               onToggleMidia(false);
               onChangeEstrelas(0);
             },
           ),
         ),
-        const SizedBox(width: _gap),
+        const SizedBox(width: 8),
         Expanded(
           child: FiltroPill(
             label: 'Com Mídia',
             count: comMidia,
             selected: somenteMidia,
-            width: double.infinity,
-            height: _pillHeight,
             onTap: () => onToggleMidia(true),
           ),
         ),
-        const SizedBox(width: _gap),
+        const SizedBox(width: 8),
         Expanded(
           child: DropdownEstrelasExato(
             value: estrelas,
             onChanged: onChangeEstrelas,
-            width: double.infinity,
-            height: _pillHeight,
           ),
         ),
       ],
@@ -346,16 +239,12 @@ class FiltroPill extends StatelessWidget {
   final String label;
   final int count;
   final bool selected;
-  final double width;
-  final double height;
   final VoidCallback onTap;
 
   const FiltroPill({
     required this.label,
     required this.count,
     required this.selected,
-    required this.width,
-    required this.height,
     required this.onTap,
   });
 
@@ -366,8 +255,7 @@ class FiltroPill extends StatelessWidget {
       borderRadius: BorderRadius.circular(10),
       onTap: onTap,
       child: Container(
-        width: width,
-        height: height,
+        height: 54,
         padding: const EdgeInsets.symmetric(horizontal: 10),
         decoration: BoxDecoration(
           color: selected ? const Color(0x115B33D6) : Colors.transparent,
@@ -375,25 +263,22 @@ class FiltroPill extends StatelessWidget {
           border: Border.all(color: borderColor, width: 1.2),
         ),
         child: Center(
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  label,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: Colors.black87,
-                  ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black87,
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  '($count)',
-                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                '($count)',
+                style: TextStyle(color: Colors.grey[600], fontSize: 12),
+              ),
+            ],
           ),
         ),
       ),
@@ -402,26 +287,20 @@ class FiltroPill extends StatelessWidget {
 }
 
 class DropdownEstrelasExato extends StatelessWidget {
-  final int value; // 0..5
+  final int value;
   final ValueChanged<int> onChanged;
-  final double width;
-  final double height;
 
   const DropdownEstrelasExato({
     required this.value,
     required this.onChanged,
-    required this.width,
-    required this.height,
   });
 
   @override
   Widget build(BuildContext context) {
     const borderColor = Color(0xFF5B33D6);
     const itens = [0, 1, 2, 3, 4, 5];
-
     return Container(
-      width: width,
-      height: height,
+      height: 54,
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
         border: Border.all(color: borderColor, width: 1.2),
@@ -434,14 +313,75 @@ class DropdownEstrelasExato extends StatelessWidget {
           icon: const Icon(Icons.keyboard_arrow_down_rounded),
           onChanged: (v) => onChanged(v ?? 0),
           items: itens
-              .map(
-                (v) => DropdownMenuItem<int>(
-                  value: v,
-                  child: Text(v == 0 ? 'Todas' : '$v ★'),
-                ),
-              )
+              .map((v) => DropdownMenuItem<int>(
+                    value: v,
+                    child: Text(v == 0 ? 'Todas' : '$v ★'),
+                  ))
               .toList(),
         ),
+      ),
+    );
+  }
+}
+
+class PinnedHeaderDelegate extends SliverPersistentHeaderDelegate {
+  final double height;
+  final Widget child;
+
+  PinnedHeaderDelegate({required this.height, required this.child});
+
+  @override
+  Widget build(
+          BuildContext context, double shrinkOffset, bool overlapsContent) =>
+      SizedBox.expand(child: child);
+
+  @override
+  double get maxExtent => height;
+  @override
+  double get minExtent => height;
+  @override
+  bool shouldRebuild(covariant PinnedHeaderDelegate old) => true;
+}
+
+class HeaderPrestador extends StatelessWidget {
+  final double media;
+  final int qtd;
+
+  const HeaderPrestador({required this.media, required this.qtd});
+
+  @override
+  Widget build(BuildContext context) {
+    final arred = media.isNaN ? 0 : media;
+    final int cheias = arred.floor();
+    final bool meia = (arred - cheias) >= 0.5;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      child: Row(
+        children: [
+          Text(
+            arred.toStringAsFixed(1),
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(width: 8),
+          ...List.generate(
+            5,
+            (i) {
+              if (i < cheias) {
+                return const Icon(Icons.star, color: Colors.amber, size: 18);
+              } else if (i == cheias && meia) {
+                return const Icon(Icons.star_half,
+                    color: Colors.amber, size: 18);
+              } else {
+                return const Icon(Icons.star_border,
+                    color: Colors.amber, size: 18);
+              }
+            },
+          ),
+          const SizedBox(width: 8),
+          Text('($qtd avaliações)',
+              style: const TextStyle(color: Colors.black54)),
+        ],
       ),
     );
   }
@@ -463,7 +403,7 @@ class SliverListaAvaliacoes extends StatelessWidget {
     if (docs.isEmpty) {
       return const SliverFillRemaining(
         hasScrollBody: false,
-        child: Center(child: Text('Nenhuma avaliação com os filtros atuais.')),
+        child: Center(child: Text('Nenhuma avaliação encontrada.')),
       );
     }
 
@@ -471,98 +411,125 @@ class SliverListaAvaliacoes extends StatelessWidget {
       itemCount: docs.length,
       itemBuilder: (_, i) {
         final d = docs[i].data();
-        final titulo = (d['servicoTitulo'] as String?) ?? '';
-        final comentario = (d['comentario'] as String?) ?? '';
-        final n = (nota(d) ?? 0.0).round();
-        final ts = d['criadoEm'];
-        DateTime? dt;
-        if (ts is Timestamp) dt = ts.toDate();
-        final clienteId = (d['clienteId'] as String?) ?? '';
-
         return Padding(
-          padding: EdgeInsets.fromLTRB(16, i == 0 ? 8 : 8, 16, 8),
-          child: Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: const BorderSide(color: Color(0x11000000)),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (titulo.isNotEmpty)
-                    Text(
-                      titulo,
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                  if (clienteId.isNotEmpty)
-                    FutureBuilder<ClienteInfo>(
-                      future: getClienteInfo(clienteId),
-                      builder: (context, snap) {
-                        final info =
-                            snap.data ?? const ClienteInfo(nome: 'Cliente');
-                        return Padding(
-                          padding: const EdgeInsets.only(top: 8.0, bottom: 6.0),
-                          child: Row(
-                            children: [
-                              CircleAvatar(
-                                radius: 14,
-                                backgroundColor: const Color(0xFFEDE7FF),
-                                backgroundImage: (info.fotoUrl != null)
-                                    ? NetworkImage(info.fotoUrl!)
-                                    : null,
-                                child: (info.fotoUrl == null)
-                                    ? const Icon(
-                                        Icons.person,
-                                        size: 16,
-                                        color: Color(0xFF5B33D6),
-                                      )
-                                    : null,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  info.nome,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: Colors.black87,
-                                    fontWeight: FontWeight.w600,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+            future: FirebaseFirestore.instance
+                .collection('solicitacoesOrcamento')
+                .doc(d['solicitacaoId'])
+                .get(),
+            builder: (context, solSnap) {
+              String servicoTitulo = '';
+              if (solSnap.hasData && solSnap.data?.data() != null) {
+                final solData = solSnap.data!.data()!;
+                servicoTitulo = (solData['servicoTitulo'] ?? '').toString();
+              }
+
+              final comentario = (d['comentario'] ?? '').toString();
+              final n = (nota(d) ?? 0.0).round();
+              final ts = d['data'];
+              DateTime? dt;
+              if (ts is Timestamp) dt = ts.toDate();
+              final clienteId = (d['clienteId'] as String?) ?? '';
+
+              return Card(
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: const BorderSide(color: Color(0x11000000)),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (servicoTitulo.isNotEmpty)
+                        Text(
+                          servicoTitulo,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF5B33D6),
+                          ),
+                        ),
+                      const SizedBox(height: 6),
+                      if (clienteId.isNotEmpty)
+                        FutureBuilder<ClienteInfo>(
+                          future: getClienteInfo(clienteId),
+                          builder: (context, snap) {
+                            final info =
+                                snap.data ?? const ClienteInfo(nome: 'Cliente');
+                            return Row(
+                              children: [
+                                CircleAvatar(
+                                  radius: 14,
+                                  backgroundColor: const Color(0xFFEDE7FF),
+                                  backgroundImage: (info.fotoUrl != null)
+                                      ? NetworkImage(info.fotoUrl!)
+                                      : null,
+                                  child: (info.fotoUrl == null)
+                                      ? const Icon(Icons.person,
+                                          size: 16, color: Color(0xFF5B33D6))
+                                      : null,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    info.nome,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.black87,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
                                 ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                  Row(
-                    children: [
-                      ...List.generate(
-                        5,
-                        (idx) => Icon(
-                          idx < n ? Icons.star : Icons.star_border,
-                          size: 16,
-                          color: Colors.amber,
+                              ],
+                            );
+                          },
                         ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          ...List.generate(
+                            5,
+                            (idx) => Icon(
+                              idx < n ? Icons.star : Icons.star_border,
+                              size: 16,
+                              color: Colors.amber,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          if (dt != null)
+                            Text(
+                              '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}',
+                              style: const TextStyle(color: Colors.grey),
+                            ),
+                        ],
                       ),
-                      const SizedBox(width: 8),
-                      if (dt != null)
-                        Text(
-                          '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}',
-                          style: const TextStyle(color: Colors.grey),
+                      if (comentario.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(comentario),
+                      ],
+                      if (d['imagemUrl'] != null &&
+                          (d['imagemUrl'] as String).isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.network(
+                              d['imagemUrl'],
+                              height: 120,
+                              width: double.infinity,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
                         ),
                     ],
                   ),
-                  if (comentario.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Text(comentario),
-                  ],
-                ],
-              ),
-            ),
+                ),
+              );
+            },
           ),
         );
       },

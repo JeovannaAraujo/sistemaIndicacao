@@ -3,7 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 class EditarServico extends StatefulWidget {
   final String serviceId;
-  final FirebaseFirestore? firestore; // ✅ injeção para testes
+  final FirebaseFirestore? firestore;
 
   const EditarServico({
     super.key,
@@ -26,16 +26,16 @@ class EditarServicoState extends State<EditarServico> {
   final valorMedioController = TextEditingController();
   final valorMaximoController = TextEditingController();
 
-  // Seleções (por ID)
+  // Seleções
   String? unidadeSelecionadaId;
   String? categoriaSelecionadaId;
   bool ativo = true;
 
+  bool carregando = true;
+
   // Streams
   late final Stream<QuerySnapshot<Map<String, dynamic>>> unidadesStream;
   late final Stream<QuerySnapshot<Map<String, dynamic>>> categoriasStream;
-
-  bool carregando = true;
 
   @override
   void initState() {
@@ -57,9 +57,9 @@ class EditarServicoState extends State<EditarServico> {
     carregarServico();
   }
 
-  // 🔹 Deixa público para testes
   Future<void> carregarServico() async {
     final doc = await _db.collection('servicos').doc(widget.serviceId).get();
+
     if (!doc.exists) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -75,7 +75,6 @@ class EditarServicoState extends State<EditarServico> {
     descricaoController.text = data['descricao'] ?? '';
     unidadeSelecionadaId = data['unidadeId'];
     categoriaSelecionadaId = data['categoriaId'];
-
     valorMinimoController.text = (data['valorMinimo'] ?? 0).toString();
     valorMedioController.text = (data['valorMedio'] ?? 0).toString();
     valorMaximoController.text = (data['valorMaximo'] ?? 0).toString();
@@ -87,7 +86,6 @@ class EditarServicoState extends State<EditarServico> {
   double parseNum(String s) =>
       double.tryParse(s.replaceAll(',', '.').trim()) ?? 0.0;
 
-  // 🔹 Deixa público para testes
   Future<void> salvar() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -97,32 +95,10 @@ class EditarServicoState extends State<EditarServico> {
       );
       return;
     }
+
     if (unidadeSelecionadaId == null || unidadeSelecionadaId!.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Selecione a unidade de medida.')),
-      );
-      return;
-    }
-
-    // Revalida se continuam ativas
-    final catDoc =
-        await _db.collection('categoriasServicos').doc(categoriaSelecionadaId).get();
-    if (!catDoc.exists || catDoc.data()?['ativo'] != true) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('A categoria selecionada não está mais ativa.'),
-        ),
-      );
-      return;
-    }
-
-    final uniDoc =
-        await _db.collection('unidades').doc(unidadeSelecionadaId).get();
-    if (!uniDoc.exists || uniDoc.data()?['ativo'] != true) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('A unidade selecionada não está mais ativa.'),
-        ),
       );
       return;
     }
@@ -147,7 +123,6 @@ class EditarServicoState extends State<EditarServico> {
     }
   }
 
-  // 🔹 Deixa público para testes
   Future<void> excluir() async {
     final confirmar = await showDialog<bool>(
       context: context,
@@ -200,26 +175,127 @@ class EditarServicoState extends State<EditarServico> {
               child: Form(
                 key: _formKey,
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    // Nome
                     TextFormField(
                       controller: nomeController,
-                      decoration: const InputDecoration(labelText: 'Nome do serviço'),
+                      decoration: const InputDecoration(
+                        labelText: 'Nome do serviço',
+                      ),
                       validator: (v) =>
                           (v == null || v.trim().isEmpty) ? 'Obrigatório' : null,
                     ),
+                    const SizedBox(height: 16),
+
+                    // Descrição
                     TextFormField(
                       controller: descricaoController,
-                      decoration: const InputDecoration(labelText: 'Descrição do serviço'),
+                      decoration: const InputDecoration(
+                        labelText: 'Descrição do serviço',
+                      ),
                       maxLines: 3,
                       validator: (v) =>
                           (v == null || v.trim().isEmpty) ? 'Obrigatório' : null,
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 16),
+
+                    // Categoria
+                    StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                      stream: categoriasStream,
+                      builder: (context, snapshot) {
+                        if (!snapshot.hasData) {
+                          return const CircularProgressIndicator();
+                        }
+                        final docs = snapshot.data!.docs;
+                        return DropdownButtonFormField<String>(
+                          value: categoriaSelecionadaId,
+                          decoration:
+                              const InputDecoration(labelText: 'Categoria'),
+                          items: docs.map((doc) {
+                            return DropdownMenuItem(
+                              value: doc.id,
+                              child: Text(doc['nome']),
+                            );
+                          }).toList(),
+                          onChanged: (v) =>
+                              setState(() => categoriaSelecionadaId = v),
+                          validator: (v) =>
+                              v == null ? 'Selecione uma categoria' : null,
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Unidade de medida
+                    StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                      stream: unidadesStream,
+                      builder: (context, snapshot) {
+                        if (!snapshot.hasData) {
+                          return const CircularProgressIndicator();
+                        }
+                        final docs = snapshot.data!.docs;
+                        return DropdownButtonFormField<String>(
+                          value: unidadeSelecionadaId,
+                          decoration:
+                              const InputDecoration(labelText: 'Unidade de medida'),
+                          items: docs.map((doc) {
+                            return DropdownMenuItem(
+                              value: doc.id,
+                              child: Text(doc['nome']),
+                            );
+                          }).toList(),
+                          onChanged: (v) =>
+                              setState(() => unidadeSelecionadaId = v),
+                          validator: (v) =>
+                              v == null ? 'Selecione uma unidade' : null,
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Valores
+                    TextFormField(
+                      controller: valorMinimoController,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      decoration:
+                          const InputDecoration(labelText: 'Valor mínimo (R\$)'),
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: valorMedioController,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      decoration:
+                          const InputDecoration(labelText: 'Valor médio (R\$)'),
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: valorMaximoController,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      decoration:
+                          const InputDecoration(labelText: 'Valor máximo (R\$)'),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Switch de ativo
+                    SwitchListTile(
+                      title: const Text('Serviço ativo'),
+                      value: ativo,
+                      activeColor: Colors.deepPurple,
+                      onChanged: (v) => setState(() => ativo = v),
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Botões
                     ElevatedButton(
                       onPressed: salvar,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.deepPurple,
-                        padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 40, vertical: 16),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(24),
                         ),
@@ -230,7 +306,8 @@ class EditarServicoState extends State<EditarServico> {
                     OutlinedButton(
                       onPressed: () => Navigator.pop(context),
                       style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 40, vertical: 16),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(24),
                         ),

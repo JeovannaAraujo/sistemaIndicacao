@@ -95,13 +95,15 @@ class _AvaliarPrestadorScreenState extends State<AvaliarPrestadorScreen> {
 
       final dados = doc.data()!;
       final prestadorId = dados['prestadorId'] ?? '';
+      final servicoId = dados['servicoId'] ?? ''; // ✅ NOVO: Pegar servicoId
 
       // ✅ Upload opcional de imagem
       final imagemUrl = await _uploadImagem(clienteId);
 
-      // ✅ Cria a avaliação
+      // ✅ Cria a avaliação COM servicoId
       await widget.firestore.collection('avaliacoes').add({
         'solicitacaoId': widget.solicitacaoId,
+        'servicoId': servicoId, // ✅ CAMPO NOVO ADICIONADO
         'clienteId': clienteId,
         'prestadorId': prestadorId,
         'nota': nota,
