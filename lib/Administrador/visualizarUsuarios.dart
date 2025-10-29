@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class VisualizarUsuarios extends StatefulWidget {
-  final FirebaseFirestore? firestore; // 🔹 permite injetar o Firestore fake nos testes
+  final FirebaseFirestore? firestore;
+
   const VisualizarUsuarios({super.key, this.firestore});
 
   @override
@@ -12,7 +13,6 @@ class VisualizarUsuarios extends StatefulWidget {
 class _VisualizarUsuariosState extends State<VisualizarUsuarios> {
   String _filtroSelecionado = 'todos';
 
-  // 🔹 usa o firestore injetado nos testes, ou o real no app
   CollectionReference<Map<String, dynamic>> get usuariosRef =>
       (widget.firestore ?? FirebaseFirestore.instance)
           .collection('usuarios');
@@ -25,6 +25,7 @@ class _VisualizarUsuariosState extends State<VisualizarUsuarios> {
       case 'Cliente':
       case 'Prestador':
       case 'Administrador':
+      case 'Ambos':
         return base
             .where('tipoPerfil', isEqualTo: _filtroSelecionado)
             .orderBy('nome');
@@ -38,43 +39,67 @@ class _VisualizarUsuariosState extends State<VisualizarUsuarios> {
     final query = _buildQuery();
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF9F6FF),
       appBar: AppBar(
-        title: const Text('Usuários Cadastrados'),
-        backgroundColor: Colors.deepPurple,
+        backgroundColor: Colors.white,
+        elevation: 0.5,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
+          icon: const Icon(Icons.arrow_back, color: Colors.deepPurple),
           onPressed: () => Navigator.pop(context),
+        ),
+        title: const Text(
+          'Usuários Cadastrados',
+          style: TextStyle(
+            color: Colors.deepPurple,
+            fontWeight: FontWeight.bold,
+            fontSize: 20,
+          ),
         ),
       ),
       body: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Visualize todos os usuários cadastrados no sistema',
+              'Visualize e gerencie todos os usuários cadastrados no sistema',
               style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: Colors.deepPurple,
+                color: Colors.black87,
+                fontSize: 14.5,
               ),
             ),
-            const SizedBox(height: 16),
-            DropdownButton<String>(
-              value: _filtroSelecionado,
-              onChanged: (value) {
-                if (value != null) {
-                  setState(() => _filtroSelecionado = value);
-                }
-              },
-              items: const [
-                DropdownMenuItem(value: 'todos', child: Text('Todos')),
-                DropdownMenuItem(value: 'Cliente', child: Text('Clientes')),
-                DropdownMenuItem(value: 'Prestador', child: Text('Prestadores')),
-                DropdownMenuItem(value: 'Administrador', child: Text('Administradores')),
-              ],
+            const SizedBox(height: 20),
+
+            // 🔹 Filtro estilizado
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.black12),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: _filtroSelecionado,
+                  icon: const Icon(Icons.arrow_drop_down, color: Colors.deepPurple),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() => _filtroSelecionado = value);
+                    }
+                  },
+                  items: const [
+                    DropdownMenuItem(value: 'todos', child: Text('Todos')),
+                    DropdownMenuItem(value: 'Cliente', child: Text('Clientes')),
+                    DropdownMenuItem(value: 'Prestador', child: Text('Prestadores')),
+                    DropdownMenuItem(value: 'Ambos', child: Text('Ambos')),
+                    DropdownMenuItem(value: 'Administrador', child: Text('Administradores')),
+                  ],
+                ),
+              ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
+
+            // 🔹 Lista de usuários
             Expanded(
               child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                 stream: query.snapshots(),
@@ -108,66 +133,106 @@ class _VisualizarUsuariosState extends State<VisualizarUsuarios> {
                     );
                   }
 
-                  return ListView.separated(
+                  return ListView.builder(
                     itemCount: usuarios.length,
-                    separatorBuilder: (_, __) => const Divider(),
                     itemBuilder: (context, index) {
                       final user = usuarios[index].data();
                       final nome = (user['nome'] ?? '-') as String;
                       final email = (user['email'] ?? '-') as String;
-                      final tipoPerfil = (user['tipoPerfil'] ?? 'Cliente') as String;
+                      final tipoPerfil =
+                          (user['tipoPerfil'] ?? 'Cliente') as String;
                       final ativo = user['ativo'] == true;
 
-                      return ListTile(
-                        leading: const Icon(
-                          Icons.person,
-                          color: Colors.deepPurple,
-                        ),
-                        title: Text(nome),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(email),
-                            const SizedBox(height: 4),
-                            Text('Tipo: $tipoPerfil'),
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.deepPurple.withOpacity(0.08),
+                              blurRadius: 6,
+                              offset: const Offset(0, 3),
+                            ),
                           ],
                         ),
-                        trailing: Switch(
-                          value: ativo,
-                          onChanged: (val) async {
-                            try {
-                              await usuariosRef.doc(usuarios[index].id).update({
-                                'ativo': val,
-                                'atualizadoEm': FieldValue.serverTimestamp(),
-                              });
-                              if (!context.mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    val
-                                        ? 'Usuário ativado'
-                                        : 'Usuário desativado',
+                        child: Row(
+                          children: [
+                            // 🔹 Ícone genérico
+                            const Icon(Icons.person, color: Colors.deepPurple),
+                            const SizedBox(width: 12),
+
+                            // 🔹 Nome, e-mail e tipo
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    nome,
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.deepPurple,
+                                    ),
                                   ),
-                                ),
-                              );
-                            } on FirebaseException catch (e) {
-                              if (!context.mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    'Falha ao atualizar: ${e.code}',
-                                  ),
-                                ),
-                              );
-                            } catch (e) {
-                              if (!context.mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Falha ao atualizar: $e'),
-                                ),
-                              );
-                            }
-                          },
+                                  const SizedBox(height: 4),
+                                  Text(email,
+                                      style: const TextStyle(
+                                          fontSize: 13,
+                                          color: Colors.black87)),
+                                  const SizedBox(height: 2),
+                                  Text('Tipo: $tipoPerfil',
+                                      style: const TextStyle(
+                                          fontSize: 13,
+                                          color: Colors.black54)),
+                                ],
+                              ),
+                            ),
+
+                            // 🔹 Switch de ativo/inativo
+                            Switch(
+                              value: ativo,
+                              activeColor: Colors.deepPurple,
+                              onChanged: (val) async {
+                                try {
+                                  await usuariosRef
+                                      .doc(usuarios[index].id)
+                                      .update({
+                                    'ativo': val,
+                                    'atualizadoEm':
+                                        FieldValue.serverTimestamp(),
+                                  });
+                                  if (!context.mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        val
+                                            ? 'Usuário ativado'
+                                            : 'Usuário desativado',
+                                      ),
+                                    ),
+                                  );
+                                } on FirebaseException catch (e) {
+                                  if (!context.mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content:
+                                          Text('Falha ao atualizar: ${e.code}'),
+                                    ),
+                                  );
+                                } catch (e) {
+                                  if (!context.mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content:
+                                          Text('Falha ao atualizar: $e'),
+                                    ),
+                                  );
+                                }
+                              },
+                            ),
+                          ],
                         ),
                       );
                     },

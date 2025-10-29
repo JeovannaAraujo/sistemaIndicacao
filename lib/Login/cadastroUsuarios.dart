@@ -104,6 +104,7 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
       style: const TextStyle(
         fontSize: _sectionFontSize,
         fontWeight: _sectionFontWeight,
+        color: Colors.deepPurple,
       ),
     ),
   );
@@ -485,102 +486,50 @@ Future<void> buscarCep(String maskCep) async {
   }
 
   // =============== AÇÕES DE MAPA (CEP / Endereço) ===============
-  Future<void> _localizarPeloCEP() async {
-    if (!isPrestador) return;
-    final cep = cepController.text.replaceAll(RegExp(r'[^0-9]'), '');
-    if (cep.length != 8) {
+ // =============== AÇÕES DE MAPA (CEP / Endereço) ===============
+Future<void> _localizarPeloCEP() async {
+  if (!isPrestador) return;
+  final cep = cepController.text.replaceAll(RegExp(r'[^0-9]'), '');
+  if (cep.length != 8) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Informe um CEP válido (8 dígitos).')),
+    );
+    return;
+  }
+
+  setState(() => _mapBusy = true);
+  try {
+    // 🔹 USA O MÉTODO coordsPorCep QUE JÁ FUNCIONA
+    final latLng = await coordsPorCep(cepController.text);
+    
+    if (latLng != null) {
+      setState(() => pickedLatLng = latLng);
+
+      if (mapCtrl != null) {
+        await mapCtrl!.animateCamera(
+          CameraUpdate.newCameraPosition(
+            CameraPosition(target: latLng, zoom: 16),
+          ),
+        );
+      }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Informe um CEP válido (8 dígitos).')),
+        const SnackBar(content: Text('Pino posicionado pelo CEP.')),
       );
-      return;
-    }
-
-    setState(() => _mapBusy = true);
-    try {
-      final comps = <gws.Component>[
-        gws.Component('postal_code', cep),
-        if (cidadeController.text.isNotEmpty)
-          gws.Component('locality', cidadeController.text.trim()),
-        if (uf.isNotEmpty) gws.Component('administrative_area_level_1', uf),
-        gws.Component('country', 'BR'),
-      ];
-
-      final resp = await _geocoding.searchByComponents(comps);
-
-      if (resp.status == 'OK' && resp.results.isNotEmpty) {
-        final loc = resp.results.first.geometry.location;
-        final latLng = LatLng(loc.lat, loc.lng);
-
-        setState(() => pickedLatLng = latLng);
-
-        if (mapCtrl != null) {
-          await mapCtrl!.animateCamera(
-            CameraUpdate.newCameraPosition(
-              CameraPosition(target: latLng, zoom: 16),
-            ),
-          );
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Pino posicionado pelo CEP.')),
-        );
-      } else {
-        print('Geocoding erro: ${resp.status} - ${resp.errorMessage}');
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Não foi possível localizar esse CEP.')),
-        );
-      }
-    } catch (e) {
-      print('Erro Geocoding: $e');
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Erro ao localizar CEP: $e')));
-    } finally {
-      if (mounted) setState(() => _mapBusy = false);
-    }
-  }
-
-  Future<void> _localizarPeloEndereco() async {
-    if (!isPrestador) return;
-    setState(() => _mapBusy = true);
-    try {
-      final geo = await geocodePrestador(
-        cep: cepController.text.trim(),
-        rua: ruaController.text.trim(),
-        numero: numeroController.text.trim(),
-        bairro: bairroController.text.trim(),
-        cidade: cidadeController.text.trim(),
-        uf: uf,
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Não foi possível localizar esse CEP.')),
       );
-      if (geo != null) {
-        final latLng = LatLng(geo.latitude, geo.longitude);
-        setState(() => pickedLatLng = latLng);
-        if (mapCtrl != null) {
-          await mapCtrl!.animateCamera(
-            CameraUpdate.newCameraPosition(
-              CameraPosition(target: latLng, zoom: 16),
-            ),
-          );
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Localização encontrada. Ajuste o pino se necessário.',
-            ),
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Não foi possível localizar pelo endereço. Ajuste manualmente no mapa.',
-            ),
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _mapBusy = false);
     }
+  } catch (e) {
+    print('Erro ao localizar CEP: $e');
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Erro ao localizar CEP: $e')));
+  } finally {
+    if (mounted) setState(() => _mapBusy = false);
   }
+}
+
 
   // =============== CADASTRAR ===============
   // 🔹 Versão compatível com testes (sem alterar funcionamento)
@@ -939,26 +888,13 @@ Future<void> buscarCep(String maskCep) async {
               // ====== MAPA: Confirmar localização ======
               if (isPrest) ...[
                 const SizedBox(height: 18),
-                Row(
-                  children: [
-                    const Expanded(
-                      child: Text(
-                        'Confirme sua localização no mapa',
-                        style: TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                    TextButton.icon(
-                      onPressed: _mapBusy ? null : _localizarPeloCEP,
-                      icon: const Icon(Icons.pin_drop_outlined),
-                      label: const Text('Pelo CEP'),
-                    ),
-                    const SizedBox(width: 8),
-                    TextButton.icon(
-                      onPressed: _mapBusy ? null : _localizarPeloEndereco,
-                      icon: const Icon(Icons.my_location),
-                      label: const Text('Pelo endereço'),
-                    ),
-                  ],
+                const Text(
+                  'Confirme sua localização no mapa',
+                  style: TextStyle(
+                    fontSize: _sectionFontSize,
+                    fontWeight: _sectionFontWeight,
+                    color: Colors.deepPurple,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Container(

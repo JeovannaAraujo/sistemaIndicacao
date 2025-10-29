@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class CategProf extends StatefulWidget {
-  final FirebaseFirestore? firestore; 
+  final FirebaseFirestore? firestore;
 
   const CategProf({super.key, this.firestore});
 
@@ -16,8 +16,8 @@ class _CategProfState extends State<CategProf> {
   @override
   void initState() {
     super.initState();
-    final fs = widget.firestore ?? FirebaseFirestore.instance;
-    categoriasRef = fs.collection('categoriasProfissionais');
+    categoriasRef = (widget.firestore ?? FirebaseFirestore.instance)
+        .collection('categoriasProfissionais');
   }
 
   void _abrirDialogo({DocumentSnapshot? categoria}) {
@@ -29,125 +29,189 @@ class _CategProfState extends State<CategProf> {
 
     showDialog(
       context: context,
-      builder: (_) => StatefulBuilder(
-        builder: (context, setDialogState) => Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          insetPadding: const EdgeInsets.all(16),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      isEdicao
-                          ? 'Alteração de categoria de profissional'
-                          : 'Nova categoria de profissional',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.deepPurple,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Preencha os campos abaixo para criar uma nova categoria.',
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  TextFormField(
-                    controller: nomeCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Nome da categoria',
-                      hintText: 'Ex: Eletricista',
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: descCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Descrição da categoria',
-                      hintText: 'Descreva a categoria.',
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  ElevatedButton(
-                    onPressed: () {
-                      if (nomeCtrl.text.isNotEmpty && descCtrl.text.isNotEmpty) {
-                        final data = {
-                          'nome': nomeCtrl.text,
-                          'descricao': descCtrl.text,
-                          'ativo': true,
-                        };
-                        if (isEdicao) {
-                          categoriasRef.doc(categoria.id).update(data);
-                        } else {
-                          categoriasRef.add(data);
-                        }
-                        Navigator.pop(context);
-                      }
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.deepPurple,
-                      minimumSize: const Size.fromHeight(48),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                    ),
-                    child: const Text(
-                      'Salvar',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  OutlinedButton(
-                    onPressed: () => Navigator.pop(context),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(48),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                      side: const BorderSide(color: Colors.black),
-                    ),
-                    child: const Text(
-                      'Cancelar',
-                      style: TextStyle(color: Colors.black),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: const BorderSide(color: Colors.black12, width: 1),
+        ),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 80),
+        backgroundColor: Colors.white,
+        title: Text(
+          isEdicao
+              ? 'Editar Categoria de Profissional'
+              : 'Nova Categoria de Profissional',
+          style: const TextStyle(
+            color: Colors.deepPurple,
+            fontWeight: FontWeight.bold,
+            fontSize: 20,
           ),
         ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: nomeCtrl,
+                decoration: InputDecoration(
+                  labelText: 'Nome da categoria',
+                  labelStyle: const TextStyle(fontSize: 14),
+                  filled: true,
+                  fillColor: Colors.white,
+                  contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 10),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Colors.black26),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide:
+                        const BorderSide(color: Colors.deepPurple),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: descCtrl,
+                decoration: InputDecoration(
+                  labelText: 'Descrição da categoria',
+                  labelStyle: const TextStyle(fontSize: 14),
+                  filled: true,
+                  fillColor: Colors.white,
+                  contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 10),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Colors.black26),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide:
+                        const BorderSide(color: Colors.deepPurple),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // 🔴 Botão Cancelar
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.redAccent,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 26, vertical: 10),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                child: const Text(
+                  'Cancelar',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              // 🟣 Botão Salvar
+              ElevatedButton(
+                onPressed: () async {
+                  if (nomeCtrl.text.isNotEmpty &&
+                      descCtrl.text.isNotEmpty) {
+                    final data = {
+                      'nome': nomeCtrl.text.trim(),
+                      'descricao': descCtrl.text.trim(),
+                      'ativo': true,
+                    };
+                    if (isEdicao) {
+                      await categoriasRef.doc(categoria!.id).update(data);
+                    } else {
+                      await categoriasRef.add(data);
+                    }
+                    if (context.mounted) Navigator.pop(context);
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.deepPurple,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 26, vertical: 10),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                child: const Text(
+                  'Salvar',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildLinha(DocumentSnapshot doc) {
+  Widget _buildCard(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.deepPurple.withOpacity(0.08),
+            blurRadius: 6,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
       child: Row(
         children: [
-          const SizedBox(width: 40),
-          const SizedBox(width: 8),
-          Expanded(flex: 4, child: Text(data['nome'] ?? '-')),
-          Expanded(flex: 4, child: Text(data['descricao'] ?? '-')),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  data['nome'] ?? '-',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.deepPurple,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  data['descricao'] ?? '-',
+                  style:
+                      const TextStyle(fontSize: 13, color: Colors.black54),
+                ),
+              ],
+            ),
+          ),
           ElevatedButton(
             onPressed: () => _abrirDialogo(categoria: doc),
-            style: ElevatedButton.styleFrom(minimumSize: const Size(60, 36)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.deepPurple,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
             child: const Text('Editar'),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Switch(
             value: data['ativo'] == true,
+            activeColor: Colors.deepPurple,
             onChanged: (val) =>
                 categoriasRef.doc(doc.id).update({'ativo': val}),
           ),
@@ -159,69 +223,76 @@ class _CategProfState extends State<CategProf> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF9F6FF),
       appBar: AppBar(
-        title: const Text('Categorias de profissionais'),
-        backgroundColor: Colors.deepPurple,
+        backgroundColor: Colors.white,
+        elevation: 0.5,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
+          icon: const Icon(Icons.arrow_back, color: Colors.deepPurple),
           onPressed: () => Navigator.pop(context),
+        ),
+        title: const Text(
+          'Categorias de Profissionais',
+          style: TextStyle(
+            color: Colors.deepPurple,
+            fontWeight: FontWeight.bold,
+            fontSize: 20,
+          ),
         ),
       ),
       body: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Gerencie as categorias disponíveis de profissionais',
+              'Gerencie as categorias utilizadas pelos prestadores cadastrados',
               style: TextStyle(
-                color: Colors.deepPurple,
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+                fontSize: 14.5,
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
             Align(
               alignment: Alignment.centerRight,
               child: ElevatedButton.icon(
                 onPressed: () => _abrirDialogo(),
                 icon: const Icon(Icons.add, color: Colors.white),
-                label: const Text('Nova Categoria', style: TextStyle(color: Colors.white)),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple),
+                label: const Text(
+                  'Nova Categoria',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.deepPurple,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(50),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 22, vertical: 12),
+                ),
               ),
             ),
-            const Divider(),
-            const Row(
-              children: [
-                SizedBox(width: 40),
-                SizedBox(width: 8),
-                Expanded(
-                  flex: 4,
-                  child: Text('Nome', style: TextStyle(fontWeight: FontWeight.bold)),
-                ),
-                Expanded(
-                  flex: 4,
-                  child: Text('Descrição', style: TextStyle(fontWeight: FontWeight.bold)),
-                ),
-                SizedBox(width: 80),
-              ],
-            ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 16),
             Expanded(
               child: StreamBuilder<QuerySnapshot>(
                 stream: categoriasRef.orderBy('nome').snapshots(),
                 builder: (context, snapshot) {
                   if (snapshot.hasError) {
-                    return const Center(child: Text('Erro ao carregar categorias'));
+                    return const Center(
+                        child: Text('Erro ao carregar categorias.'));
                   }
                   if (!snapshot.hasData) {
                     return const Center(child: CircularProgressIndicator());
                   }
                   final docs = snapshot.data!.docs;
                   if (docs.isEmpty) {
-                    return const Center(child: Text('Nenhuma categoria cadastrada.'));
+                    return const Center(
+                        child: Text('Nenhuma categoria cadastrada.'));
                   }
-                  return ListView(children: docs.map(_buildLinha).toList());
+                  return ListView(children: docs.map(_buildCard).toList());
                 },
               ),
             ),

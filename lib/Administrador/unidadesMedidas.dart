@@ -20,88 +20,138 @@ class _UnidadeMedScreenState extends State<UnidadeMedScreen> {
         (widget.firestore ?? FirebaseFirestore.instance).collection('unidades');
   }
 
-  void _abrirDialogo({DocumentSnapshot? unidade}) {
-    final TextEditingController nomeCtrl =
-        TextEditingController(text: unidade?['nome'] ?? '');
-    final TextEditingController abrevCtrl =
-        TextEditingController(text: unidade?['abreviacao'] ?? '');
-    final bool isEdicao = unidade != null;
+ void _abrirDialogo({DocumentSnapshot? unidade}) {
+  final TextEditingController nomeCtrl =
+      TextEditingController(text: unidade?['nome'] ?? '');
+  final TextEditingController abrevCtrl =
+      TextEditingController(text: unidade?['abreviacao'] ?? '');
+  final bool isEdicao = unidade != null;
 
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text(
-          isEdicao ? 'Editar Unidade' : 'Nova Unidade de Medida',
-          style: const TextStyle(
-            color: Colors.deepPurple,
-            fontWeight: FontWeight.bold,
-          ),
+  showDialog(
+    context: context,
+    builder: (_) => AlertDialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: const BorderSide(color: Colors.black12, width: 1),
+      ),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 80), // 🔹 aumenta um pouco o tamanho
+      titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+      contentPadding: const EdgeInsets.fromLTRB(20, 10, 20, 10),
+      actionsPadding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+      backgroundColor: Colors.white,
+      title: Text(
+        isEdicao ? 'Editar Unidade de Medida' : 'Nova Unidade de Medida',
+        style: const TextStyle(
+          color: Colors.deepPurple,
+          fontWeight: FontWeight.bold,
+          fontSize: 20,
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 10),
+          TextFormField(
+            controller: nomeCtrl,
+            decoration: InputDecoration(
+              labelText: 'Nome da unidade',
+              labelStyle: const TextStyle(fontSize: 14),
+              filled: true,
+              fillColor: Colors.white,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Colors.black26),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Colors.deepPurple),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextFormField(
+            controller: abrevCtrl,
+            decoration: InputDecoration(
+              labelText: 'Abreviação',
+              labelStyle: const TextStyle(fontSize: 14),
+              filled: true,
+              fillColor: Colors.white,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Colors.black26),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Colors.deepPurple),
+              ),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            TextFormField(
-              controller: nomeCtrl,
-              decoration: InputDecoration(
-                labelText: 'Nome da unidade',
-                filled: true,
-                fillColor: Colors.white,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+            // 🔴 Botão Cancelar (vermelho com texto branco)
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                foregroundColor: Colors.white,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 26, vertical: 10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              child: const Text(
+                'Cancelar',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
                 ),
               ),
             ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: abrevCtrl,
-              decoration: InputDecoration(
-                labelText: 'Abreviação',
-                filled: true,
-                fillColor: Colors.white,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+            // 🟣 Botão Salvar
+            ElevatedButton(
+              onPressed: () {
+                if (nomeCtrl.text.isNotEmpty && abrevCtrl.text.isNotEmpty) {
+                  final data = {
+                    'nome': nomeCtrl.text.trim(),
+                    'abreviacao': abrevCtrl.text.trim(),
+                    'ativo': true,
+                  };
+                  if (isEdicao) {
+                    unidadesRef.doc(unidade!.id).update(data);
+                  } else {
+                    unidadesRef.add(data);
+                  }
+                  Navigator.pop(context);
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.deepPurple,
+                foregroundColor: Colors.white,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 26, vertical: 10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
                 ),
+              ),
+              child: const Text(
+                'Salvar',
+                style: TextStyle(fontWeight: FontWeight.bold),
               ),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text(
-              'Cancelar',
-              style: TextStyle(color: Colors.black54),
-            ),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (nomeCtrl.text.isNotEmpty && abrevCtrl.text.isNotEmpty) {
-                final data = {
-                  'nome': nomeCtrl.text.trim(),
-                  'abreviacao': abrevCtrl.text.trim(),
-                  'ativo': true,
-                };
-                if (isEdicao) {
-                  unidadesRef.doc(unidade!.id).update(data);
-                } else {
-                  unidadesRef.add(data);
-                }
-                Navigator.pop(context);
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.deepPurple,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-            child: const Text('Salvar'),
-          ),
-        ],
-      ),
-    );
-  }
+      ],
+    ),
+  );
+}
 
   Widget _buildCard(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
