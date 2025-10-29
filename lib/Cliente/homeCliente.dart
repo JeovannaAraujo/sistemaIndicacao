@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:myapp/Cliente/visualizarPerfilPrestador.dart';
+import 'package:myapp/Login/login.dart';
 import 'buscarServicos.dart';
 import 'listarProfissionais.dart';
 import 'rotasNavegacao.dart';
@@ -94,6 +95,7 @@ class HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF6F6FB),
       key: GlobalKey<ScaffoldState>(), // ✅ garante controle independente
       drawerEnableOpenDragGesture:
           false, // ✅ evita comportamento inconsistente no teste
@@ -282,15 +284,11 @@ class HomeScreenState extends State<HomeScreen> {
                     await auth.signOut(); // 🔹 Desloga o usuário
                     if (!context.mounted) return;
 
-                    // 🔹 Remove todas as telas anteriores e limpa as streams
-                    Navigator.push(
+                    // 🔹 CORREÇÃO: Vai para LoginScreen em vez de BuscarServicosScreen
+                    Navigator.pushAndRemoveUntil(
                       context,
-                      MaterialPageRoute(
-                        builder: (_) => BuscarServicosScreen(
-                          firestore: db,
-                          auth: auth, // ✅ passa o mock nos testes
-                        ),
-                      ),
+                      MaterialPageRoute(builder: (_) => const LoginScreen()),
+                      (route) => false, // Remove todas as telas anteriores
                     );
                   },
                 ),
@@ -300,7 +298,10 @@ class HomeScreenState extends State<HomeScreen> {
         ),
       ),
 
-      appBar: AppBar(),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFFF6F6FB), // ← MODIFIQUE ESTA LINHA
+        elevation: 0,
+      ),
       body: buildBody(),
 
       bottomNavigationBar: const ClienteBottomNav(selectedIndex: 0),

@@ -23,10 +23,10 @@ class SolicitacoesAceitasScreen extends StatelessWidget {
         .snapshots();
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF9F6FF),
+      backgroundColor: const Color(0xFFF6F6FB),
       appBar: AppBar(
         title: const Text('Solicitações'),
-        backgroundColor: Colors.white,
+        backgroundColor: const Color(0xFFF6F6FB),
         elevation: 0.3,
       ),
       body: Column(
@@ -225,7 +225,7 @@ class CardAceita extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(28),
                     child: Container(
                       width: 56,
                       height: 56,

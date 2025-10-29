@@ -3,7 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-// kIsWeb
+import 'package:permission_handler/permission_handler.dart';
+import 'dart:io';
 
 class EditarPerfilPrestador extends StatefulWidget {
   final String userId;
@@ -24,40 +25,47 @@ class EditarPerfilPrestador extends StatefulWidget {
 }
 
 class EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
-  final _formKey = GlobalKey<FormState>();
+  final formKey = GlobalKey<FormState>();
   late final FirebaseAuth _auth;
   late final FirebaseFirestore _db;
+  late final FirebaseStorage _storage;
+  final _picker = ImagePicker();
 
-
-  // form controllers
+  // controles pessoais e contato
   final nomeCtrl = TextEditingController();
-  final emailCtrl = TextEditingController(); // somente leitura
+  final emailCtrl = TextEditingController();
+  final whatsappCtrl = TextEditingController();
+
+  // endereço
   final cepCtrl = TextEditingController();
   final cidadeCtrl = TextEditingController();
   final ruaCtrl = TextEditingController();
   final numeroCtrl = TextEditingController();
   final bairroCtrl = TextEditingController();
   final complementoCtrl = TextEditingController();
-  final whatsappCtrl = TextEditingController();
+
+  // profissionais
   final descricaoCtrl = TextEditingController();
   final areaAtendimentoCtrl = TextEditingController();
 
   // estado
   bool carregando = true;
-  String tipoPerfil = 'Prestador'; // Prestador | Ambos
-  String? categoriaProfId; // salvamos só o ID
+  bool salvando = false;
+  String tipoPerfil = 'Prestador';
+  String? categoriaProfId;
   String tempoExperiencia = '';
   final List<String> meiosPagamento = [];
   final List<String> jornada = [];
   final List<String> areaAtendimento = [];
 
-  // foto de perfil
-  String? fotoUrl; // URL pública salva no Firestore (usuarios/{uid}.fotoUrl)
-  String? _fotoPath; // caminho no Storage para facilitar remoção
+  // foto
+  String? fotoUrl;
+  String? fotoPath;
   bool _enviandoFoto = false;
+  XFile? _fotoSelecionada;
 
   // streams
-  late final Stream<QuerySnapshot<Map<String, dynamic>>> _categoriasStream;
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> categoriasStream;
 
   final experiencias = [
     '0-1 ano',
@@ -66,6 +74,7 @@ class EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
     '5-10 anos',
     '+10 anos',
   ];
+
   final diasSemana = [
     'Segunda-feira',
     'Terça-feira',
@@ -81,7 +90,9 @@ class EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
     super.initState();
     _auth = widget.auth ?? FirebaseAuth.instance;
     _db = widget.firestore ?? FirebaseFirestore.instance;
-    _categoriasStream = _db
+    _storage = widget.storage ?? FirebaseStorage.instance;
+    
+    categoriasStream = _db
         .collection('categoriasProfissionais')
         .where('ativo', isEqualTo: true)
         .orderBy('nome')
@@ -89,9 +100,72 @@ class EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
     _carregarPerfil();
   }
 
+  /// 🔹 Solicita permissões para acessar a galeria
+  Future<bool> _solicitarPermissoesGaleria() async {
+    try {
+      // Para Android 13+ (API 33+)
+      if (await Permission.photos.isGranted) {
+        return true;
+      }
+
+      // Para versões anteriores
+      if (await Permission.storage.isGranted) {
+        return true;
+      }
+
+      // Solicitar permissão
+      final status = await Permission.photos.request();
+      if (status.isGranted) {
+        return true;
+      }
+
+      // Tentar com storage para versões mais antigas
+      final statusStorage = await Permission.storage.request();
+      if (statusStorage.isGranted) {
+        return true;
+      }
+
+      // Se negado, abrir configurações do app
+      if (status.isPermanentlyDenied || statusStorage.isPermanentlyDenied) {
+        if (mounted) {
+          await showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Permissão Necessária'),
+              content: const Text(
+                'Para selecionar uma foto, é necessário permitir o acesso à galeria. '
+                'Deseja abrir as configurações para conceder a permissão?',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancelar'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    openAppSettings();
+                  },
+                  child: const Text('Abrir Configurações'),
+                ),
+              ],
+            ),
+          );
+        }
+      }
+
+      return false;
+    } catch (e) {
+      debugPrint('❌ Erro ao solicitar permissões: $e');
+      return false;
+    }
+  }
+
   Future<void> _carregarPerfil() async {
     try {
-      final doc = await _db.collection('usuarios').doc(widget.userId).get();
+      final ref = _db.collection('usuarios').doc(widget.userId);
+      final doc = await ref.get();
+
       if (!doc.exists) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -102,180 +176,382 @@ class EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
         return;
       }
 
-      final d = doc.data()!;
+      final d = doc.data() ?? {};
+      final end = (d['endereco'] as Map<String, dynamic>?) ?? {};
 
       nomeCtrl.text = (d['nome'] ?? '') as String;
       emailCtrl.text = (d['email'] ?? '') as String;
+      whatsappCtrl.text = (end['whatsapp'] ?? '') as String;
+      tipoPerfil = (d['tipoPerfil'] ?? 'Prestador') as String;
 
-      final end = (d['endereco'] as Map<String, dynamic>?) ?? {};
       cepCtrl.text = (end['cep'] ?? '') as String;
       cidadeCtrl.text = (end['cidade'] ?? '') as String;
       ruaCtrl.text = (end['rua'] ?? '') as String;
       numeroCtrl.text = (end['numero'] ?? '') as String;
       bairroCtrl.text = (end['bairro'] ?? '') as String;
       complementoCtrl.text = (end['complemento'] ?? '') as String;
-      whatsappCtrl.text = (end['whatsapp'] ?? '') as String;
 
-      tipoPerfil = (d['tipoPerfil'] ?? 'Prestador') as String;
       categoriaProfId = (d['categoriaProfissionalId'] ?? '') as String?;
       descricaoCtrl.text = (d['descricao'] ?? '') as String;
       tempoExperiencia = (d['tempoExperiencia'] ?? '') as String;
-      areaAtendimentoCtrl.text = (d['areaAtendimento'] ?? '') as String;
 
       (d['meiosPagamento'] as List?)?.forEach((e) {
         final s = '$e';
         if (!meiosPagamento.contains(s)) meiosPagamento.add(s);
       });
+
       (d['jornada'] as List?)?.forEach((e) {
         final s = '$e';
         if (!jornada.contains(s)) jornada.add(s);
       });
 
-      // foto
-      fotoUrl = (d['fotoUrl'] ?? '') as String?;
-      _fotoPath = (d['fotoPath'] ?? '') as String?;
       (d['areasAtendimento'] as List?)?.forEach((e) {
         final s = '$e';
         if (!areaAtendimento.contains(s)) areaAtendimento.add(s);
       });
 
-      // foto
       fotoUrl = (d['fotoUrl'] ?? '') as String?;
-      _fotoPath = (d['fotoPath'] ?? '') as String?;
+      fotoPath = (d['fotoPath'] ?? '') as String?;
 
       if (mounted) setState(() => carregando = false);
     } catch (e) {
+      debugPrint('❌ Erro ao carregar perfil: $e');
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Erro ao carregar: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao carregar: $e')),
+        );
         Navigator.pop(context);
       }
     }
   }
 
-  Future<void> selecionarFotoPerfil() async {
+  /// 🔹 Seleciona foto da galeria com verificação de permissões
+  Future<void> _selecionarFotoPerfil() async {
     try {
-      final picker = ImagePicker();
-      final XFile? img = await picker.pickImage(
+      // Solicitar permissões primeiro
+      final temPermissao = await _solicitarPermissoesGaleria();
+      if (!temPermissao) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Permissão para acessar a galeria é necessária'),
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+        return;
+      }
+
+      final XFile? img = await _picker.pickImage(
         source: ImageSource.gallery,
         maxWidth: 1024,
-        imageQuality: 80,
+        maxHeight: 1024,
+        imageQuality: 85,
       );
+      
       if (img == null) return;
 
-      setState(() => _enviandoFoto = true);
-
-      final bytes = await img.readAsBytes();
-
-      final storage = FirebaseStorage.instance;
-      final String path =
-          'usuarios/${widget.userId}/perfil_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final ref = storage.ref().child(path);
-
-      final meta = SettableMetadata(
-        contentType: 'image/jpeg',
-        cacheControl: 'public,max-age=604800',
-      );
-      await ref.putData(bytes, meta);
-
-      final String url = await ref.getDownloadURL();
-
-      await _db.collection('usuarios').doc(widget.userId).set({
-        'fotoUrl': url,
-        'fotoPath': path,
-        'atualizadoEm': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-
       setState(() {
-        fotoUrl = url;
-        _fotoPath = path;
+        _fotoSelecionada = img;
+        _enviandoFoto = true;
       });
 
+      await _fazerUploadFoto(img);
+      
+    } catch (e) {
+      debugPrint('❌ Erro ao selecionar foto: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Foto de perfil atualizada!')),
+          SnackBar(content: Text('Erro ao selecionar foto: ${e.toString()}')),
         );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Falha ao enviar a foto: $e')));
       }
     } finally {
       if (mounted) setState(() => _enviandoFoto = false);
     }
   }
 
- Future<void> removerFotoPerfil() async {
-  try {
-    // 🔹 Deleta a imagem do Storage (usando o mock injetado)
-    if (_fotoPath != null && _fotoPath!.isNotEmpty) {
-      try {
-        await (widget.storage ?? FirebaseStorage.instance)
-            .ref()
-            .child(_fotoPath!)
-            .delete();
-      } catch (_) {
-        debugPrint('⚠️ Erro ao deletar no Storage (ignorado no teste)');
+  /// 🔹 Faz upload da foto para o Firebase Storage
+  Future<void> _fazerUploadFoto(XFile imagem) async {
+    try {
+      // 1. Ler bytes da imagem
+      final bytes = await imagem.readAsBytes();
+      if (bytes.isEmpty) {
+        throw Exception('Imagem vazia ou corrompida');
       }
-    }
 
-    // 🔹 Atualiza o Firestore (usando o mock injetado)
-    await (widget.firestore ?? FirebaseFirestore.instance)
-        .collection('usuarios')
-        .doc(widget.userId)
-        .set({
-      'fotoUrl': null,
-      'fotoPath': null,
-      'atualizadoEm': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+      // 2. Criar referência no Storage com nome único
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final String path = 'usuarios/${widget.userId}/perfil_$timestamp.jpg';
+      final Reference ref = _storage.ref().child(path);
 
-    // 🔹 Atualiza estado e mostra SnackBar
-    if (mounted) {
-      setState(() {
-        fotoUrl = null;
-        _fotoPath = null;
+      // 3. Configurar metadata
+      final SettableMetadata metadata = SettableMetadata(
+        contentType: 'image/jpeg',
+        customMetadata: {
+          'uploadedBy': widget.userId,
+          'uploadedAt': DateTime.now().toIso8601String(),
+        },
+      );
+
+      // 4. Fazer upload
+      final UploadTask uploadTask = ref.putData(bytes, metadata);
+      
+      // Monitorar progresso (opcional)
+      uploadTask.snapshotEvents.listen((TaskSnapshot snapshot) {
+        final progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+        debugPrint('📤 Progresso upload: ${progress.toStringAsFixed(1)}%');
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Foto removida com sucesso!')),
-      );
-    }
-  } catch (e) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erro ao remover foto: $e')),
-      );
+      // 5. Aguardar conclusão do upload
+      final TaskSnapshot snapshot = await uploadTask;
+      
+      if (snapshot.state == TaskState.success) {
+        // 6. Obter URL de download
+        final String url = await ref.getDownloadURL();
+        debugPrint('✅ Upload concluído: $url');
+
+        // 7. Deletar foto antiga se existir
+        await _deletarFotoAntiga();
+
+        // 8. Atualizar no Firestore
+        await _atualizarFotoNoFirestore(url, path);
+
+        setState(() {
+          fotoUrl = url;
+          fotoPath = path;
+          _fotoSelecionada = null;
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Foto de perfil atualizada com sucesso!'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      } else {
+        throw Exception('Falha no upload: ${snapshot.state}');
+      }
+      
+    } catch (e) {
+      debugPrint('❌ Erro no upload da foto: $e');
+      
+      // Tratamento específico para erros comuns
+      String mensagemErro = 'Erro ao fazer upload da foto';
+      
+      if (e.toString().contains('permission') || e.toString().contains('permissão')) {
+        mensagemErro = 'Sem permissão para fazer upload';
+      } else if (e.toString().contains('network') || e.toString().contains('rede')) {
+        mensagemErro = 'Erro de conexão. Verifique sua internet';
+      } else if (e.toString().contains('quota') || e.toString().contains('cota')) {
+        mensagemErro = 'Limite de armazenamento excedido';
+      } else if (e.toString().contains('canceled')) {
+        mensagemErro = 'Upload cancelado';
+      }
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(mensagemErro),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+      rethrow;
     }
   }
-}
 
-  Future<void> salvar() async {
-    if (!_formKey.currentState!.validate()) return;
+  /// 🔹 Deleta foto antiga do Storage
+  Future<void> _deletarFotoAntiga() async {
+    if (fotoPath != null && fotoPath!.isNotEmpty && fotoPath != 'temp') {
+      try {
+        await _storage.ref().child(fotoPath!).delete();
+        debugPrint('🗑️ Foto antiga deletada: $fotoPath');
+      } catch (e) {
+        // Não impede o processo se falhar em deletar a foto antiga
+        debugPrint('⚠️ Não foi possível deletar foto antiga: $e');
+      }
+    }
+  }
 
-    // revalida categoria ativa
-    if (categoriaProfId != null && categoriaProfId!.isNotEmpty) {
-      final cat = await _db
-          .collection('categoriasProfissionais')
-          .doc(categoriaProfId)
-          .get();
-      if (!cat.exists || cat.data()?['ativo'] != true) {
+  /// 🔹 Atualiza URL da foto no Firestore
+  Future<void> _atualizarFotoNoFirestore(String url, String path) async {
+    try {
+      await _db.collection('usuarios').doc(widget.userId).set({
+        'fotoUrl': url,
+        'fotoPath': path,
+        'atualizadoEm': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      
+      debugPrint('✅ Foto atualizada no Firestore');
+    } catch (e) {
+      debugPrint('❌ Erro ao atualizar foto no Firestore: $e');
+      throw Exception('Erro ao salvar foto no perfil');
+    }
+  }
+
+  /// 🔹 Remove foto do perfil
+  Future<void> removerFotoPerfil() async {
+    try {
+      // Mostrar confirmação
+      final confirmar = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Remover foto'),
+          content: const Text('Tem certeza que deseja remover sua foto de perfil?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancelar'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Remover'),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmar != true) return;
+
+      setState(() => _enviandoFoto = true);
+
+      // Deletar do Storage
+      await _deletarFotoAntiga();
+
+      // Remover referências no Firestore
+      await _db.collection('usuarios').doc(widget.userId).set({
+        'fotoUrl': FieldValue.delete(),
+        'fotoPath': FieldValue.delete(),
+        'atualizadoEm': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      setState(() {
+        fotoUrl = null;
+        fotoPath = null;
+        _fotoSelecionada = null;
+      });
+
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('A categoria selecionada não está mais ativa.'),
+            content: Text('Foto removida com sucesso.'),
+            duration: Duration(seconds: 2),
           ),
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ Erro ao remover foto: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao remover foto: $e'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _enviandoFoto = false);
+    }
+  }
+
+  /// 🔹 Exclui conta do usuário
+  Future<void> excluirConta() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Excluir conta'),
+        content: const Text(
+          'Excluir sua conta removerá permanentemente seus dados. Deseja continuar?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+
+    if (ok != true) return;
+
+    try {
+      setState(() => salvando = true);
+
+      // Remover foto do Storage se existir
+      if (fotoPath != null && fotoPath!.isNotEmpty) {
+        await _deletarFotoAntiga();
+      }
+
+      // Remover dados do Firestore
+      await _db.collection('usuarios').doc(widget.userId).delete();
+      
+      // Remover usuário do Authentication
+      final user = _auth.currentUser;
+      if (user != null && user.uid == widget.userId) {
+        await user.delete();
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Conta excluída com sucesso.')),
+        );
+        Navigator.of(context).popUntil((r) => r.isFirst);
+      }
+    } catch (e) {
+      debugPrint('❌ Erro ao excluir conta: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Não foi possível excluir a conta: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => salvando = false);
+    }
+  }
+
+  /// 🔹 Salva todas as alterações do perfil (SEM ALTERAR EMAIL)
+  Future<void> salvar() async {
+    if (formKey.currentState == null || !formKey.currentState!.validate()) return;
+    if (!mounted) return;
+
+    // Validações para prestadores
+    if (tipoPerfil == 'Prestador' || tipoPerfil == 'Ambos') {
+      if (categoriaProfId == null || categoriaProfId!.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Selecione uma categoria profissional.')),
+        );
+        return;
+      }
+      if (descricaoCtrl.text.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Informe a descrição profissional.')),
+        );
+        return;
+      }
+      if (tempoExperiencia.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Informe o tempo de experiência.')),
         );
         return;
       }
     }
 
+    setState(() => salvando = true);
+
     try {
-      await _db.collection('usuarios').doc(widget.userId).update({
+      final ref = _db.collection('usuarios').doc(widget.userId);
+
+      // 🔹 ATUALIZAR DADOS NO FIRESTORE (SEM ALTERAR EMAIL)
+      final dadosAtualizacao = {
         'nome': nomeCtrl.text.trim(),
-        // email: mantemos como está (editar email exige reautenticação)
-        'tipoPerfil': tipoPerfil, // Prestador | Ambos
+        // ❌ REMOVIDO: Não atualiza mais o email por segurança
+        'tipoPerfil': tipoPerfil,
         'categoriaProfissionalId': categoriaProfId,
         'descricao': descricaoCtrl.text.trim(),
         'tempoExperiencia': tempoExperiencia,
@@ -292,93 +568,35 @@ class EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
           'whatsapp': whatsappCtrl.text.trim(),
         },
         'atualizadoEm': FieldValue.serverTimestamp(),
-      });
+      };
+
+      await ref.set(dadosAtualizacao, SetOptions(merge: true));
 
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Perfil atualizado!')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Perfil atualizado com sucesso!'),
+            duration: Duration(seconds: 2),
+          ),
+        );
         Navigator.pop(context);
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Erro ao salvar: $e')));
-      }
-    }
-  }
-
-  Future<void> excluirConta() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Excluir conta'),
-        content: const Text(
-          'Excluir sua conta removerá também seus serviços. Esta ação não pode ser desfeita.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Excluir'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) return;
-
-    try {
-      // remove serviços do prestador
-      final servs = await _db
-          .collection('servicos')
-          .where('prestadorId', isEqualTo: widget.userId)
-          .get();
-      final batch = _db.batch();
-      for (final d in servs.docs) {
-        batch.delete(d.reference);
-      }
-
-      // apaga foto do Storage se existir
-      if (_fotoPath != null && _fotoPath!.isNotEmpty) {
-        try {
-          await FirebaseStorage.instance.ref().child(_fotoPath!).delete();
-        } catch (_) {}
-      }
-
-      batch.delete(_db.collection('usuarios').doc(widget.userId));
-      await batch.commit();
-
-      // tenta remover do auth (pode exigir reautenticação)
-      final user = _auth.currentUser;
-      if (user != null && user.uid == widget.userId) {
-        await user.delete();
-      }
-
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Conta excluída.')));
-        Navigator.of(context).popUntil((r) => r.isFirst);
-      }
-    } catch (e) {
+      debugPrint('❌ Erro ao salvar perfil: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              'Não foi possível excluir a conta agora (${e.toString()}). '
-              'Você pode sair e entrar novamente e tentar de novo.',
-            ),
+            content: Text('Erro ao salvar: $e'),
+            duration: const Duration(seconds: 3),
           ),
         );
       }
+    } finally {
+      if (mounted) setState(() => salvando = false);
     }
   }
 
-  Widget _secTitle(String t) => Padding(
+  Widget secTitle(String t) => Padding(
     padding: const EdgeInsets.only(top: 16, bottom: 8),
     child: Text(
       t,
@@ -394,13 +612,13 @@ class EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
   void dispose() {
     nomeCtrl.dispose();
     emailCtrl.dispose();
+    whatsappCtrl.dispose();
     cepCtrl.dispose();
     cidadeCtrl.dispose();
     ruaCtrl.dispose();
     numeroCtrl.dispose();
     bairroCtrl.dispose();
     complementoCtrl.dispose();
-    whatsappCtrl.dispose();
     descricaoCtrl.dispose();
     areaAtendimentoCtrl.dispose();
     super.dispose();
@@ -410,16 +628,16 @@ class EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
   Widget build(BuildContext context) {
     final inputDecoration = const InputDecorationTheme(
       border: OutlineInputBorder(
-        borderSide: BorderSide(color: Colors.black12),
         borderRadius: BorderRadius.all(Radius.circular(12)),
+        borderSide: BorderSide(color: Colors.black12),
       ),
       enabledBorder: OutlineInputBorder(
-        borderSide: BorderSide(color: Colors.black12),
         borderRadius: BorderRadius.all(Radius.circular(12)),
+        borderSide: BorderSide(color: Colors.black12),
       ),
       focusedBorder: OutlineInputBorder(
-        borderSide: BorderSide(color: Colors.deepPurple),
         borderRadius: BorderRadius.all(Radius.circular(12)),
+        borderSide: BorderSide(color: Colors.deepPurple),
       ),
       contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
     );
@@ -427,478 +645,468 @@ class EditarPerfilPrestadorState extends State<EditarPerfilPrestador> {
     return Theme(
       data: Theme.of(context).copyWith(inputDecorationTheme: inputDecoration),
       child: Scaffold(
-        appBar: AppBar(title: const Text('Editar perfil')),
+        appBar: AppBar(
+          title: const Text('Editar Perfil'),
+          backgroundColor: const Color(0xFFF6F6FB),
+          foregroundColor: Colors.black,
+          elevation: 0,
+        ),
         body: carregando
             ? const Center(child: CircularProgressIndicator())
             : SingleChildScrollView(
                 padding: const EdgeInsets.all(16),
                 child: Form(
-                  key: _formKey,
+                  key: formKey,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // ===== CABEÇALHO COM AVATAR + BOTÃO CÂMERA =====
-                      Center(
-                        child: Stack(
-                          alignment: Alignment.bottomRight,
-                          children: [
-                            ClipOval(
-                              child: (fotoUrl != null && fotoUrl!.isNotEmpty)
-                                  ? Image.network(
-                                      fotoUrl!,
-                                      width: 96,
-                                      height: 96,
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (_, __, ___) => const Icon(
-                                        Icons.person,
-                                        size: 60,
-                                        color: Colors.deepPurple,
-                                      ),
-                                    )
-                                  : const Icon(
-                                      Icons.person,
-                                      size: 60,
-                                      color: Colors.deepPurple,
-                                    ),
-                            ),
-                            Positioned(
-                              right: -4,
-                              bottom: -4,
-                              child: ElevatedButton(
-                                onPressed: _enviandoFoto
-                                    ? null
-                                    : selecionarFotoPerfil,
-                                style: ElevatedButton.styleFrom(
-                                  padding: const EdgeInsets.all(10),
-                                  shape: const CircleBorder(),
-                                  backgroundColor: Colors.deepPurple,
-                                ),
-                                child: _enviandoFoto
-                                    ? const SizedBox(
-                                        height: 16,
-                                        width: 16,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white,
-                                        ),
-                                      )
-                                    : const Icon(
-                                        Icons.camera_alt,
-                                        size: 18,
-                                        color: Colors.white,
-                                      ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                      // === FOTO PERFIL ===
+                      _buildFotoPerfil(),
+                      
+                      // === INFORMAÇÕES PESSOAIS ===
+                      secTitle('Informações Pessoais'),
+                      const SizedBox(height: 10),
+                      _buildInformacoesPessoais(),
 
-                      const SizedBox(height: 12),
-                      Center(
-                        child: Text(
-                          nomeCtrl.text.isNotEmpty ? nomeCtrl.text : 'Seu nome',
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                      if (fotoUrl != null && fotoUrl!.isNotEmpty) ...[
-                        const SizedBox(height: 6),
-                        Center(
-                          child: TextButton.icon(
-                            onPressed: removerFotoPerfil,
-                            icon: const Icon(Icons.delete_outline),
-                            label: const Text('Remover foto'),
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 8),
+                      // === ENDEREÇO E CONTATO ===
+                      secTitle('Endereço e Contato'),
+                      const SizedBox(height: 10),
+                      _buildEnderecoContato(),
 
-                      // ===== FIM CABEÇALHO =====
-                      _secTitle('Informações Pessoais'),
-                      const SizedBox(height: 8),
-                      DropdownButtonFormField<String>(
-                        value:
-                            (tipoPerfil.isEmpty ||
-                                ![
-                                  'Cliente',
-                                  'Prestador',
-                                  'Ambos',
-                                ].contains(tipoPerfil))
-                            ? 'Cliente'
-                            : tipoPerfil,
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'Cliente',
-                            child: Text('Cliente'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'Prestador',
-                            child: Text('Prestador'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'Ambos',
-                            child: Text('Ambos'),
-                          ),
-                        ],
-                        onChanged: (v) {
-                          if (v != null) setState(() => tipoPerfil = v);
-                        },
-                        decoration: const InputDecoration(
-                          labelText: 'Tipo de perfil',
-                          border: OutlineInputBorder(
-                            borderSide: BorderSide(color: Colors.black12),
-                            borderRadius: BorderRadius.all(Radius.circular(12)),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 15),
-                      TextFormField(
-                        controller: nomeCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Nome completo',
-                        ),
-                        validator: (v) => (v == null || v.trim().isEmpty)
-                            ? 'Obrigatório'
-                            : null,
-                        onChanged: (_) =>
-                            setState(() {}), // atualiza o cabeçalho com o nome
-                      ),
-                      const SizedBox(height: 15),
-                      TextFormField(
-                        controller: emailCtrl,
-                        readOnly: true,
-                        decoration: const InputDecoration(labelText: 'E-mail'),
-                      ),
-                      const SizedBox(height: 15),
-                      _secTitle('Endereço e contato'),
-                      const SizedBox(height: 8),
-                      TextFormField(
-                        controller: whatsappCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'WhatsApp',
-                        ),
-                        validator: (v) => (v == null || v.trim().isEmpty)
-                            ? 'Obrigatório'
-                            : null,
-                      ),
-                      const SizedBox(height: 15),
-                      TextFormField(
-                        controller: cepCtrl,
-                        decoration: const InputDecoration(labelText: 'CEP'),
-                      ),
-                      const SizedBox(height: 15),
-                      TextFormField(
-                        controller: cidadeCtrl,
-                        decoration: const InputDecoration(labelText: 'Cidade'),
-                        validator: (v) => (v == null || v.trim().isEmpty)
-                            ? 'Obrigatório'
-                            : null,
-                      ),
-                      const SizedBox(height: 15),
-                      TextFormField(
-                        controller: ruaCtrl,
-                        decoration: const InputDecoration(labelText: 'Rua'),
-                      ),
-                      const SizedBox(height: 15),
-                      TextFormField(
-                        controller: numeroCtrl,
-                        decoration: const InputDecoration(labelText: 'Número'),
-                      ),
-                      const SizedBox(height: 15),
-                      TextFormField(
-                        controller: bairroCtrl,
-                        decoration: const InputDecoration(labelText: 'Bairro'),
-                      ),
-                      const SizedBox(height: 15),
-                      TextFormField(
-                        controller: complementoCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Complemento',
-                        ),
-                      ),
+                      // === INFORMAÇÕES PROFISSIONAIS ===
+                      _buildSecaoProfissional(),
 
-                      _secTitle('Informações Profissionais'),
-                      const SizedBox(height: 8),
-                      StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                        stream: _categoriasStream,
-                        builder: (context, snap) {
-                          if (snap.connectionState == ConnectionState.waiting) {
-                            return DropdownButtonFormField<String>(
-                              items: const [],
-                              onChanged: null,
-                              decoration: const InputDecoration(
-                                labelText: 'Categoria profissional',
-                              ),
-                              hint: const Text('Carregando categorias...'),
-                            );
-                          }
-                          if (snap.hasError) {
-                            return const Text(
-                              'Erro ao carregar categorias ativas.',
-                            );
-                          }
-
-                          final docs = snap.data?.docs ?? [];
-                          if (docs.isEmpty) {
-                            return const Text(
-                              'Nenhuma categoria ativa disponível.',
-                              style: TextStyle(color: Colors.red),
-                            );
-                          }
-
-                          final itens = docs.map((d) {
-                            final id = d.id;
-                            final nome = (d.data()['nome'] ?? '') as String;
-                            return DropdownMenuItem<String>(
-                              value: id,
-                              child: Text(nome),
-                            );
-                          }).toList();
-
-                          // ✅ Garante que só define value se existir na lista
-                          final value = docs.any((d) => d.id == categoriaProfId)
-                              ? categoriaProfId
-                              : null;
-
-                          return DropdownButtonFormField<String>(
-                            value: value,
-                            items: itens,
-                            onChanged: (v) =>
-                                setState(() => categoriaProfId = v),
-                            decoration: const InputDecoration(
-                              labelText: 'Categoria profissional',
-                            ),
-                            hint: const Text('Selecione sua categoria'),
-                          );
-                        },
-                      ),
-
-                      const SizedBox(height: 15),
-                      TextFormField(
-                        controller: descricaoCtrl,
-                        maxLines: 4,
-                        decoration: const InputDecoration(
-                          labelText: 'Descrição do profissional',
-                          hintText: 'Fale um pouco sobre seus serviços',
-                          border: OutlineInputBorder(
-                            borderSide: BorderSide(color: Colors.black12),
-                            borderRadius: BorderRadius.all(Radius.circular(12)),
-                          ),
-                        ),
-                        // ❌ Removemos o limite de 100 caracteres
-                        validator: (v) => (v == null || v.trim().isEmpty)
-                            ? 'Campo obrigatório'
-                            : null,
-                      ),
-                      const SizedBox(height: 15),
-                      DropdownButtonFormField<String>(
-                        initialValue: tempoExperiencia.isEmpty
-                            ? null
-                            : tempoExperiencia,
-                        items: experiencias
-                            .map(
-                              (e) => DropdownMenuItem(value: e, child: Text(e)),
-                            )
-                            .toList(),
-                        onChanged: (v) =>
-                            setState(() => tempoExperiencia = v ?? ''),
-                        decoration: const InputDecoration(
-                          labelText: 'Tempo de experiência',
-                        ),
-                        validator: (_) =>
-                            tempoExperiencia.isEmpty ? 'Obrigatório' : null,
-                      ),
-                      const SizedBox(height: 15),
-                      // ===== ÁREA DE ATENDIMENTO (múltiplas cidades) =====
-                      _secTitle('Cidade / Área de atendimento'),
-                      TextField(
-                        controller: areaAtendimentoCtrl,
-                        decoration: InputDecoration(
-                          hintText: 'Ex: Rio Verde',
-                          suffixIcon: IconButton(
-                            icon: const Icon(Icons.add),
-                            onPressed: () {
-                              final txt = areaAtendimentoCtrl.text.trim();
-                              if (txt.isEmpty) return;
-                              final normalizado =
-                                  txt[0].toUpperCase() +
-                                  txt.substring(1).toLowerCase();
-                              if (!areaAtendimento.contains(normalizado)) {
-                                setState(
-                                  () => areaAtendimento.add(normalizado),
-                                );
-                              }
-                              areaAtendimentoCtrl.clear();
-                            },
-                          ),
-                          border: const OutlineInputBorder(
-                            borderRadius: BorderRadius.all(Radius.circular(12)),
-                          ),
-                        ),
-                        onSubmitted: (_) {
-                          final txt = areaAtendimentoCtrl.text.trim();
-                          if (txt.isEmpty) return;
-                          final normalizado =
-                              txt[0].toUpperCase() +
-                              txt.substring(1).toLowerCase();
-                          if (!areaAtendimento.contains(normalizado)) {
-                            setState(() => areaAtendimento.add(normalizado));
-                          }
-                          areaAtendimentoCtrl.clear();
-                        },
-                      ),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Informe todas as cidades e áreas onde você atende.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.deepPurple,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: -6,
-                        children: areaAtendimento.map((c) {
-                          return Chip(
-                            label: Text(c),
-                            deleteIcon: const Icon(Icons.close),
-                            onDeleted: () =>
-                                setState(() => areaAtendimento.remove(c)),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            side: const BorderSide(color: Colors.deepPurple),
-                          );
-                        }).toList(),
-                      ),
-
-                      // ===== MEIOS DE PAGAMENTO =====
-                      _secTitle('Meios de pagamento aceitos'),
-                      const Text(
-                        'Os meios de pagamento servem apenas para informativo; o app não processa pagamentos.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.deepPurple,
-                        ),
-                      ),
-                      ...['Dinheiro', 'Pix', 'Cartão de crédito/débito'].map(
-                        (e) => CheckboxListTile(
-                          title: Text(e),
-                          value: meiosPagamento.contains(e),
-                          onChanged: (v) => setState(() {
-                            if (v == true) {
-                              if (!meiosPagamento.contains(e)) {
-                                meiosPagamento.add(e);
-                              }
-                            } else {
-                              meiosPagamento.remove(e);
-                            }
-                          }),
-                        ),
-                      ),
-
-                      // ===== JORNADA =====
-                      _secTitle('Jornada de trabalho'),
-                      const Text(
-                        'Informe os dias em que você está disponível para prestar serviços.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.deepPurple,
-                        ),
-                      ),
-                      ...diasSemana.map(
-                        (e) => CheckboxListTile(
-                          title: Text(e),
-                          value: jornada.contains(e),
-                          onChanged: (v) => setState(() {
-                            if (v == true) {
-                              if (!jornada.contains(e)) jornada.add(e);
-                            } else {
-                              jornada.remove(e);
-                            }
-                          }),
-                        ),
-                      ),
-
+                      // === BOTÕES DE AÇÃO ===
                       const SizedBox(height: 30),
-
-                      // ===== BOTÕES PADRONIZADOS =====
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: salvar,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.deepPurple,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                          ),
-                          child: const Text(
-                            'Salvar',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white, // 🔹 texto branco
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton(
-                          onPressed: () => Navigator.pop(context),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            side: const BorderSide(color: Colors.deepPurple),
-                            foregroundColor: Colors.deepPurple,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                          ),
-                          child: const Text(
-                            'Cancelar',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: excluirConta,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red.shade600,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                          ),
-                          child: const Text(
-                            'Excluir Conta',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white, // 🔹 texto branco
-                            ),
-                          ),
-                        ),
-                      ),
+                      _buildBotoesAcao(),
                     ],
                   ),
                 ),
               ),
       ),
+    );
+  }
+
+  /// 🔹 Constrói a seção da foto do perfil
+  Widget _buildFotoPerfil() {
+    return Column(
+      children: [
+        Center(
+          child: Stack(
+            alignment: Alignment.bottomRight,
+            children: [
+              Container(
+                width: 96,
+                height: 96,
+                child: CircleAvatar(
+                  radius: 46,
+                  backgroundColor: const Color.fromARGB(255, 223, 219, 228),
+                  backgroundImage: _fotoSelecionada != null
+                      ? FileImage(File(_fotoSelecionada!.path))
+                      : (fotoUrl != null && fotoUrl!.isNotEmpty)
+                          ? NetworkImage(fotoUrl!) as ImageProvider
+                          : null,
+                  child: (_fotoSelecionada == null && 
+                         (fotoUrl == null || fotoUrl!.isEmpty))
+                      ? const Icon(
+                          Icons.person,
+                          size: 48,
+                          color: Colors.deepPurple,
+                        )
+                      : null,
+                ),
+              ),
+              Positioned(
+                right: 0,
+                bottom: 0,
+                child: Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.deepPurple,
+                    shape: BoxShape.circle,
+                  ),
+                  child: IconButton(
+                    onPressed: _enviandoFoto
+                        ? null
+                        : _selecionarFotoPerfil,
+                    icon: _enviandoFoto
+                        ? const SizedBox(
+                            height: 16,
+                            width: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(
+                            Icons.camera_alt,
+                            size: 18,
+                            color: Colors.white,
+                          ),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 36,
+                      minHeight: 36,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        
+        const SizedBox(height: 12),
+        
+        Center(
+          child: Text(
+            nomeCtrl.text.isNotEmpty ? nomeCtrl.text : 'Seu nome',
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        
+        if (fotoUrl != null && fotoUrl!.isNotEmpty)
+          Center(
+            child: TextButton.icon(
+              onPressed: _enviandoFoto ? null : removerFotoPerfil,
+              icon: const Icon(Icons.delete_outline),
+              label: const Text('Remover foto'),
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// 🔹 Constrói a seção de informações pessoais
+  Widget _buildInformacoesPessoais() {
+    return Column(
+      children: [
+        DropdownButtonFormField<String>(
+          value: tipoPerfil,
+          items: const [
+            DropdownMenuItem(
+              value: 'Cliente',
+              child: Text('Cliente'),
+            ),
+            DropdownMenuItem(
+              value: 'Prestador',
+              child: Text('Prestador'),
+            ),
+            DropdownMenuItem(
+              value: 'Ambos',
+              child: Text('Ambos'),
+            ),
+          ],
+          onChanged: (v) {
+            if (v != null) setState(() => tipoPerfil = v);
+          },
+          decoration: const InputDecoration(
+            labelText: 'Tipo de perfil',
+          ),
+        ),
+        
+        const SizedBox(height: 15),
+        
+        TextFormField(
+          controller: nomeCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Nome completo',
+          ),
+          validator: (v) =>
+              (v == null || v.isEmpty) ? 'Obrigatório' : null,
+          onChanged: (_) => setState(() {}),
+        ),
+        
+        const SizedBox(height: 15),
+        
+        // 🔹 CAMPO EMAIL APENAS LEITURA COM FUNDO ROXO CLARO
+        TextFormField(
+          controller: emailCtrl,
+          readOnly: true,
+          decoration: const InputDecoration(
+            labelText: 'E-mail',
+            filled: true,
+            fillColor: Color(0xFFEDE7FF),
+          ),
+          style: const TextStyle(
+            color: Colors.deepPurple,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 🔹 Constrói a seção de endereço e contato
+  Widget _buildEnderecoContato() {
+    return Column(
+      children: [
+        TextFormField(
+          controller: whatsappCtrl,
+          decoration: const InputDecoration(
+            labelText: 'WhatsApp',
+          ),
+          keyboardType: TextInputType.phone,
+        ),
+        const SizedBox(height: 15),
+        TextFormField(
+          controller: cepCtrl,
+          decoration: const InputDecoration(
+            labelText: 'CEP',
+          ),
+          keyboardType: TextInputType.number,
+        ),
+        const SizedBox(height: 15),
+        TextFormField(
+          controller: cidadeCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Cidade',
+          ),
+        ),
+        const SizedBox(height: 15),
+        TextFormField(
+          controller: ruaCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Rua',
+          ),
+        ),
+        const SizedBox(height: 15),
+        TextFormField(
+          controller: numeroCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Número',
+          ),
+          keyboardType: TextInputType.number,
+        ),
+        const SizedBox(height: 15),
+        TextFormField(
+          controller: bairroCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Bairro',
+          ),
+        ),
+        const SizedBox(height: 15),
+        TextFormField(
+          controller: complementoCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Complemento',
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 🔹 Constrói a seção de informações profissionais
+  Widget _buildSecaoProfissional() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        secTitle('Informações Profissionais'),
+        
+        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: categoriasStream,
+          builder: (context, snap) {
+            if (snap.connectionState == ConnectionState.waiting) {
+              return const CircularProgressIndicator();
+            }
+            if (!snap.hasData || snap.data!.docs.isEmpty) {
+              return const Text('Nenhuma categoria disponível');
+            }
+            
+            final docs = snap.data!.docs;
+            final items = docs.map((d) {
+              return DropdownMenuItem<String>(
+                value: d.id,
+                child: Text(d['nome'] ?? 'Sem nome'),
+              );
+            }).toList();
+            
+            return DropdownButtonFormField<String>(
+              value: categoriaProfId,
+              items: items,
+              onChanged: (v) => setState(() => categoriaProfId = v),
+              decoration: const InputDecoration(
+                labelText: 'Categoria profissional',
+              ),
+            );
+          },
+        ),
+        
+        const SizedBox(height: 15),
+        TextFormField(
+          controller: descricaoCtrl,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            labelText: 'Descrição profissional',
+            hintText: 'Fale sobre seus serviços e experiência',
+          ),
+        ),
+        
+        const SizedBox(height: 15),
+        DropdownButtonFormField<String>(
+          value: tempoExperiencia.isEmpty ? null : tempoExperiencia,
+          items: experiencias
+              .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+              .toList(),
+          onChanged: (v) => setState(() => tempoExperiencia = v ?? ''),
+          decoration: const InputDecoration(
+            labelText: 'Tempo de experiência',
+          ),
+        ),
+
+        secTitle('Área de atendimento'),
+        TextField(
+          controller: areaAtendimentoCtrl,
+          decoration: const InputDecoration(
+            hintText: 'Digite uma cidade e pressione +',
+            suffixIcon: Icon(Icons.add_circle, color: Colors.deepPurple),
+          ),
+          onSubmitted: (value) {
+            final txt = value.trim();
+            if (txt.isNotEmpty) {
+              final norm = txt[0].toUpperCase() + txt.substring(1).toLowerCase();
+              if (!areaAtendimento.contains(norm)) {
+                setState(() => areaAtendimento.add(norm));
+              }
+              areaAtendimentoCtrl.clear();
+            }
+          },
+        ),
+        
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: areaAtendimento.map((c) {
+            return Chip(
+              label: Text(c),
+              deleteIcon: const Icon(Icons.close, size: 16),
+              onDeleted: () => setState(() => areaAtendimento.remove(c)),
+              backgroundColor: Colors.deepPurple.shade50,
+              side: BorderSide.none,
+            );
+          }).toList(),
+        ),
+
+        secTitle('Meios de pagamento aceitos'),
+        ...['Dinheiro', 'Pix', 'Cartão de crédito/débito'].map(
+          (e) => CheckboxListTile(
+            dense: true,
+            title: Text(e),
+            value: meiosPagamento.contains(e),
+            onChanged: (v) => setState(() {
+              if (v == true) {
+                meiosPagamento.add(e);
+              } else {
+                meiosPagamento.remove(e);
+              }
+            }),
+          ),
+        ),
+
+        secTitle('Dias de trabalho'),
+        ...diasSemana.map(
+          (e) => CheckboxListTile(
+            dense: true,
+            title: Text(e),
+            value: jornada.contains(e),
+            onChanged: (v) => setState(() {
+              if (v == true) {
+                jornada.add(e);
+              } else {
+                jornada.remove(e);
+              }
+            }),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 🔹 Constrói os botões de ação
+  Widget _buildBotoesAcao() {
+    return Column(
+      children: [
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: salvando ? null : salvar,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.deepPurple,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: salvando
+                ? const SizedBox(
+                    height: 20,
+                    width: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Text(
+                    'Salvar Alterações',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+          ),
+        ),
+        
+        const SizedBox(height: 12),
+        
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton(
+            onPressed: salvando ? null : () => Navigator.pop(context),
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: Colors.deepPurple),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              padding: const EdgeInsets.symmetric(vertical: 16),
+            ),
+            child: const Text(
+              'Cancelar',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+                color: Colors.deepPurple,
+              ),
+            ),
+          ),
+        ),
+        
+        const SizedBox(height: 12),
+        
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: salvando ? null : excluirConta,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.shade600,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text(
+              'Excluir Conta',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

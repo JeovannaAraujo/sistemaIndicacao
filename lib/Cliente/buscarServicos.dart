@@ -1717,7 +1717,7 @@ class BuscarServicosScreenState extends State<BuscarServicosScreen> {
 
   Widget buildMapa() {
     return SizedBox(
-      height: 400,
+      height: 450,
       child: Stack(
         children: [
           GoogleMap(

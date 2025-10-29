@@ -31,6 +31,7 @@ class VisualizarPerfilPrestador extends StatelessWidget {
     final docRef = db.collection(colUsuarios).doc(prestadorId);
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF6F6FB),
       appBar: AppBar(),
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         stream: docRef.snapshots(),
@@ -244,7 +245,7 @@ class Header extends StatelessWidget {
     final db = firestore ?? FirebaseFirestore.instance;
 
     return Container(
-      color: Colors.white,
+      color: const Color(0xFFF6F6FB),
       padding: const EdgeInsets.all(12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -676,27 +677,61 @@ class ServicoItem extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 10),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: FutureBuilder<String>(
-                future: unidadeAbrevInline.isNotEmpty
-                    ? Future.value(unidadeAbrevInline)
-                    : abreviacaoUnidade(unidadeId),
-                builder: (context, snap) {
-                  final unidadeAbrev = snap.data ?? '';
-                  return Text(
-                    'Mín: ${formatPreco(valorMin)}   '
-                    'Méd: ${formatPreco(valorMed)}   '
-                    'Máx: ${formatPreco(valorMax)}'
-                    '${unidadeAbrev.isNotEmpty ? '/$unidadeAbrev' : ''}',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: Colors.deepPurple,
-                      fontSize: 12,
+            const SizedBox(height: 10),
+            // 🔥 VALORES OTIMIZADOS - NÃO QUEBRA LINHA
+            FutureBuilder<String>(
+              future: unidadeAbrevInline.isNotEmpty
+                  ? Future.value(unidadeAbrevInline)
+                  : abreviacaoUnidade(unidadeId),
+              builder: (context, snap) {
+                final unidadeAbrev = snap.data ?? '';
+                return SizedBox(
+                  width: double.infinity, // 🔥 OCUPA LARGURA TOTAL
+                  child: SingleChildScrollView(
+                    // 🔥 PERMITE SCROLL HORIZONTAL
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Mín: ${formatPreco(valorMin)}   ',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: Colors.deepPurple,
+                            fontSize: 11, // 🔥 FONTE UM POUCO MENOR
+                          ),
+                        ),
+                        Text(
+                          'Méd: ${formatPreco(valorMed)}   ',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: Colors.deepPurple,
+                            fontSize: 11,
+                          ),
+                        ),
+                        Text(
+                          'Máx: ${formatPreco(valorMax)}',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: Colors.deepPurple,
+                            fontSize: 11,
+                          ),
+                        ),
+                        if (unidadeAbrev.isNotEmpty) ...[
+                          Text(
+                            '/$unidadeAbrev',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: Colors.deepPurple,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
-                  );
-                },
-              ),
+                  ),
+                );
+              },
             ),
             const SizedBox(height: 12),
             Align(

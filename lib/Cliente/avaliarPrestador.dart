@@ -10,7 +10,7 @@ class AvaliarPrestadorScreen extends StatefulWidget {
   final String solicitacaoId;
   final FirebaseFirestore firestore;
   final FirebaseAuth auth;
-  final FirebaseStorage? storage; // 🔹 permite mock nos testes
+  final FirebaseStorage? storage;
 
   const AvaliarPrestadorScreen({
     super.key,
@@ -29,7 +29,7 @@ class _AvaliarPrestadorScreenState extends State<AvaliarPrestadorScreen> {
   double nota = 0;
   bool enviando = false;
   final comentarioCtrl = TextEditingController();
-  File? imagem;
+  List<File> imagens = [];
   late final FirebaseStorage storage;
 
   @override
@@ -44,34 +44,69 @@ class _AvaliarPrestadorScreenState extends State<AvaliarPrestadorScreen> {
     super.dispose();
   }
 
-  // 🔹 Escolhe imagem da galeria
-  Future<void> _escolherImagem() async {
+  // 🔹 Escolhe múltiplas imagens da galeria
+  Future<void> _escolherImagens() async {
     final picker = ImagePicker();
-    final img = await picker.pickImage(source: ImageSource.gallery);
-    if (img != null) {
-      setState(() => imagem = File(img.path));
+    final imagensSelecionadas = await picker.pickMultiImage(
+      maxWidth: 1024,
+      maxHeight: 1024,
+      imageQuality: 85,
+    );
+    
+    if (imagensSelecionadas.isNotEmpty) {
+      setState(() {
+        // Adiciona as novas imagens à lista existente
+        imagens.addAll(imagensSelecionadas.map((img) => File(img.path)));
+        
+        // Limita a um número máximo (ex: 5 imagens)
+        if (imagens.length > 5) {
+          imagens = imagens.sublist(0, 5);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Máximo de 5 imagens atingido')),
+          );
+        }
+      });
     }
   }
 
-  // 🔹 Faz upload da imagem (para Storage real ou MockFirebaseStorage)
-  Future<String?> _uploadImagem(String clienteId) async {
-    if (imagem == null) return null;
+  // 🔹 Remove uma imagem específica
+  void _removerImagem(int index) {
+    setState(() {
+      imagens.removeAt(index);
+    });
+  }
+
+  // 🔹 Faz upload de múltiplas imagens para o Storage
+  Future<List<String>> _uploadImagens(String clienteId) async {
+    if (imagens.isEmpty) return [];
+    
+    final List<String> urls = [];
+    
     try {
-      final ref = storage
-          .ref()
-          .child('avaliacoes')
-          .child(clienteId)
-          .child('${DateTime.now().millisecondsSinceEpoch}.jpg');
+      for (final imagem in imagens) {
+        // Cria referência única para cada imagem
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+        final ref = storage
+            .ref()
+            .child('avaliacoes')
+            .child(clienteId)
+            .child('${timestamp}_${urls.length}.jpg');
 
-      final upload = await ref.putFile(imagem!);
-      return await upload.ref.getDownloadURL();
+        // Faz upload da imagem
+        final uploadTask = await ref.putFile(imagem);
+        final url = await uploadTask.ref.getDownloadURL();
+        urls.add(url);
+        
+        debugPrint('✅ Imagem ${urls.length} enviada: $url');
+      }
+      return urls;
     } catch (e) {
-      debugPrint('❌ Erro ao enviar imagem: $e');
-      return null;
+      debugPrint('❌ Erro ao enviar imagens: $e');
+      throw Exception('Erro ao enviar imagens: $e');
     }
   }
 
-  // 🔹 Envia avaliação completa (com nota, comentário e imagem)
+  // 🔹 Envia avaliação completa com múltiplas imagens
   Future<void> _enviarAvaliacao() async {
     if (nota == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -95,21 +130,23 @@ class _AvaliarPrestadorScreenState extends State<AvaliarPrestadorScreen> {
 
       final dados = doc.data()!;
       final prestadorId = dados['prestadorId'] ?? '';
-      final servicoId = dados['servicoId'] ?? ''; // ✅ NOVO: Pegar servicoId
+      final servicoId = dados['servicoId'] ?? '';
 
-      // ✅ Upload opcional de imagem
-      final imagemUrl = await _uploadImagem(clienteId);
+      // ✅ Upload de múltiplas imagens para o Storage
+      final imagensUrls = await _uploadImagens(clienteId);
 
-      // ✅ Cria a avaliação COM servicoId
+      // ✅ Cria a avaliação COM array de URLs das imagens
       await widget.firestore.collection('avaliacoes').add({
         'solicitacaoId': widget.solicitacaoId,
-        'servicoId': servicoId, // ✅ CAMPO NOVO ADICIONADO
+        'servicoId': servicoId,
         'clienteId': clienteId,
         'prestadorId': prestadorId,
         'nota': nota,
         'comentario': comentarioCtrl.text.trim(),
-        'data': DateTime.now(),
-        'imagemUrl': imagemUrl,
+        'data': FieldValue.serverTimestamp(),
+        'imagensUrls': imagensUrls, // ✅ Array com URLs das imagens no Storage
+        'quantidadeImagens': imagensUrls.length,
+        'criadoEm': FieldValue.serverTimestamp(),
       });
 
       // ✅ Atualiza status no Firestore
@@ -120,12 +157,14 @@ class _AvaliarPrestadorScreenState extends State<AvaliarPrestadorScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Avaliação enviada com sucesso!')),
+          SnackBar(
+            content: Text('Avaliação enviada com ${imagensUrls.length} imagem(ns)!'),
+          ),
         );
         Navigator.pop(context);
       }
     } catch (e) {
-      debugPrint('❌ Erro: $e');
+      debugPrint('❌ Erro ao enviar avaliação: $e');
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('Erro ao enviar: $e')));
@@ -135,7 +174,6 @@ class _AvaliarPrestadorScreenState extends State<AvaliarPrestadorScreen> {
     }
   }
 
-  // 🔹 Estrela individual
   Widget _estrela(int index) {
     return IconButton(
       icon: Icon(
@@ -301,13 +339,107 @@ class _AvaliarPrestadorScreenState extends State<AvaliarPrestadorScreen> {
                 ),
 
                 const SizedBox(height: 20),
-                const Text('Upload de Imagens',
-                    style: TextStyle(fontWeight: FontWeight.w500)),
-                const SizedBox(height: 8),
-                GestureDetector(
-                  onTap: _escolherImagem,
-                  child: DottedBorderContainer(imagem: imagem),
+                // Upload de múltiplas imagens
+                Row(
+                  children: [
+                    const Text('Upload de Imagens',
+                        style: TextStyle(fontWeight: FontWeight.w500)),
+                    const SizedBox(width: 8),
+                    Text(
+                      '(${imagens.length}/5)',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ],
                 ),
+                const SizedBox(height: 8),
+                
+                // Grid de imagens selecionadas
+                if (imagens.isNotEmpty) ...[
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      crossAxisSpacing: 8,
+                      mainAxisSpacing: 8,
+                      childAspectRatio: 1,
+                    ),
+                    itemCount: imagens.length,
+                    itemBuilder: (context, index) {
+                      return Stack(
+                        children: [
+                          Container(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.grey.shade300),
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.file(
+                                imagens[index],
+                                fit: BoxFit.cover,
+                                width: double.infinity,
+                                height: double.infinity,
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            top: 4,
+                            right: 4,
+                            child: GestureDetector(
+                              onTap: () => _removerImagem(index),
+                              child: Container(
+                                decoration: const BoxDecoration(
+                                  color: Colors.red,
+                                  shape: BoxShape.circle,
+                                ),
+                                padding: const EdgeInsets.all(4),
+                                child: const Icon(
+                                  Icons.close,
+                                  color: Colors.white,
+                                  size: 14,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                
+                // Botão para adicionar mais imagens
+                if (imagens.length < 5)
+                  GestureDetector(
+                    onTap: _escolherImagens,
+                    child: Container(
+                      width: double.infinity,
+                      height: 100,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: Colors.grey.shade400,
+                          width: 1,
+                        ),
+                      ),
+                      child: const Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.add_photo_alternate_outlined,
+                                color: Colors.grey, size: 28),
+                            SizedBox(height: 4),
+                            Text('Adicionar Imagens',
+                                style: TextStyle(color: Colors.grey, fontSize: 13)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
 
                 const SizedBox(height: 28),
 
@@ -360,44 +492,6 @@ class _AvaliarPrestadorScreenState extends State<AvaliarPrestadorScreen> {
           );
         },
       ),
-    );
-  }
-}
-
-// ===============================
-//  Widget auxiliar p/ exibir foto
-// ===============================
-class DottedBorderContainer extends StatelessWidget {
-  final File? imagem;
-
-  const DottedBorderContainer({super.key, this.imagem});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      height: 100,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.grey.shade400, width: 1),
-      ),
-      child: imagem != null
-          ? ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Image.file(imagem!, fit: BoxFit.cover),
-            )
-          : const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.camera_alt_outlined,
-                      color: Colors.grey, size: 28),
-                  SizedBox(height: 4),
-                  Text('Foto',
-                      style: TextStyle(color: Colors.grey, fontSize: 13)),
-                ],
-              ),
-            ),
     );
   }
 }

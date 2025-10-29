@@ -25,7 +25,7 @@ class SolicitacoesEnviadasScreen extends StatelessWidget {
       backgroundColor: const Color(0xFFF9F6FF),
       appBar: AppBar(
         title: const Text('Solicitações'),
-        backgroundColor: Colors.white,
+        backgroundColor: const Color(0xFFF6F6FB),
         elevation: 0.3,
       ),
       body: Column(
@@ -293,7 +293,7 @@ class CardEnviada extends StatelessWidget {
                 children: [
                   // Foto
                   ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(28),
                     child: Container(
                       width: 56,
                       height: 56,
@@ -598,7 +598,7 @@ class VisualizarSolicitacaoEnviadaPage extends StatelessWidget {
               return Row(
                 children: [
                   ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(28),
                     child: Container(
                       width: 56,
                       height: 56,

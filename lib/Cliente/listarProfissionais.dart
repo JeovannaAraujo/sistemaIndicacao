@@ -276,48 +276,82 @@ class _ProfessionalCard extends StatelessWidget {
                   const SizedBox(height: 12),
 
                   // Ações
+                  // Ações
                   Row(
                     children: [
+                      // 🔥 BOTÃO "VER PERFIL" AJUSTADO
                       Expanded(
-                        child: OutlinedButton(
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) =>
-                                    VisualizarPerfilPrestador(prestadorId: id),
+                        child: SizedBox(
+                          height: 36, // 🔥 ALTURA FIXA
+                          child: OutlinedButton(
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => VisualizarPerfilPrestador(
+                                    prestadorId: id,
+                                  ),
+                                ),
+                              );
+                            },
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.deepPurple,
+                              side: const BorderSide(color: Colors.deepPurple),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
                               ),
-                            );
-                          },
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.deepPurple,
-                            side: const BorderSide(color: Colors.deepPurple),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                              ), // 🔥 PADDING REDUZIDO
+                            ),
+                            child: const FittedBox(
+                              // 🔥 AJUSTA TEXTO AO TAMANHO
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                'Ver Perfil',
+                                style: TextStyle(
+                                  fontSize: 12, // 🔥 FONTE MENOR
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                             ),
                           ),
-                          child: const Text('Ver Perfil'),
                         ),
                       ),
                       const SizedBox(width: 8),
+                      // 🔥 BOTÃO "AGENDA" TAMBÉM AJUSTADO
                       Expanded(
-                        child: ElevatedButton(
-                          onPressed: () {
-                            showAgendaPrestadorModal(
-                              context,
-                              prestadorId: id, // uid do prestador
-                              prestadorNome: nome,
-                            );
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.deepPurple,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
+                        child: SizedBox(
+                          height: 36, // 🔥 MESMA ALTURA
+                          child: ElevatedButton(
+                            onPressed: () {
+                              showAgendaPrestadorModal(
+                                context,
+                                prestadorId: id,
+                                prestadorNome: nome,
+                              );
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.deepPurple,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                              ), // 🔥 PADDING REDUZIDO
                             ),
-                          ),
-                          child: const Text(
-                            'Agenda',
-                            style: TextStyle(color: Colors.white),
+                            child: const FittedBox(
+                              // 🔥 AJUSTA TEXTO AO TAMANHO
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                'Agenda',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12, // 🔥 FONTE MENOR
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
                           ),
                         ),
                       ),

@@ -1,15 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
 
 class EditarServico extends StatefulWidget {
   final String serviceId;
   final FirebaseFirestore? firestore;
 
-  const EditarServico({
-    super.key,
-    required this.serviceId,
-    this.firestore,
-  });
+  const EditarServico({super.key, required this.serviceId, this.firestore});
 
   @override
   State<EditarServico> createState() => EditarServicoState();
@@ -19,23 +16,21 @@ class EditarServicoState extends State<EditarServico> {
   final _formKey = GlobalKey<FormState>();
   late final FirebaseFirestore _db;
 
-  // Controllers
   final nomeController = TextEditingController();
   final descricaoController = TextEditingController();
   final valorMinimoController = TextEditingController();
   final valorMedioController = TextEditingController();
   final valorMaximoController = TextEditingController();
 
-  // Seleções
   String? unidadeSelecionadaId;
   String? categoriaSelecionadaId;
   bool ativo = true;
-
   bool carregando = true;
 
-  // Streams
   late final Stream<QuerySnapshot<Map<String, dynamic>>> unidadesStream;
   late final Stream<QuerySnapshot<Map<String, dynamic>>> categoriasStream;
+
+  final _moeda = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
 
   @override
   void initState() {
@@ -75,16 +70,23 @@ class EditarServicoState extends State<EditarServico> {
     descricaoController.text = data['descricao'] ?? '';
     unidadeSelecionadaId = data['unidadeId'];
     categoriaSelecionadaId = data['categoriaId'];
-    valorMinimoController.text = (data['valorMinimo'] ?? 0).toString();
-    valorMedioController.text = (data['valorMedio'] ?? 0).toString();
-    valorMaximoController.text = (data['valorMaximo'] ?? 0).toString();
+
+    valorMinimoController.text = _moeda.format(data['valorMinimo'] ?? 0);
+    valorMedioController.text = _moeda.format(data['valorMedio'] ?? 0);
+    valorMaximoController.text = _moeda.format(data['valorMaximo'] ?? 0);
     ativo = data['ativo'] == true;
 
     if (mounted) setState(() => carregando = false);
   }
 
-  double parseNum(String s) =>
-      double.tryParse(s.replaceAll(',', '.').trim()) ?? 0.0;
+  double parseValor(String valor) {
+    final limpo = valor
+        .replaceAll('R\$', '')
+        .replaceAll('.', '')
+        .replaceAll(',', '.')
+        .trim();
+    return double.tryParse(limpo) ?? 0.0;
+  }
 
   Future<void> salvar() async {
     if (!_formKey.currentState!.validate()) return;
@@ -108,9 +110,9 @@ class EditarServicoState extends State<EditarServico> {
       'descricao': descricaoController.text.trim(),
       'categoriaId': categoriaSelecionadaId,
       'unidadeId': unidadeSelecionadaId,
-      'valorMinimo': parseNum(valorMinimoController.text),
-      'valorMedio': parseNum(valorMedioController.text),
-      'valorMaximo': parseNum(valorMaximoController.text),
+      'valorMinimo': parseValor(valorMinimoController.text),
+      'valorMedio': parseValor(valorMedioController.text),
+      'valorMaximo': parseValor(valorMaximoController.text),
       'ativo': ativo,
       'atualizadoEm': FieldValue.serverTimestamp(),
     });
@@ -123,201 +125,251 @@ class EditarServicoState extends State<EditarServico> {
     }
   }
 
-  Future<void> excluir() async {
-    final confirmar = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Excluir serviço'),
-        content: const Text('Tem certeza que deseja excluir este serviço?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Excluir'),
-          ),
-        ],
+  InputDecoration _inputDecoration(String label) {
+    return InputDecoration(
+      labelText: label,
+      filled: true,
+      fillColor: Colors.white,
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Colors.black12),
       ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Colors.deepPurple),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
     );
-
-    if (confirmar != true) return;
-
-    await _db.collection('servicos').doc(widget.serviceId).delete();
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Serviço excluído com sucesso!')),
-      );
-      Navigator.pop(context);
-    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF9F6FF),
       appBar: AppBar(
-        title: const Text('Editar serviço'),
-        backgroundColor: Colors.deepPurple,
-        actions: [
-          IconButton(
-            tooltip: 'Excluir serviço',
-            icon: const Icon(Icons.delete_outline),
-            onPressed: excluir,
-          ),
-        ],
+        title: const Text('Editar Serviço'),
+        backgroundColor: Colors.white,
+        elevation: 0.3,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.deepPurple),
+          onPressed: () => Navigator.pop(context),
+        ),
       ),
       body: carregando
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
               child: Form(
                 key: _formKey,
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Nome
+                    const _SectionTitle('Informações Gerais'),
+                    const SizedBox(height: 10),
+
                     TextFormField(
                       controller: nomeController,
-                      decoration: const InputDecoration(
-                        labelText: 'Nome do serviço',
-                      ),
+                      decoration: _inputDecoration('Nome do serviço'),
                       validator: (v) =>
-                          (v == null || v.trim().isEmpty) ? 'Obrigatório' : null,
+                          (v == null || v.isEmpty) ? 'Obrigatório' : null,
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
 
-                    // Descrição
                     TextFormField(
                       controller: descricaoController,
-                      decoration: const InputDecoration(
-                        labelText: 'Descrição do serviço',
-                      ),
-                      maxLines: 3,
+                      minLines: 3,
+                      maxLines: 5,
+                      decoration: _inputDecoration('Descrição do serviço'),
                       validator: (v) =>
-                          (v == null || v.trim().isEmpty) ? 'Obrigatório' : null,
+                          (v == null || v.isEmpty) ? 'Obrigatório' : null,
                     ),
                     const SizedBox(height: 16),
 
                     // Categoria
                     StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                       stream: categoriasStream,
-                      builder: (context, snapshot) {
-                        if (!snapshot.hasData) {
-                          return const CircularProgressIndicator();
+                      builder: (context, snap) {
+                        if (!snap.hasData) {
+                          return const Center(
+                            child: CircularProgressIndicator(),
+                          );
                         }
-                        final docs = snapshot.data!.docs;
+
+                        final docs = snap.data!.docs;
+                        final itens = docs.map((d) {
+                          final id = d.id;
+                          final nome = (d.data()['nome'] ?? '') as String;
+                          return DropdownMenuItem<String>(
+                            value: id,
+                            child: Text(nome),
+                          );
+                        }).toList();
+
                         return DropdownButtonFormField<String>(
                           value: categoriaSelecionadaId,
-                          decoration:
-                              const InputDecoration(labelText: 'Categoria'),
-                          items: docs.map((doc) {
-                            return DropdownMenuItem(
-                              value: doc.id,
-                              child: Text(doc['nome']),
-                            );
-                          }).toList(),
-                          onChanged: (v) =>
-                              setState(() => categoriaSelecionadaId = v),
-                          validator: (v) =>
-                              v == null ? 'Selecione uma categoria' : null,
+                          items: itens,
+                          onChanged: (id) =>
+                              setState(() => categoriaSelecionadaId = id),
+                          decoration: _inputDecoration('Categoria do serviço'),
+                          validator: (_) => (categoriaSelecionadaId == null)
+                              ? 'Obrigatório'
+                              : null,
                         );
                       },
                     ),
                     const SizedBox(height: 16),
 
-                    // Unidade de medida
+                    // Unidade de Medida
                     StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                       stream: unidadesStream,
-                      builder: (context, snapshot) {
-                        if (!snapshot.hasData) {
-                          return const CircularProgressIndicator();
+                      builder: (context, snap) {
+                        if (!snap.hasData) {
+                          return const Center(
+                            child: CircularProgressIndicator(),
+                          );
                         }
-                        final docs = snapshot.data!.docs;
+
+                        final docs = snap.data!.docs;
+                        final itens = docs.map((d) {
+                          final id = d.id;
+                          final nome = (d.data()['nome'] ?? '') as String;
+                          return DropdownMenuItem<String>(
+                            value: id,
+                            child: Text(nome),
+                          );
+                        }).toList();
+
                         return DropdownButtonFormField<String>(
                           value: unidadeSelecionadaId,
-                          decoration:
-                              const InputDecoration(labelText: 'Unidade de medida'),
-                          items: docs.map((doc) {
-                            return DropdownMenuItem(
-                              value: doc.id,
-                              child: Text(doc['nome']),
-                            );
-                          }).toList(),
-                          onChanged: (v) =>
-                              setState(() => unidadeSelecionadaId = v),
-                          validator: (v) =>
-                              v == null ? 'Selecione uma unidade' : null,
+                          items: itens,
+                          onChanged: (id) =>
+                              setState(() => unidadeSelecionadaId = id),
+                          decoration: _inputDecoration('Unidade de medida'),
+                          validator: (_) => (unidadeSelecionadaId == null)
+                              ? 'Obrigatório'
+                              : null,
                         );
                       },
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 20),
 
-                    // Valores
+                    const _SectionTitle('Valores do Serviço'),
+                    const SizedBox(height: 8),
+
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF2E7FE),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.deepPurple.withOpacity(0.2),
+                        ),
+                      ),
+                      child: const Text(
+                        'Atualize os valores mínimos, médios e máximos cobrados '
+                        'para que os clientes saibam a faixa de preço estimada do serviço.',
+                        style: TextStyle(
+                          color: Colors.deepPurple,
+                          fontSize: 13,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
                     TextFormField(
                       controller: valorMinimoController,
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                      decoration:
-                          const InputDecoration(labelText: 'Valor mínimo (R\$)'),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: _inputDecoration(
+                        'Valor por unidade (mínimo)',
+                      ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
+
                     TextFormField(
                       controller: valorMedioController,
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                      decoration:
-                          const InputDecoration(labelText: 'Valor médio (R\$)'),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: _inputDecoration('Valor por unidade (médio)'),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
+
                     TextFormField(
                       controller: valorMaximoController,
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                      decoration:
-                          const InputDecoration(labelText: 'Valor máximo (R\$)'),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: _inputDecoration(
+                        'Valor por unidade (máximo)',
+                      ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 20),
 
-                    // Switch de ativo
                     SwitchListTile(
                       title: const Text('Serviço ativo'),
-                      value: ativo,
                       activeColor: Colors.deepPurple,
+                      value: ativo,
                       onChanged: (v) => setState(() => ativo = v),
                     ),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 30),
 
-                    // Botões
-                    ElevatedButton(
-                      onPressed: salvar,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.deepPurple,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 40, vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(24),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: salvar,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.deepPurple,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                            child: const Text('Salvar alterações'),
+                          ),
                         ),
-                      ),
-                      child: const Text('Salvar alterações'),
-                    ),
-                    const SizedBox(height: 10),
-                    OutlinedButton(
-                      onPressed: () => Navigator.pop(context),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 40, vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(24),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton.tonal(
+                            onPressed: () => Navigator.pop(context),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFFE9D7FF),
+                              foregroundColor: Colors.deepPurple,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                            child: const Text('Cancelar'),
+                          ),
                         ),
-                      ),
-                      child: const Text('Cancelar'),
+                      ],
                     ),
                   ],
                 ),
               ),
             ),
+    );
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  final String text;
+  const _SectionTitle(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: const TextStyle(
+        fontSize: 18,
+        fontWeight: FontWeight.bold,
+        color: Colors.deepPurple,
+      ),
     );
   }
 }

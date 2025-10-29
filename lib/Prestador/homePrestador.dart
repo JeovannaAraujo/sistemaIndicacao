@@ -144,78 +144,54 @@ class HomePrestadorScreenState extends State<HomePrestadorScreen> {
       double soma = 0;
       int qtd = 0;
 
-      final solicQuery = await db
-          .collection('solicitacoesOrcamento')
+      // 🔹 BUSCA DIRETA POR servicoId (AGORA DISPONÍVEL)
+      final avaliacoesSnap = await db
+          .collection('avaliacoes')
           .where('servicoId', isEqualTo: servicoId)
           .get();
 
-      if (solicQuery.docs.isNotEmpty) {
-        final ids = solicQuery.docs.map((d) => d.id).toList();
-        for (var i = 0; i < ids.length; i += 10) {
-          final chunk = ids.sublist(
-            i,
-            (i + 10 > ids.length) ? ids.length : i + 10,
-          );
-          final avSnap = await db
-              .collection('avaliacoes')
-              .where('solicitacaoId', whereIn: chunk)
-              .get();
+      debugPrint('📊 Buscando avaliações para serviço: $servicoId');
+      debugPrint('📊 Encontradas ${avaliacoesSnap.docs.length} avaliações');
 
-          for (final a in avSnap.docs) {
-            final nota = extrairNotaGenerica(a.data());
-            if (nota != null) {
-              soma += nota;
-              qtd += 1;
-            }
-          }
+      // Processa cada avaliação encontrada
+      for (final avaliacaoDoc in avaliacoesSnap.docs) {
+        final avaliacaoData = avaliacaoDoc.data();
+        final nota = extrairNotaGenerica(avaliacaoData);
+        
+        if (nota != null) {
+          soma += nota;
+          qtd += 1;
+          debugPrint('⭐ Avaliação ${qtd}: nota $nota - ${avaliacaoData['comentario'] ?? 'Sem comentário'}');
         }
       }
 
-      if (qtd == 0) {
-        final possiveisCampos = [
-          ['servicoId', servicoId],
-          ['servico.id', servicoId],
-          ['servicoIdRef', servicoId],
-        ];
-        for (final par in possiveisCampos) {
-          final snap = await db
-              .collection('avaliacoes')
-              .where(par[0], isEqualTo: par[1])
-              .get();
-          if (snap.docs.isNotEmpty) {
-            for (final a in snap.docs) {
-              final nota = extrairNotaGenerica(a.data());
-              if (nota != null) {
-                soma += nota;
-                qtd++;
-              }
-            }
-            break;
-          }
-        }
-      }
-
-      if (qtd == 0 &&
-          (prestadorId ?? '').isNotEmpty &&
+      // 🔹 FALLBACK: Busca por prestadorId + servicoTitulo (caso servicoId não funcione)
+      if (qtd == 0 && 
+          (prestadorId ?? '').isNotEmpty && 
           (servicoTitulo ?? '').isNotEmpty) {
-        final snap = await db
+        debugPrint('🔄 Tentando fallback por prestadorId + servicoTitulo');
+        
+        final avaliacoesPorTitulo = await db
             .collection('avaliacoes')
             .where('prestadorId', isEqualTo: prestadorId)
             .where('servicoTitulo', isEqualTo: servicoTitulo)
             .get();
 
-        for (final a in snap.docs) {
-          final nota = extrairNotaGenerica(a.data());
+        for (final avaliacaoDoc in avaliacoesPorTitulo.docs) {
+          final nota = extrairNotaGenerica(avaliacaoDoc.data());
           if (nota != null) {
             soma += nota;
-            qtd++;
+            qtd += 1;
           }
         }
       }
 
       final media = (qtd == 0) ? 0 : (soma / qtd);
+      debugPrint('🎯 Resultado final: média $media de $qtd avaliações');
+      
       return {'media': media, 'qtd': qtd};
-    } catch (_) {
+    } catch (e) {
+      debugPrint('❌ Erro ao buscar avaliações do serviço $servicoId: $e');
       return {'media': 0, 'qtd': 0};
     }
   }
@@ -249,49 +225,101 @@ class HomePrestadorScreenState extends State<HomePrestadorScreen> {
     return snap.data()?['abreviacao'] as String?;
   }
 
-  Widget _ratingLinha({
-    required String servicoId,
-    required String servicoTitulo,
-    required double docMedia,
-    required int docQtd,
-  }) {
-    final prestadorId = user?.uid ?? '';
-    final Future<Map<String, num>> fut = (docQtd > 0 || docMedia > 0)
-        ? Future.value({'media': docMedia, 'qtd': docQtd})
-        : mediaQtdDoServicoPorAvaliacoes(
-            servicoId,
-            prestadorId: prestadorId,
-            servicoTitulo: servicoTitulo,
-          );
-
-    return FutureBuilder<Map<String, num>>(
-      future: fut,
-      builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const SizedBox(height: 18);
-        }
-        final media = (snap.data?['media'] ?? 0).toDouble();
-        final qtd = (snap.data?['qtd'] ?? 0).toInt();
-
-        return InkWell(
-          onTap: () => abrirAvaliacoesDoServico(
-            servicoId: servicoId,
-            servicoTitulo: servicoTitulo,
-          ),
-          child: Row(
-            children: [
-              const Icon(Icons.star, size: 16, color: Colors.amber),
-              const SizedBox(width: 4),
-              Text(
-                '${media.toStringAsFixed(1)} ($qtd avaliações)',
-                style: const TextStyle(fontWeight: FontWeight.w500),
-              ),
-            ],
-          ),
+ Widget _ratingLinha({
+  required String servicoId,
+  required String servicoTitulo,
+  required double docMedia,
+  required int docQtd,
+}) {
+  final prestadorId = user?.uid ?? '';
+  
+  // 🔹 Se já temos dados válidos no documento, usa eles (mais rápido)
+  final Future<Map<String, num>> fut = (docQtd > 0 && docMedia > 0)
+      ? Future.value({'media': docMedia, 'qtd': docQtd})
+      : mediaQtdDoServicoPorAvaliacoes(
+          servicoId,
+          prestadorId: prestadorId,
+          servicoTitulo: servicoTitulo,
         );
-      },
-    );
-  }
+
+  return FutureBuilder<Map<String, num>>(
+    future: fut,
+    builder: (context, snap) {
+      if (snap.connectionState == ConnectionState.waiting) {
+        return const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.star, size: 16, color: Colors.grey),
+            SizedBox(width: 4),
+            Text(
+              'Carregando...',
+              style: TextStyle(
+                fontWeight: FontWeight.w500, 
+                fontSize: 12,
+                color: Colors.grey,
+              ),
+            ),
+          ],
+        );
+      }
+      
+      if (snap.hasError) {
+        debugPrint('❌ Erro no FutureBuilder: ${snap.error}');
+        return const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.error_outline, size: 16, color: Colors.red),
+            SizedBox(width: 4),
+            Text(
+              'Erro',
+              style: TextStyle(
+                fontWeight: FontWeight.w500, 
+                fontSize: 12,
+                color: Colors.red,
+              ),
+            ),
+          ],
+        );
+      }
+      
+      final media = (snap.data?['media'] ?? 0).toDouble();
+      final qtd = (snap.data?['qtd'] ?? 0).toInt();
+
+      // 🔹 MODIFICAÇÃO AQUI: Sempre mostra as estrelas amarelas e texto preto
+      return InkWell(
+        onTap: qtd > 0 ? () => abrirAvaliacoesDoServico(
+          servicoId: servicoId,
+          servicoTitulo: servicoTitulo,
+        ) : null, // Desabilita o tap se não há avaliações
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.star, size: 16, color: Colors.amber), // 🔹 Sempre amarela
+            const SizedBox(width: 4),
+            Text(
+              media.toStringAsFixed(1),
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: Colors.black, // 🔹 Sempre preto
+              ),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              '($qtd ${qtd == 1 ? 'avaliação' : 'avaliações'})',
+              style: const TextStyle(
+                fontWeight: FontWeight.w500,
+                fontSize: 12,
+                color: Colors.black87, // 🔹 Sempre preto
+              ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
 
   Widget _buildServicosPrestadorSection() {
     final uid = user?.uid ?? '';
@@ -420,6 +448,7 @@ class HomePrestadorScreenState extends State<HomePrestadorScreen> {
     final uid = u?.uid;
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF6F6FB), // 🔹 COR DE FUNDO UNIFORMIZADA
       drawer: Drawer(
         child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
           stream: (u == null)
@@ -665,9 +694,10 @@ class HomePrestadorScreenState extends State<HomePrestadorScreen> {
       ),
 
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: const Color(0xFFF6F6FB), // 🔹 COR UNIFORMIZADA
         foregroundColor: Colors.deepPurple,
         elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.deepPurple),
       ),
       body: _buildBody(),
       bottomNavigationBar: const PrestadorBottomNav(selectedIndex: 0),
@@ -854,150 +884,149 @@ class _ServiceCard extends StatelessWidget {
           ),
         ],
       ),
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 16), // ⬅️ mais espaço no topo
+      child: Stack(
+        clipBehavior: Clip.none,
         children: [
-          // ======= Cabeçalho (imagem + textos + avaliações)
-          Row(
+          // ⭐ Avaliações no canto superior direito
+          Positioned(
+            top: 0,
+            right: 0,
+            child: ratingBuilder(),
+          ),
+
+          // ======= Conteúdo principal
+          Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 📷 Miniatura
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: _CategoriaThumb(
-                  categoriaId: categoriaId,
-                  db: FirebaseFirestore.instance,
-                ),
-              ),
-              const SizedBox(width: 12),
+              const SizedBox(height: 25), // ⬅️ empurra os textos pra baixo da estrela
 
-              // 🧾 Texto e avaliações
-              Expanded(
-                child: Stack(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(right: 70, top: 2),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const SizedBox(height: 2),
-                          Text(
-                            nome,
-                            style: const TextStyle(
-                              fontSize: 15.5,
-                              fontWeight: FontWeight.w700,
-                              height: 1.2,
-                            ),
-                          ),
-                          if (descricao.isNotEmpty)
-                            Text(
-                              descricao,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.black87,
-                                fontSize: 13,
-                                height: 1.2,
-                              ),
-                            ),
-                          FutureBuilder<String?>(
-                            future: getNomeCategoria(categoriaId),
-                            builder: (context, catSnap) {
-                              final catNome = catSnap.data;
-                              return Text(
-                                (catNome != null && catNome.isNotEmpty)
-                                    ? catNome
-                                    : 'Categoria',
-                                style: const TextStyle(
-                                  fontSize: 12.5,
-                                  color: Colors.grey,
-                                ),
-                              );
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    // ⭐ Avaliações no canto superior direito
-                    Positioned(
-                      top: 0,
-                      right: 0,
-                      child: DefaultTextStyle.merge(
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: Colors.black87,
-                          height: 1.2,
-                        ),
-                        child: ratingBuilder(),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 10), // 🔹 espaçamento mais equilibrado
-          // 💰 Valores
-          FutureBuilder<String?>(
-            future: getNomeUnidade(unidadeId),
-            builder: (context, uniSnap) {
-              final abrev = (uniSnap.data ?? '').trim();
-              final unidadeAbrev = abrev.isNotEmpty ? abrev : 'un';
-              final vMin = (data['valorMinimo'] ?? 0) as num;
-              final vMed = (data['valorMedio'] ?? 0) as num;
-              final vMax = (data['valorMaximo'] ?? 0) as num;
-              String format(num n) =>
-                  n.toDouble().toStringAsFixed(2).replaceAll('.', ',');
-
-              return Padding(
-                padding: const EdgeInsets.only(top: 2, bottom: 6),
-                child: Text(
-                  'Min: R\$${format(vMin)}   Méd: R\$${format(vMed)}   Máx: R\$${format(vMax)}/$unidadeAbrev',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    color: Colors.deepPurple,
-                    fontSize: 12.5,
-                  ),
-                ),
-              );
-            },
-          ),
-
-          const SizedBox(height: 12),
-          // ====== Rodapé: Editar à esquerda | Ativo à direita
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              ElevatedButton(
-                onPressed: onEditar,
-                style: ElevatedButton.styleFrom(
-                  elevation: 0,
-                  backgroundColor: Colors.deepPurple, // 🔹 Cor mais viva
-                  foregroundColor: Colors.white, // 🔹 Texto branco
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 10,
-                  ),
-                  shape: RoundedRectangleBorder(
+              // ======= Imagem + textos principais
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 📷 Miniatura
+                  ClipRRect(
                     borderRadius: BorderRadius.circular(10),
+                    child: _CategoriaThumb(
+                      categoriaId: categoriaId,
+                      db: FirebaseFirestore.instance,
+                    ),
                   ),
-                  textStyle: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-                child: const Text('Editar'),
+                  const SizedBox(width: 14),
+
+                  // 🧾 Texto principal
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: 4),
+                        Text(
+                          nome,
+                          style: const TextStyle(
+                            fontSize: 15.5,
+                            fontWeight: FontWeight.w700,
+                            height: 1.3,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        if (descricao.isNotEmpty)
+                          Text(
+                            descricao,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.black87,
+                              fontSize: 13,
+                              height: 1.4,
+                            ),
+                          ),
+                        const SizedBox(height: 6),
+                        FutureBuilder<String?>(
+                          future: getNomeCategoria(categoriaId),
+                          builder: (context, catSnap) {
+                            final catNome = catSnap.data;
+                            return Text(
+                              (catNome != null && catNome.isNotEmpty)
+                                  ? catNome
+                                  : 'Categoria',
+                              style: const TextStyle(
+                                fontSize: 12.5,
+                                color: Colors.grey,
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              const Spacer(),
-              const Text(
-                'Ativo',
-                style: TextStyle(fontWeight: FontWeight.w500),
+
+              const SizedBox(height: 16),
+
+              // 💰 Valores
+              FutureBuilder<String?>(
+                future: getNomeUnidade(unidadeId),
+                builder: (context, uniSnap) {
+                  final abrev = (uniSnap.data ?? '').trim();
+                  final unidadeAbrev = abrev.isNotEmpty ? abrev : 'un';
+                  final vMin = (data['valorMinimo'] ?? 0) as num;
+                  final vMed = (data['valorMedio'] ?? 0) as num;
+                  final vMax = (data['valorMaximo'] ?? 0) as num;
+                  String format(num n) =>
+                      n.toDouble().toStringAsFixed(2).replaceAll('.', ',');
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Text(
+                      'Min: R\$${format(vMin)}   Méd: R\$${format(vMed)}   Máx: R\$${format(vMax)}/$unidadeAbrev',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: Colors.deepPurple,
+                        fontSize: 13,
+                        height: 1.4,
+                      ),
+                    ),
+                  );
+                },
               ),
-              const SizedBox(width: 8),
-              Switch.adaptive(
-                value: ativo,
-                activeColor: Colors.deepPurple,
-                onChanged: (val) => onToggleAtivo(val),
+
+              const SizedBox(height: 10),
+
+              // ====== Rodapé: Editar à esquerda | Ativo à direita
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  ElevatedButton(
+                    onPressed: onEditar,
+                    style: ElevatedButton.styleFrom(
+                      elevation: 0,
+                      backgroundColor: Colors.deepPurple,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      textStyle: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    child: const Text('Editar'),
+                  ),
+                  const Spacer(),
+                  const Text(
+                    'Ativo',
+                    style: TextStyle(fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(width: 8),
+                  Switch.adaptive(
+                    value: ativo,
+                    activeColor: Colors.deepPurple,
+                    onChanged: (val) => onToggleAtivo(val),
+                  ),
+                ],
               ),
             ],
           ),
@@ -1050,3 +1079,4 @@ class _CategoriaThumb extends StatelessWidget {
     );
   }
 }
+
