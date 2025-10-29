@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:myapp/Administrador/categoriaProfissionais.dart';
 import 'unidadesMedidas.dart';
 import 'categoriaServicos.dart';
@@ -14,7 +15,6 @@ class PerfilAdminScreen extends StatelessWidget {
       backgroundColor: const Color(0xFFF9F6FF),
       body: ListView(
         padding: const EdgeInsets.all(20),
-
         children: [
           const SizedBox(height: 40),
 
@@ -83,15 +83,23 @@ class PerfilAdminScreen extends StatelessWidget {
               );
             },
           ),
-          // 🔹 Botão Sair
+
+          // 🔹 Botão Sair (com logout real)
           Center(
             child: ElevatedButton.icon(
-              onPressed: () {
-                Navigator.pushAndRemoveUntil(
-                  context,
-                  MaterialPageRoute(builder: (_) => const LoginScreen()),
-                  (Route<dynamic> route) => false,
-                );
+              onPressed: () async {
+                try {
+                  await FirebaseAuth.instance.signOut(); // 🔹 encerra a sessão
+                  Navigator.pushAndRemoveUntil(
+                    context,
+                    MaterialPageRoute(builder: (_) => const LoginScreen()),
+                    (Route<dynamic> route) => false,
+                  );
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Erro ao sair: $e')),
+                  );
+                }
               },
               icon: const Icon(Icons.logout_rounded, color: Colors.white),
               label: const Text(

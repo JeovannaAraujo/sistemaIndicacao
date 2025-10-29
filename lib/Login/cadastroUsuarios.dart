@@ -157,69 +157,155 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
   }
 
   // =============== VIA CEP: preenche endereço + UF ===============
-// =============== VIA CEP: preenche endereço + UF ===============
+
 Future<void> buscarCep(String maskCep) async {
   final cep = maskCep.replaceAll(RegExp(r'[^0-9]'), '');
-  if (cep.length != 8) return;
+  if (cep.length != 8) {
+    print('❌ CEP inválido: "$maskCep"');
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('CEP inválido — precisa ter 8 dígitos.')),
+    );
+    return;
+  }
 
-  // ✅ Detecta modo de teste
+  print('🔍 Buscando CEP $cep...');
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(content: Text('Buscando endereço para CEP $cep...')),
+  );
+
   final isTestMode = Platform.environment.containsKey('FLUTTER_TEST');
-
   Timer? timeoutTimer;
+
   try {
     final uri = Uri.parse('https://viacep.com.br/ws/$cep/json/');
+    http.Response response;
 
-    // 🔹 Se for teste, ignora o timer e responde direto do mock
     if (isTestMode) {
+      response = await http.get(uri);
+      print('🧪 Modo de teste detectado');
+    } else {
+      print('🌐 Consultando ViaCEP...');
+      final completer = Completer<http.Response>();
+      timeoutTimer = Timer(const Duration(seconds: 3), () {
+        if (!completer.isCompleted) {
+          completer.completeError(
+            TimeoutException('⏱️ Tempo esgotado ao consultar ViaCEP'),
+          );
+        }
+      });
       final r = await http.get(uri);
-      print('⏱️ Timeout ViaCEP simulado (ignorado durante teste)');
-      if (r.statusCode == 200) {
-        final data = json.decode(r.body) as Map<String, dynamic>;
-        setState(() {
-          ruaController.text = (data['logradouro'] ?? '').toString();
-          bairroController.text = (data['bairro'] ?? '').toString();
-          cidadeController.text = (data['localidade'] ?? '').toString();
-          uf = (data['uf'] ?? '').toString();
-        });
-      }
+      if (!completer.isCompleted) completer.complete(r);
+      response = await completer.future;
+    }
+
+    print('📦 Status do ViaCEP: ${response.statusCode}');
+    if (response.statusCode != 200) {
+      throw Exception('Erro ${response.statusCode} ao buscar o CEP');
+    }
+
+    final data = json.decode(response.body) as Map<String, dynamic>;
+    print('🧭 Dados recebidos: $data');
+
+    if (data['erro'] == true || data.isEmpty) {
+      print('⚠️ CEP não encontrado no ViaCEP.');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('CEP não encontrado no ViaCEP.')),
+      );
       return;
     }
 
-    // 🔹 Execução normal (modo app)
-    final completer = Completer<http.Response>();
-    timeoutTimer = Timer(const Duration(seconds: 2), () {
-      if (!completer.isCompleted) {
-        completer.completeError(
-            TimeoutException('Tempo esgotado ao consultar ViaCEP'));
+    String logradouro = (data['logradouro'] ?? '').toString().trim();
+    final bairro = (data['bairro'] ?? '').toString().trim();
+    final cidade = (data['localidade'] ?? '').toString().trim();
+    final estado = (data['uf'] ?? '').toString().trim();
+
+    if (logradouro.isEmpty) {
+      if (bairro.isNotEmpty) {
+        logradouro = 'Rua principal - $bairro';
+      } else {
+        logradouro = 'Rua não identificada';
       }
+    }
+
+    print('✅ Endereço identificado: $logradouro, $bairro - $cidade/$estado');
+
+    setState(() {
+      ruaController.text = logradouro;
+      bairroController.text = bairro;
+      cidadeController.text = cidade;
+      uf = estado;
     });
 
-    final response = await http.get(uri);
-    if (!completer.isCompleted) completer.complete(response);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Endereço localizado: $logradouro, $bairro - $cidade/$estado'),
+        duration: const Duration(seconds: 3),
+      ),
+    );
 
-    final r = await completer.future;
+    // ==========================
+    // 🔹 Agora tenta posicionar no mapa
+    // ==========================
+    print('🗺️ Tentando geocodificar o CEP...');
+    try {
+      final comps = <gws.Component>[
+        gws.Component('postal_code', cep),
+        if (cidade.isNotEmpty) gws.Component('locality', cidade),
+        if (estado.isNotEmpty) gws.Component('administrative_area_level_1', estado),
+        gws.Component('country', 'BR'),
+      ];
 
-    if (r.statusCode == 200) {
-      final data = json.decode(r.body) as Map<String, dynamic>;
-      if (data['erro'] == true) {
-        print('⚠️ CEP não encontrado no ViaCEP');
-        return;
+      final resp = await _geocoding.searchByComponents(comps);
+
+      print('📍 Resposta do Google Geocoding: ${resp.status}');
+      if (resp.status == 'OK' && resp.results.isNotEmpty) {
+        final loc = resp.results.first.geometry.location;
+        final latLng = LatLng(loc.lat, loc.lng);
+
+        print('📍 Coordenadas obtidas: ${loc.lat}, ${loc.lng}');
+
+        setState(() {
+          pickedLatLng = latLng;
+        });
+
+        if (mapCtrl != null) {
+          await mapCtrl!.animateCamera(
+            CameraUpdate.newCameraPosition(
+              CameraPosition(target: latLng, zoom: 16),
+            ),
+          );
+          print('✅ Câmera movida para nova posição no mapa.');
+        } else {
+          print('⚠️ mapCtrl está nulo. O mapa ainda não foi inicializado.');
+        }
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Pino posicionado: ${loc.lat.toStringAsFixed(5)}, ${loc.lng.toStringAsFixed(5)}'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      } else {
+        print('⚠️ Nenhum resultado encontrado no Google Geocoding.');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Não foi possível posicionar o mapa. Ajuste manualmente.')),
+        );
       }
-
-      setState(() {
-        ruaController.text = (data['logradouro'] ?? '').toString();
-        bairroController.text = (data['bairro'] ?? '').toString();
-        cidadeController.text = (data['localidade'] ?? '').toString();
-        uf = (data['uf'] ?? '').toString();
-      });
+    } catch (geoErr) {
+      print('❌ Erro ao geocodificar: $geoErr');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao geocodificar o CEP: $geoErr')),
+      );
     }
   } catch (e) {
-    print('❌ Erro ao consultar ViaCEP: $e');
+    print('❌ Erro geral no buscarCep: $e');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Erro ao consultar CEP: $e')),
+    );
   } finally {
     timeoutTimer?.cancel();
   }
 }
-
 
 
   // =============== ÁREAS DE ATENDIMENTO ===============
