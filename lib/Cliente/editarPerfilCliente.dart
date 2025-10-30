@@ -1,7 +1,7 @@
 // lib/Cliente/editarPerfilCliente.dart
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -9,7 +9,17 @@ import 'dart:io';
 
 class EditarPerfilCliente extends StatefulWidget {
   final String userId;
-  const EditarPerfilCliente({super.key, required this.userId});
+  final FirebaseFirestore? firestore;
+  final FirebaseAuth? auth;
+  final FirebaseStorage? storage;
+
+  const EditarPerfilCliente({
+    super.key,
+    required this.userId,
+    this.firestore,
+    this.auth,
+    this.storage,
+  });
 
   @override
   State<EditarPerfilCliente> createState() => EditarPerfilClienteState();
@@ -17,15 +27,12 @@ class EditarPerfilCliente extends StatefulWidget {
 
 class EditarPerfilClienteState extends State<EditarPerfilCliente> {
   final formKey = GlobalKey<FormState>();
-  final _auth = FirebaseAuth.instance;
-  final _storage = FirebaseStorage.instance;
+  late final FirebaseAuth auth;
   final _picker = ImagePicker();
 
-  /// 🔹 Permite injeção de Firestore fake em testes
-  late FirebaseFirestore db;
-
-  EditarPerfilClienteState({FirebaseFirestore? testDb})
-    : db = testDb ?? FirebaseFirestore.instance;
+  /// 🔹 Permite injeção de dependências fake em testes
+  late final FirebaseFirestore db;
+  late final FirebaseStorage storage;
 
   // controles pessoais e contato
   final nomeCtrl = TextEditingController();
@@ -81,16 +88,26 @@ class EditarPerfilClienteState extends State<EditarPerfilCliente> {
     'Domingo',
   ];
 
-  @override
-  void initState() {
-    super.initState();
+@override
+void initState() {
+  super.initState();
+
+  db = widget.firestore ?? FirebaseFirestore.instance;
+  storage = widget.storage ?? FirebaseStorage.instance;
+  auth = widget.auth ?? FirebaseAuth.instance;
+
+  WidgetsBinding.instance.addPostFrameCallback((_) {
     categoriasStream = db
         .collection('categoriasProfissionais')
         .where('ativo', isEqualTo: true)
         .orderBy('nome')
         .snapshots();
+
     carregarPerfil();
-  }
+  });
+}
+
+
 
   /// 🔹 Solicita permissões para acessar a galeria
   Future<bool> _solicitarPermissoesGaleria() async {
@@ -273,7 +290,7 @@ class EditarPerfilClienteState extends State<EditarPerfilCliente> {
       // 2. Criar referência no Storage com nome único
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final String path = 'usuarios/${widget.userId}/perfil_$timestamp.jpg';
-      final Reference ref = _storage.ref().child(path);
+      final Reference ref = storage.ref().child(path);
 
       // 3. Configurar metadata
       final SettableMetadata metadata = SettableMetadata(
@@ -360,7 +377,7 @@ class EditarPerfilClienteState extends State<EditarPerfilCliente> {
   Future<void> _deletarFotoAntiga() async {
     if (fotoPath != null && fotoPath!.isNotEmpty && fotoPath != 'temp') {
       try {
-        await _storage.ref().child(fotoPath!).delete();
+        await storage.ref().child(fotoPath!).delete();
         debugPrint('🗑️ Foto antiga deletada: $fotoPath');
       } catch (e) {
         // Não impede o processo se falhar em deletar a foto antiga
@@ -488,7 +505,7 @@ class EditarPerfilClienteState extends State<EditarPerfilCliente> {
       await db.collection('usuarios').doc(widget.userId).delete();
 
       // Remover usuário do Authentication
-      final user = _auth.currentUser;
+      final user = auth.currentUser;
       if (user != null && user.uid == widget.userId) {
         await user.delete();
       }

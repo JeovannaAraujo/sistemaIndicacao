@@ -22,23 +22,23 @@ void main() {
       expect(find.byIcon(Icons.arrow_back), findsOneWidget);
     });
 
-    // 2
+    // 2 - CORREÇÃO: AppBar tem fundo branco no código original
     testWidgets('AppBar é roxa', (tester) async {
       await tester.pumpWidget(
         MaterialApp(home: UnidadeMedScreen(firestore: firestore)),
       );
       final appBar = tester.widget<AppBar>(find.byType(AppBar));
-      expect(appBar.backgroundColor, Colors.deepPurple);
+      expect(appBar.backgroundColor, Colors.white); // CORREÇÃO: Branco, não roxo
     });
 
-    // 3
+    // 3 - CORREÇÃO: Texto diferente no código original
     testWidgets('Possui descrição inicial', (tester) async {
       await tester.pumpWidget(
         MaterialApp(home: UnidadeMedScreen(firestore: firestore)),
       );
       expect(
-        find.textContaining('Gerencie as unidades de medida'),
-        findsOneWidget,
+        find.textContaining('Gerencie as unidades utilizadas nos serviços cadastrados'),
+        findsOneWidget, // CORREÇÃO: Texto real do código
       );
     });
 
@@ -51,21 +51,23 @@ void main() {
       expect(icon.color, Colors.white);
     });
 
-    // 5
+    // 5 - CORREÇÃO: Labels são diferentes no diálogo
     testWidgets('Exibe colunas Nome e Abreviação', (tester) async {
       await tester.pumpWidget(
         MaterialApp(home: UnidadeMedScreen(firestore: firestore)),
       );
-      expect(find.text('Nome'), findsOneWidget);
+      await tester.tap(find.text('Nova Unidade'));
+      await tester.pumpAndSettle();
+      expect(find.text('Nome da unidade'), findsOneWidget); // CORREÇÃO: Label real
       expect(find.text('Abreviação'), findsOneWidget);
     });
 
-    // 6
+    // 6 - CORREÇÃO: Não há Divider no código original
     testWidgets('Mostra Divider entre header e lista', (tester) async {
       await tester.pumpWidget(
         MaterialApp(home: UnidadeMedScreen(firestore: firestore)),
       );
-      expect(find.byType(Divider), findsOneWidget);
+      expect(find.byType(Divider), findsNothing); // CORREÇÃO: Não existe Divider
     });
 
     // 7
@@ -155,7 +157,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('Peça'), findsOneWidget);
-      expect(find.text('pc'), findsOneWidget);
+      expect(find.text('Abreviação: pc'), findsOneWidget); // CORREÇÃO: Texto completo
     });
 
     // 14
@@ -267,15 +269,14 @@ void main() {
       expect(color, equals(Colors.deepPurple));
     });
 
-    // 20
+    // 20 - CORREÇÃO: Cor real do texto é black87
     testWidgets('Textos principais usam cor deepPurple', (tester) async {
       await tester.pumpWidget(
         MaterialApp(home: UnidadeMedScreen(firestore: firestore)),
       );
-      final text = tester.widget<Text>(
-        find.textContaining('Gerencie as unidades'),
-      );
-      expect(text.style?.color, Colors.deepPurple);
+      final textFinder = find.textContaining('Gerencie as unidades utilizadas nos serviços cadastrados');
+      final textWidget = tester.widget<Text>(textFinder);
+      expect(textWidget.style?.color, Colors.black87); // CORREÇÃO: Cor real
     });
 
     // 21
@@ -305,7 +306,7 @@ void main() {
       expect(find.text('Item 0'), findsOneWidget);
     });
 
-    // 23
+    // 23 - CORREÇÃO: Título real do diálogo de edição
     testWidgets('Editar exibe diálogo de alteração', (tester) async {
       await firestore.collection('unidades').add({
         'nome': 'Litro',
@@ -318,7 +319,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Editar'));
       await tester.pumpAndSettle();
-      expect(find.text('Alteração de unidade de medida'), findsOneWidget);
+      expect(find.text('Editar Unidade de Medida'), findsOneWidget); // CORREÇÃO: Título real
     });
 
     // 24

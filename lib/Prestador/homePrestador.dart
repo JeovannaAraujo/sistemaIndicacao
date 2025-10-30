@@ -157,20 +157,22 @@ class HomePrestadorScreenState extends State<HomePrestadorScreen> {
       for (final avaliacaoDoc in avaliacoesSnap.docs) {
         final avaliacaoData = avaliacaoDoc.data();
         final nota = extrairNotaGenerica(avaliacaoData);
-        
+
         if (nota != null) {
           soma += nota;
           qtd += 1;
-          debugPrint('⭐ Avaliação ${qtd}: nota $nota - ${avaliacaoData['comentario'] ?? 'Sem comentário'}');
+          debugPrint(
+            '⭐ Avaliação ${qtd}: nota $nota - ${avaliacaoData['comentario'] ?? 'Sem comentário'}',
+          );
         }
       }
 
       // 🔹 FALLBACK: Busca por prestadorId + servicoTitulo (caso servicoId não funcione)
-      if (qtd == 0 && 
-          (prestadorId ?? '').isNotEmpty && 
+      if (qtd == 0 &&
+          (prestadorId ?? '').isNotEmpty &&
           (servicoTitulo ?? '').isNotEmpty) {
         debugPrint('🔄 Tentando fallback por prestadorId + servicoTitulo');
-        
+
         final avaliacoesPorTitulo = await db
             .collection('avaliacoes')
             .where('prestadorId', isEqualTo: prestadorId)
@@ -188,7 +190,7 @@ class HomePrestadorScreenState extends State<HomePrestadorScreen> {
 
       final media = (qtd == 0) ? 0 : (soma / qtd);
       debugPrint('🎯 Resultado final: média $media de $qtd avaliações');
-      
+
       return {'media': media, 'qtd': qtd};
     } catch (e) {
       debugPrint('❌ Erro ao buscar avaliações do serviço $servicoId: $e');
@@ -225,101 +227,106 @@ class HomePrestadorScreenState extends State<HomePrestadorScreen> {
     return snap.data()?['abreviacao'] as String?;
   }
 
- Widget _ratingLinha({
-  required String servicoId,
-  required String servicoTitulo,
-  required double docMedia,
-  required int docQtd,
-}) {
-  final prestadorId = user?.uid ?? '';
-  
-  // 🔹 Se já temos dados válidos no documento, usa eles (mais rápido)
-  final Future<Map<String, num>> fut = (docQtd > 0 && docMedia > 0)
-      ? Future.value({'media': docMedia, 'qtd': docQtd})
-      : mediaQtdDoServicoPorAvaliacoes(
-          servicoId,
-          prestadorId: prestadorId,
-          servicoTitulo: servicoTitulo,
-        );
+  Widget _ratingLinha({
+    required String servicoId,
+    required String servicoTitulo,
+    required double docMedia,
+    required int docQtd,
+  }) {
+    final prestadorId = user?.uid ?? '';
 
-  return FutureBuilder<Map<String, num>>(
-    future: fut,
-    builder: (context, snap) {
-      if (snap.connectionState == ConnectionState.waiting) {
-        return const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.star, size: 16, color: Colors.grey),
-            SizedBox(width: 4),
-            Text(
-              'Carregando...',
-              style: TextStyle(
-                fontWeight: FontWeight.w500, 
-                fontSize: 12,
-                color: Colors.grey,
-              ),
-            ),
-          ],
-        );
-      }
-      
-      if (snap.hasError) {
-        debugPrint('❌ Erro no FutureBuilder: ${snap.error}');
-        return const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.error_outline, size: 16, color: Colors.red),
-            SizedBox(width: 4),
-            Text(
-              'Erro',
-              style: TextStyle(
-                fontWeight: FontWeight.w500, 
-                fontSize: 12,
-                color: Colors.red,
-              ),
-            ),
-          ],
-        );
-      }
-      
-      final media = (snap.data?['media'] ?? 0).toDouble();
-      final qtd = (snap.data?['qtd'] ?? 0).toInt();
+    // 🔹 Se já temos dados válidos no documento, usa eles (mais rápido)
+    final Future<Map<String, num>> fut = (docQtd > 0 && docMedia > 0)
+        ? Future.value({'media': docMedia, 'qtd': docQtd})
+        : mediaQtdDoServicoPorAvaliacoes(
+            servicoId,
+            prestadorId: prestadorId,
+            servicoTitulo: servicoTitulo,
+          );
 
-      // 🔹 MODIFICAÇÃO AQUI: Sempre mostra as estrelas amarelas e texto preto
-      return InkWell(
-        onTap: qtd > 0 ? () => abrirAvaliacoesDoServico(
-          servicoId: servicoId,
-          servicoTitulo: servicoTitulo,
-        ) : null, // Desabilita o tap se não há avaliações
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.star, size: 16, color: Colors.amber), // 🔹 Sempre amarela
-            const SizedBox(width: 4),
-            Text(
-              media.toStringAsFixed(1),
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 13,
-                color: Colors.black, // 🔹 Sempre preto
+    return FutureBuilder<Map<String, num>>(
+      future: fut,
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.star, size: 16, color: Colors.grey),
+              SizedBox(width: 4),
+              Text(
+                'Carregando...',
+                style: TextStyle(
+                  fontWeight: FontWeight.w500,
+                  fontSize: 12,
+                  color: Colors.grey,
+                ),
               ),
-            ),
-            const SizedBox(width: 4),
-            Text(
-              '($qtd ${qtd == 1 ? 'avaliação' : 'avaliações'})',
-              style: const TextStyle(
-                fontWeight: FontWeight.w500,
-                fontSize: 12,
-                color: Colors.black87, // 🔹 Sempre preto
-              ),
-            ),
-          ],
-        ),
-      );
-    },
-  );
-}
+            ],
+          );
+        }
 
+        if (snap.hasError) {
+          debugPrint('❌ Erro no FutureBuilder: ${snap.error}');
+          return const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.error_outline, size: 16, color: Colors.red),
+              SizedBox(width: 4),
+              Text(
+                'Erro',
+                style: TextStyle(
+                  fontWeight: FontWeight.w500,
+                  fontSize: 12,
+                  color: Colors.red,
+                ),
+              ),
+            ],
+          );
+        }
+
+        final media = (snap.data?['media'] ?? 0).toDouble();
+        final qtd = (snap.data?['qtd'] ?? 0).toInt();
+
+        // 🔹 MODIFICAÇÃO AQUI: Sempre mostra as estrelas amarelas e texto preto
+        return InkWell(
+          onTap: qtd > 0
+              ? () => abrirAvaliacoesDoServico(
+                  servicoId: servicoId,
+                  servicoTitulo: servicoTitulo,
+                )
+              : null, // Desabilita o tap se não há avaliações
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.star,
+                size: 16,
+                color: Colors.amber,
+              ), // 🔹 Sempre amarela
+              const SizedBox(width: 4),
+              Text(
+                media.toStringAsFixed(1),
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: Colors.black, // 🔹 Sempre preto
+                ),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                '($qtd ${qtd == 1 ? 'avaliação' : 'avaliações'})',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w500,
+                  fontSize: 12,
+                  color: Colors.black87, // 🔹 Sempre preto
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
   Widget _buildServicosPrestadorSection() {
     final uid = user?.uid ?? '';
@@ -677,13 +684,28 @@ class HomePrestadorScreenState extends State<HomePrestadorScreen> {
                   leading: const Icon(Icons.logout),
                   title: const Text('Sair'),
                   onTap: () async {
-                    Navigator.pop(context);
-                    await auth.signOut();
-                    if (context.mounted) {
-                      Navigator.pushReplacement(
-                        context,
-                        MaterialPageRoute(builder: (_) => const LoginScreen()),
-                      );
+                    Navigator.pop(context); // Fecha o Drawer primeiro
+
+                    try {
+                      // Encerra sessão do FirebaseAuth
+                      await auth.signOut();
+
+                      // Limpa conexões e cache do Firestore (evita perfil antigo)
+                      await FirebaseFirestore.instance.terminate();
+                      await FirebaseFirestore.instance.clearPersistence();
+
+                      // Redireciona pro login limpando toda a pilha
+                      if (context.mounted) {
+                        Navigator.pushAndRemoveUntil(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const LoginScreen(),
+                          ),
+                          (route) => false,
+                        );
+                      }
+                    } catch (e) {
+                      debugPrint('❌ Erro ao fazer logout: $e');
                     }
                   },
                 ),
@@ -884,23 +906,25 @@ class _ServiceCard extends StatelessWidget {
           ),
         ],
       ),
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 16), // ⬅️ mais espaço no topo
+      padding: const EdgeInsets.fromLTRB(
+        16,
+        20,
+        16,
+        16,
+      ), // ⬅️ mais espaço no topo
       child: Stack(
         clipBehavior: Clip.none,
         children: [
           // ⭐ Avaliações no canto superior direito
-          Positioned(
-            top: 0,
-            right: 0,
-            child: ratingBuilder(),
-          ),
+          Positioned(top: 0, right: 0, child: ratingBuilder()),
 
           // ======= Conteúdo principal
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SizedBox(height: 25), // ⬅️ empurra os textos pra baixo da estrela
-
+              const SizedBox(
+                height: 25,
+              ), // ⬅️ empurra os textos pra baixo da estrela
               // ======= Imagem + textos principais
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1079,4 +1103,3 @@ class _CategoriaThumb extends StatelessWidget {
     );
   }
 }
-

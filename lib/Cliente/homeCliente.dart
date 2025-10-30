@@ -280,16 +280,29 @@ class HomeScreenState extends State<HomeScreen> {
                   leading: const Icon(Icons.logout),
                   title: const Text('Sair'),
                   onTap: () async {
-                    Navigator.pop(context); // 🔹 Fecha o Drawer primeiro
-                    await auth.signOut(); // 🔹 Desloga o usuário
-                    if (!context.mounted) return;
+                    Navigator.pop(context); // Fecha o Drawer primeiro
 
-                    // 🔹 CORREÇÃO: Vai para LoginScreen em vez de BuscarServicosScreen
-                    Navigator.pushAndRemoveUntil(
-                      context,
-                      MaterialPageRoute(builder: (_) => const LoginScreen()),
-                      (route) => false, // Remove todas as telas anteriores
-                    );
+                    try {
+                      // Desloga o usuário do Firebase
+                      await auth.signOut();
+
+                      // Limpa cache e listeners do Firestore
+                      await FirebaseFirestore.instance.terminate();
+                      await FirebaseFirestore.instance.clearPersistence();
+
+                      // Redireciona para a tela de login limpando toda a pilha
+                      if (context.mounted) {
+                        Navigator.pushAndRemoveUntil(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const LoginScreen(),
+                          ),
+                          (route) => false,
+                        );
+                      }
+                    } catch (e) {
+                      debugPrint('❌ Erro ao fazer logout: $e');
+                    }
                   },
                 ),
               ],

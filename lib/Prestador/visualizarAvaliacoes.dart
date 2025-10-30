@@ -295,7 +295,6 @@ class VisualizarAvaliacoesScreenState extends State<VisualizarAvaliacoesScreen>
                 ),
               ),
             ),
-            const SliverToBoxAdapter(child: Divider(height: 1)),
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),

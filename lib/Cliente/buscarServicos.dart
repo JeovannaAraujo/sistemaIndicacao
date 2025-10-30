@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:myapp/Cliente/rotasNavegacao.dart';
+import 'package:myapp/Cliente/visualizarAgendaPrestador.dart';
 import 'package:myapp/Prestador/avaliacoesPrestador.dart';
 import 'package:myapp/Prestador/visualizarAvaliacoes.dart';
 
@@ -2272,11 +2273,10 @@ class BuscarServicosScreenState extends State<BuscarServicosScreen> {
                     height: 36,
                     child: ElevatedButton(
                       onPressed: () {
-                        Navigator.push(
+                        showAgendaPrestadorModal(
                           context,
-                          MaterialPageRoute(
-                            builder: (_) => BuscarServicosScreen(),
-                          ),
+                          prestadorId: id,
+                          prestadorNome: nome,
                         );
                       },
                       style: ElevatedButton.styleFrom(
@@ -2285,16 +2285,16 @@ class BuscarServicosScreenState extends State<BuscarServicosScreen> {
                           borderRadius: BorderRadius.circular(8),
                         ),
                       ),
-                      child: const Text(
-                        'Ver Serviços',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
+                      child: const FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          'Agenda',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ),

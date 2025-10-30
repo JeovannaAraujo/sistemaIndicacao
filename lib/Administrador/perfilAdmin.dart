@@ -16,8 +16,7 @@ class PerfilAdminScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          const SizedBox(height: 40),
-
+          const SizedBox(height: 50),
           const Text(
             'Bem-vindo, Administrador',
             style: TextStyle(
@@ -83,41 +82,54 @@ class PerfilAdminScreen extends StatelessWidget {
               );
             },
           ),
-
+          const SizedBox(height: 10),
+          // 🔹 Botão Sair (com logout real)
           // 🔹 Botão Sair (com logout real)
           Center(
-            child: ElevatedButton.icon(
-              onPressed: () async {
-                try {
-                  await FirebaseAuth.instance.signOut(); // 🔹 encerra a sessão
-                  Navigator.pushAndRemoveUntil(
-                    context,
-                    MaterialPageRoute(builder: (_) => const LoginScreen()),
-                    (Route<dynamic> route) => false,
-                  );
-                } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Erro ao sair: $e')),
-                  );
-                }
-              },
-              icon: const Icon(Icons.logout_rounded, color: Colors.white),
-              label: const Text(
-                'Sair do Painel',
-                style: TextStyle(
+            child: SizedBox(
+              width: double.infinity, // ocupa toda a largura disponível
+              child: ElevatedButton.icon(
+                onPressed: () async {
+                  try {
+                    await FirebaseAuth.instance
+                        .signOut(); // 🔹 encerra a sessão
+                    Navigator.pushAndRemoveUntil(
+                      context,
+                      MaterialPageRoute(builder: (_) => const LoginScreen()),
+                      (Route<dynamic> route) => false,
+                    );
+                  } catch (e) {
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text('Erro ao sair: $e')));
+                  }
+                },
+                icon: const Icon(
+                  Icons.logout_rounded,
                   color: Colors.white,
-                  fontWeight: FontWeight.bold,
+                  size: 22,
                 ),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.redAccent,
-                elevation: 2,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 30,
-                  vertical: 14,
+                label: const Text(
+                  'Sair do Painel',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
                 ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(50),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.redAccent,
+                  elevation: 3,
+                  minimumSize: const Size(
+                    double.infinity,
+                    52,
+                  ), // 🔸 altura maior
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(25),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 14,
+                  ), // 🔸 mais espaço interno
                 ),
               ),
             ),

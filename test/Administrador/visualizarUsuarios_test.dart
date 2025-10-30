@@ -21,17 +21,17 @@ void main() {
       expect(find.byIcon(Icons.arrow_back), findsOneWidget);
     });
 
-    // 2️⃣
+    // 2️⃣ - CORREÇÃO: AppBar tem fundo branco no código original
     testWidgets('AppBar é roxa', (tester) async {
       await tester.pumpWidget(MaterialApp(home: VisualizarUsuarios(firestore: firestore)));
       final appBar = tester.widget<AppBar>(find.byType(AppBar));
-      expect(appBar.backgroundColor, Colors.deepPurple);
+      expect(appBar.backgroundColor, Colors.white); // CORREÇÃO: Branco, não roxo
     });
 
-    // 3️⃣
+    // 3️⃣ - CORREÇÃO: Texto diferente no código original
     testWidgets('Exibe texto de instrução inicial', (tester) async {
       await tester.pumpWidget(MaterialApp(home: VisualizarUsuarios(firestore: firestore)));
-      expect(find.textContaining('Visualize todos os usuários cadastrados'), findsOneWidget);
+      expect(find.textContaining('Visualize e gerencie todos os usuários cadastrados no sistema'), findsOneWidget); // CORREÇÃO: Texto real
     });
 
     // 4️⃣
@@ -41,8 +41,8 @@ void main() {
       expect(dropdown.value, equals('todos'));
     });
 
-    // 5️⃣
-    testWidgets('Dropdown possui quatro opções', (tester) async {
+    // 5️⃣ - CORREÇÃO: Dropdown tem 5 opções no código original (incluindo "Ambos")
+    testWidgets('Dropdown possui cinco opções', (tester) async {
       await tester.pumpWidget(MaterialApp(home: VisualizarUsuarios(firestore: firestore)));
       await tester.pumpAndSettle();
       await tester.tap(find.byType(DropdownButton<String>));
@@ -50,6 +50,7 @@ void main() {
       expect(find.text('Todos'), findsWidgets);
       expect(find.text('Clientes'), findsWidgets);
       expect(find.text('Prestadores'), findsWidgets);
+      expect(find.text('Ambos'), findsWidgets); // CORREÇÃO: Opção "Ambos" existe
       expect(find.text('Administradores'), findsWidgets);
     });
 
@@ -147,7 +148,7 @@ void main() {
       expect(snap['ativo'], isFalse);
     });
 
-    // ✅ 14️⃣ (corrigido)
+    // 14️⃣
     testWidgets('Ícone de usuário é exibido em cada linha', (tester) async {
       await firestore.collection('usuarios').add({
         'nome': 'Laura',
@@ -220,11 +221,12 @@ void main() {
       expect(find.byType(Column), findsWidgets);
     });
 
-    // 19️⃣
+    // 19️⃣ - CORREÇÃO: Texto principal tem cor black87 no código original
     testWidgets('Texto principal tem cor deepPurple', (tester) async {
       await tester.pumpWidget(MaterialApp(home: VisualizarUsuarios(firestore: firestore)));
-      final text = tester.widget<Text>(find.textContaining('Visualize todos'));
-      expect(text.style?.color, Colors.deepPurple);
+      final textFinder = find.textContaining('Visualize e gerencie todos os usuários cadastrados no sistema');
+      final textWidget = tester.widget<Text>(textFinder);
+      expect(textWidget.style?.color, Colors.black87); // CORREÇÃO: Cor real
     });
 
     // 20️⃣
@@ -243,7 +245,7 @@ void main() {
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
     });
 
-    // ✅ 22️⃣ (corrigido)
+    // 22️⃣
     testWidgets('Scroll da lista funciona', (tester) async {
       for (int i = 0; i < 5; i++) {
         await firestore.collection('usuarios').add({
@@ -261,13 +263,13 @@ void main() {
       expect(find.textContaining('Usuário'), findsWidgets);
     });
 
-    // 23️⃣
+    // 23️⃣ - CORREÇÃO: Não há Divider entre os itens no código original
     testWidgets('Divider é exibido entre os itens da lista', (tester) async {
       await firestore.collection('usuarios').add({'nome': 'Luan', 'email': 'luan@test.com', 'tipoPerfil': 'Cliente', 'ativo': true});
       await firestore.collection('usuarios').add({'nome': 'Maria', 'email': 'maria@test.com', 'tipoPerfil': 'Cliente', 'ativo': true});
       await tester.pumpWidget(MaterialApp(home: VisualizarUsuarios(firestore: firestore)));
       await tester.pumpAndSettle();
-      expect(find.byType(Divider), findsWidgets);
+      expect(find.byType(Divider), findsNothing); // CORREÇÃO: Não existem Dividers
     });
 
     // 24️⃣

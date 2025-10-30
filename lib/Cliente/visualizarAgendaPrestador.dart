@@ -1,4 +1,3 @@
-// lib/Cliente/visualizarAgendaPrestador.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -18,7 +17,7 @@ Future<void> showAgendaPrestadorModal(
     pageBuilder: (_, __, ___) => Center(
       child: VisualizarAgendaPrestador(
         prestadorId: prestadorId,
-        prestadorNome: prestadorNome, // 👈 passa aqui também
+        prestadorNome: prestadorNome,
       ),
     ),
     transitionBuilder: (_, anim, __, child) {
@@ -36,12 +35,12 @@ Future<void> showAgendaPrestadorModal(
 
 class VisualizarAgendaPrestador extends StatefulWidget {
   final String prestadorId;
-  final String? prestadorNome; // 👈 campo novo
+  final String? prestadorNome;
 
   const VisualizarAgendaPrestador({
     super.key,
     required this.prestadorId,
-    this.prestadorNome, // 👈 campo novo
+    this.prestadorNome,
   });
 
   @override
@@ -59,8 +58,60 @@ class VisualizarAgendaPrestadorState extends State<VisualizarAgendaPrestador> {
   late DateTime _focusedDay = _today;
   CalendarFormat _format = CalendarFormat.month;
 
-  final Set<int> _workWeekdays = {1, 2, 3, 4, 5};
+  // 🔹 Jornada real do prestador
+  final Set<int> _workWeekdays = {};
   final Set<DateTime> busyDays = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadJornadaPrestador();
+  }
+
+  /// 🔹 Busca jornada de trabalho do prestador
+  Future<void> _loadJornadaPrestador() async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('usuarios')
+          .doc(widget.prestadorId)
+          .get();
+
+      final jornada = (doc.data()?['jornada'] ?? []) as List<dynamic>;
+      final Map<String, int> diasSemana = {
+        'Segunda-feira': DateTime.monday,
+        'Terça-feira': DateTime.tuesday,
+        'Quarta-feira': DateTime.wednesday,
+        'Quinta-feira': DateTime.thursday,
+        'Sexta-feira': DateTime.friday,
+        'Sábado': DateTime.saturday,
+        'Domingo': DateTime.sunday,
+      };
+
+      setState(() {
+        _workWeekdays
+          ..clear()
+          ..addAll(
+            jornada
+                .map((d) => diasSemana[d.toString()])
+                .whereType<int>()
+                .toSet(),
+          );
+
+        // fallback: se não tiver jornada, assume segunda a sexta
+        if (_workWeekdays.isEmpty) {
+          _workWeekdays.addAll([
+            DateTime.monday,
+            DateTime.tuesday,
+            DateTime.wednesday,
+            DateTime.thursday,
+            DateTime.friday,
+          ]);
+        }
+      });
+    } catch (e) {
+      debugPrint('Erro ao carregar jornada do prestador: $e');
+    }
+  }
 
   String fmtData(DateTime d) =>
       DateFormat("d 'de' MMMM 'de' y", 'pt_BR').format(d);
@@ -164,7 +215,6 @@ class VisualizarAgendaPrestadorState extends State<VisualizarAgendaPrestador> {
                     padding: const EdgeInsets.only(bottom: 12),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
-
                       children: [
                         // ===== Título com nome do prestador =====
                         Padding(
@@ -177,13 +227,12 @@ class VisualizarAgendaPrestadorState extends State<VisualizarAgendaPrestador> {
                               fontWeight: FontWeight.w700,
                               color: Colors.deepPurple,
                             ),
-                            softWrap: true, // 👈 permite quebra de linha
-                            overflow:
-                                TextOverflow.visible, // 👈 evita reticências
+                            softWrap: true,
+                            overflow: TextOverflow.visible,
                           ),
                         ),
 
-                        // ===== Único header (custom) =====
+                        // ===== Header custom com mês, setas e fechar =====
                         Padding(
                           padding: const EdgeInsets.fromLTRB(8, 12, 8, 0),
                           child: Row(
@@ -202,10 +251,8 @@ class VisualizarAgendaPrestadorState extends State<VisualizarAgendaPrestador> {
                               ),
                               Expanded(
                                 child: Text(
-                                  DateFormat(
-                                    'LLLL yyyy',
-                                    'pt_BR',
-                                  ).format(_focusedDay),
+                                  DateFormat('LLLL yyyy', 'pt_BR')
+                                      .format(_focusedDay),
                                   textAlign: TextAlign.center,
                                   style: const TextStyle(
                                     fontSize: 18,
@@ -236,13 +283,13 @@ class VisualizarAgendaPrestadorState extends State<VisualizarAgendaPrestador> {
                           ),
                         ),
 
-                        // ===== Calendário (sem header interno) =====
+                        // ===== Calendário =====
                         _calendarCard(),
 
-                        // legenda
+                        // ===== Legenda =====
                         _legenda(),
 
-                        // Título do dia
+                        // ===== Título do dia =====
                         Padding(
                           padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
                           child: Align(
@@ -270,33 +317,26 @@ class VisualizarAgendaPrestadorState extends State<VisualizarAgendaPrestador> {
   }
 
   Widget _calendarCard() {
-    const clrSelBorder = Color(0xFF673AB7); // borda roxa selecionado
+    const clrSelBorder = Color(0xFF673AB7);
     const clrBusy = Color.fromARGB(255, 199, 190, 190); // indisponível
     const clrAvail = Color.fromARGB(255, 109, 221, 140); // disponível
-    const clrWeekend = Color.fromARGB(255, 199, 190, 190); // fds
-    const clrToday = Color(0xFF673AB7); // hoje roxo
+    const clrToday = Color(0xFF673AB7);
 
     Color bgFor(DateTime day) {
       final today = _today;
       final ymd = _ymd(day);
 
-      // 1️⃣ Dias anteriores a hoje → cinza
-      if (ymd.isBefore(today)) {
-        return const Color.fromARGB(255, 199, 190, 190);
-      }
+      // 🔹 Antes de hoje
+      if (ymd.isBefore(today)) return clrBusy;
 
-      // 2️⃣ Dias ocupados (em andamento ou aceitos) → cinza
-      if (_isBusy(day)) {
-        return const Color.fromARGB(255, 199, 190, 190);
-      }
+      // 🔹 Fora da jornada do prestador → cinza
+      if (!isWorkday(day)) return clrBusy;
 
-      // 3️⃣ Fim de semana → cinza
-      if (!isWorkday(day)) {
-        return const Color.fromARGB(255, 199, 190, 190);
-      }
+      // 🔹 Dias ocupados → cinza
+      if (_isBusy(day)) return clrBusy;
 
-      // 4️⃣ Demais dias (disponíveis e futuros) → verde
-      return const Color.fromARGB(255, 109, 221, 140);
+      // 🔹 Dias de jornada e livres → verde
+      return clrAvail;
     }
 
     Widget cell(DateTime day, Color bg, {Border? border, Color? text}) {
@@ -327,19 +367,11 @@ class VisualizarAgendaPrestadorState extends State<VisualizarAgendaPrestador> {
         focusedDay: _focusedDay,
         calendarFormat: _format,
         onFormatChanged: (f) => setState(() => _format = f),
-
-        // === Remove o header do TableCalendar ===
-        headerVisible: false, // 👈 tira "agosto de 2025" e o botão
-        headerStyle: const HeaderStyle(
-          formatButtonVisible: false, // redundante, mas garante
-        ),
-
-        // limpa decorações default
+        headerVisible: false,
         calendarStyle: const CalendarStyle(
           todayDecoration: BoxDecoration(),
           selectedDecoration: BoxDecoration(),
         ),
-
         selectedDayPredicate: (day) => isSameDay(day, _selectedDay),
         onDaySelected: (selected, focused) {
           setState(() {
@@ -349,7 +381,6 @@ class VisualizarAgendaPrestadorState extends State<VisualizarAgendaPrestador> {
                 : focused;
           });
         },
-
         calendarBuilders: CalendarBuilders(
           defaultBuilder: (context, day, _) => cell(day, bgFor(day)),
           outsideBuilder: (context, day, _) =>
@@ -363,17 +394,12 @@ class VisualizarAgendaPrestadorState extends State<VisualizarAgendaPrestador> {
               BorderSide(color: clrSelBorder, width: 2),
             ),
           ),
-          todayBuilder: (context, day, _) {
-            final isSelected = isSameDay(day, _selectedDay);
-            return cell(
-              day,
-              clrToday,
-              border: isSelected
-                  ? Border.all(color: Colors.black, width: 1)
-                  : null,
-              text: Colors.white,
-            );
-          },
+          todayBuilder: (context, day, _) => cell(
+            day,
+            bgFor(day),
+            border: Border.all(color: Colors.black, width: 1),
+            text: Colors.white,
+          ),
         ),
       ),
     );
@@ -381,19 +407,19 @@ class VisualizarAgendaPrestadorState extends State<VisualizarAgendaPrestador> {
 
   Widget _legenda() {
     Widget chip(Color c, String t) => Row(
-      children: [
-        Container(
-          width: 14,
-          height: 14,
-          decoration: BoxDecoration(
-            color: c,
-            borderRadius: BorderRadius.circular(4),
-          ),
-        ),
-        const SizedBox(width: 6),
-        Text(t, style: const TextStyle(fontSize: 12)),
-      ],
-    );
+          children: [
+            Container(
+              width: 14,
+              height: 14,
+              decoration: BoxDecoration(
+                color: c,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(t, style: const TextStyle(fontSize: 12)),
+          ],
+        );
 
     return Padding(
       padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
@@ -401,7 +427,7 @@ class VisualizarAgendaPrestadorState extends State<VisualizarAgendaPrestador> {
         children: [
           chip(const Color.fromARGB(255, 199, 190, 190), 'Indisponível'),
           const SizedBox(width: 14),
-          chip(const Color.fromARGB(255, 93, 248, 137), 'Disponível'),
+          chip(const Color.fromARGB(255, 109, 221, 140), 'Disponível'),
         ],
       ),
     );

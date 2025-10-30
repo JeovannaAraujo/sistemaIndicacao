@@ -70,14 +70,14 @@ class _AvaliarPrestadorScreenState extends State<AvaliarPrestadorScreen> {
   }
 
   // 🔹 Remove uma imagem específica
-  void _removerImagem(int index) {
+  void removerImagem(int index) {
     setState(() {
       imagens.removeAt(index);
     });
   }
 
   // 🔹 Faz upload de múltiplas imagens para o Storage
-  Future<List<String>> _uploadImagens(String clienteId) async {
+  Future<List<String>> uploadImagens(String clienteId) async {
     if (imagens.isEmpty) return [];
     
     final List<String> urls = [];
@@ -107,7 +107,7 @@ class _AvaliarPrestadorScreenState extends State<AvaliarPrestadorScreen> {
   }
 
   // 🔹 Envia avaliação completa com múltiplas imagens
-  Future<void> _enviarAvaliacao() async {
+  Future<void> enviarAvaliacao() async {
     if (nota == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Selecione uma nota antes de enviar.')),
@@ -133,7 +133,7 @@ class _AvaliarPrestadorScreenState extends State<AvaliarPrestadorScreen> {
       final servicoId = dados['servicoId'] ?? '';
 
       // ✅ Upload de múltiplas imagens para o Storage
-      final imagensUrls = await _uploadImagens(clienteId);
+      final imagensUrls = await uploadImagens(clienteId);
 
       // ✅ Cria a avaliação COM array de URLs das imagens
       await widget.firestore.collection('avaliacoes').add({
@@ -174,7 +174,7 @@ class _AvaliarPrestadorScreenState extends State<AvaliarPrestadorScreen> {
     }
   }
 
-  Widget _estrela(int index) {
+  Widget estrela(int index) {
     return IconButton(
       icon: Icon(
         index <= nota ? Icons.star : Icons.star_border,
@@ -313,7 +313,7 @@ class _AvaliarPrestadorScreenState extends State<AvaliarPrestadorScreen> {
                 const SizedBox(height: 12),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(5, (i) => _estrela(i + 1)),
+                  children: List.generate(5, (i) => estrela(i + 1)),
                 ),
                 const Center(
                   child: Text('Selecione uma nota',
@@ -390,7 +390,7 @@ class _AvaliarPrestadorScreenState extends State<AvaliarPrestadorScreen> {
                             top: 4,
                             right: 4,
                             child: GestureDetector(
-                              onTap: () => _removerImagem(index),
+                              onTap: () => removerImagem(index),
                               child: Container(
                                 decoration: const BoxDecoration(
                                   color: Colors.red,
@@ -447,7 +447,7 @@ class _AvaliarPrestadorScreenState extends State<AvaliarPrestadorScreen> {
                 Column(
                   children: [
                     ElevatedButton(
-                      onPressed: enviando ? null : _enviarAvaliacao,
+                      onPressed: enviando ? null : enviarAvaliacao,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF6E3BFF),
                         minimumSize: const Size(double.infinity, 48),
