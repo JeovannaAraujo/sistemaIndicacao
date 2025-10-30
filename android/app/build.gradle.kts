@@ -1,9 +1,20 @@
+import java.util.Properties
+import java.io.FileInputStream
+import java.io.File
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
     id("com.google.gms.google-services")
+}
+
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+} else {
+    println("⚠️ ERRO: key.properties não encontrado!")
 }
 
 android {
@@ -21,21 +32,43 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.jeovanna.sistemadeindicacao"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("release") {
+            val storeFilePath = keystoreProperties["storeFile"]?.toString()
+            val keyAliasProp = keystoreProperties["keyAlias"]?.toString()
+            val keyPasswordProp = keystoreProperties["keyPassword"]?.toString()
+            val storePasswordProp = keystoreProperties["storePassword"]?.toString()
+
+            if (storeFilePath == null) {
+                println("⚠️ Caminho do storeFile é nulo. Verifique o key.properties!")
+            } else {
+                val storeFileObj = File(storeFilePath)
+                if (!storeFileObj.exists()) {
+                    println("⚠️ Arquivo JKS não encontrado em: $storeFilePath")
+                } else {
+                    storeFile = storeFileObj
+                    println("✅ Chave encontrada: $storeFilePath")
+                }
+            }
+
+            keyAlias = keyAliasProp
+            keyPassword = keyPasswordProp
+            storePassword = storePasswordProp
+        }
+    }
+
     buildTypes {
-        release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+        getByName("release") {
+            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
