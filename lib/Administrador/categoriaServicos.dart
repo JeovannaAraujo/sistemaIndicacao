@@ -215,7 +215,7 @@ class _CategServState extends State<CategServ> {
                     };
 
                     if (isEdicao) {
-                      await categoriasRef.doc(categoria!.id).update(data);
+                      await categoriasRef.doc(categoria.id).update(data);
                     } else {
                       await categoriasRef.add(data);
                     }

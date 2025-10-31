@@ -6,7 +6,7 @@ import 'enviarOrcamento.dart';
 
 class DetalhesSolicitacaoScreen extends StatelessWidget {
   final String docId;
-  final FirebaseFirestore? firestore; // ✅ injeção para testes
+  final FirebaseFirestore? firestore;
 
   const DetalhesSolicitacaoScreen({
     super.key,
@@ -15,10 +15,11 @@ class DetalhesSolicitacaoScreen extends StatelessWidget {
   });
 
   static const String _colSolicitacoes = 'solicitacoesOrcamento';
+  static const String _colUnidades = 'unidades';
 
   @override
   Widget build(BuildContext context) {
-    final db = firestore ?? FirebaseFirestore.instance; // ✅ usa fake se existir
+    final db = firestore ?? FirebaseFirestore.instance;
     final moeda = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
 
     return Scaffold(
@@ -64,7 +65,10 @@ class DetalhesSolicitacaoScreen extends StatelessWidget {
                   : NumberFormat("#.##", "pt_BR").format(d['quantidade']))
               : (d['quantidade']?.toString() ?? '');
 
-          final unAbrev = (d['unidadeSelecionadaAbrev'] ?? '').toString();
+          // 🔥 BUSCA A UNIDADE CORRETA: Primeiro tenta a unidade selecionada, depois a do serviço
+          final unidadeSelecionadaAbrev = (d['unidadeSelecionadaAbrev'] ?? '').toString();
+          final servicoUnidadeId = (d['servicoUnidadeId'] ?? '').toString();
+          final unidadeSelecionadaId = (d['unidadeSelecionadaId'] ?? '').toString();
 
           final ts = d['dataDesejada'] as Timestamp?;
           final dataDesejada =
@@ -171,26 +175,42 @@ class DetalhesSolicitacaoScreen extends StatelessWidget {
 
                 const _SectionTitle('Quantidade ou dimensão'),
                 const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _ReadonlyField(
-                        controller: TextEditingController(
-                          text: quantidade.isEmpty ? '—' : quantidade,
+                
+                // 🔥 STREAM BUILDER PARA BUSCAR A UNIDADE CORRETA
+                StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                  stream: _getUnidadeStream(db, unidadeSelecionadaId, servicoUnidadeId),
+                  builder: (context, unidadeSnap) {
+                    String unidadeAbrev = 'un.';
+                    
+                    if (unidadeSnap.hasData && unidadeSnap.data!.exists) {
+                      final unidadeData = unidadeSnap.data!.data()!;
+                      unidadeAbrev = (unidadeData['abreviacao'] ?? 'un.').toString();
+                    } else if (unidadeSelecionadaAbrev.isNotEmpty) {
+                      unidadeAbrev = unidadeSelecionadaAbrev;
+                    }
+
+                    return Row(
+                      children: [
+                        Expanded(
+                          child: _ReadonlyField(
+                            controller: TextEditingController(
+                              text: quantidade.isEmpty ? '—' : quantidade,
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    SizedBox(
-                      width: 80,
-                      child: _ReadonlyField(
-                        controller: TextEditingController(
-                          text: unAbrev.isEmpty ? 'un.' : unAbrev,
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          width: 80,
+                          child: _ReadonlyField(
+                            controller: TextEditingController(
+                              text: unidadeAbrev,
+                            ),
+                            centered: true,
+                          ),
                         ),
-                        centered: true,
-                      ),
-                    ),
-                  ],
+                      ],
+                    );
+                  },
                 ),
                 const SizedBox(height: 6),
                 const _HintBox(children: [
@@ -265,7 +285,7 @@ class DetalhesSolicitacaoScreen extends StatelessWidget {
                               Text(
                                 clienteWhatsapp.isEmpty
                                     ? 'Sem WhatsApp'
-                                    : clienteWhatsapp,
+                                    : _aplicarMascaraWhatsApp(clienteWhatsapp),
                                 style: const TextStyle(
                                   fontSize: 15,
                                   color: Colors.black87,
@@ -332,6 +352,34 @@ class DetalhesSolicitacaoScreen extends StatelessWidget {
     );
   }
 
+  // 🔥 MÉTODO PARA BUSCAR A UNIDADE CORRETA
+  Stream<DocumentSnapshot<Map<String, dynamic>>> _getUnidadeStream(
+      FirebaseFirestore db, String unidadeSelecionadaId, String servicoUnidadeId) {
+    // Primeiro tenta a unidade selecionada, depois a do serviço
+    final unidadeId = unidadeSelecionadaId.isNotEmpty 
+        ? unidadeSelecionadaId 
+        : servicoUnidadeId;
+    
+    if (unidadeId.isEmpty) {
+      // Retorna um stream vazio se não tiver ID
+      return const Stream.empty();
+    }
+    
+    return db.collection(_colUnidades).doc(unidadeId).snapshots();
+  }
+
+  // 🔥 FUNÇÃO DE MÁSCARA PARA WHATSAPP
+  String _aplicarMascaraWhatsApp(String value) {
+    value = value.replaceAll(RegExp(r'[^0-9]'), '');
+    if (value.length <= 2) {
+      return value;
+    } else if (value.length <= 7) {
+      return '(${value.substring(0, 2)}) ${value.substring(2)}';
+    } else {
+      return '(${value.substring(0, 2)}) ${value.substring(2, 7)}-${value.substring(7)}';
+    }
+  }
+
   // ✅ recebe Firestore injetado
   void _abrirDialogoRecusar(BuildContext context, FirebaseFirestore db) {
     final motivoCtl = TextEditingController();
@@ -370,7 +418,6 @@ class DetalhesSolicitacaoScreen extends StatelessWidget {
     );
   }
 }
-
 // ========================= Widgets auxiliares =========================
 
 class _SectionTitle extends StatelessWidget {

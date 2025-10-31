@@ -68,8 +68,10 @@ class AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
     }
   }
 
-  bool isFinalStatus(String? s) =>
-      (s ?? '').toLowerCase().startsWith('finaliz');
+  bool isFinalStatus(String? s) {
+    final txt = (s ?? '').toLowerCase().trim();
+    return txt.startsWith('finaliz') || txt.startsWith('avalia');
+  }
 
   /// tenta achar a data real de finalização no doc
   DateTime? getFinalizacaoReal(Map<String, dynamic> d) {
@@ -320,7 +322,15 @@ class AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
         .where('prestadorId', isEqualTo: uid)
         .where(
           'status',
-          whereIn: ['aceita', 'em andamento', 'em_andamento', 'finalizada'],
+          whereIn: [
+            'aceita',
+            'em andamento',
+            'em_andamento',
+            'finalizada',
+            'finalizado',
+            'avaliada',
+            'avaliado',
+          ],
         )
         .orderBy('dataInicioSugerida', descending: false)
         .snapshots();
@@ -539,6 +549,13 @@ class AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
         calendarFormat: _format,
         onFormatChanged: (f) => setState(() => _format = f),
 
+        // 🔹 Traduções dos modos do calendário
+        availableCalendarFormats: const {
+          CalendarFormat.month: 'Semana',
+          CalendarFormat.twoWeeks: 'Mês',
+          CalendarFormat.week: '2 semanas',
+        },
+
         selectedDayPredicate: (day) => isSameDay(day, _selectedDay),
         onDaySelected: (selected, focused) {
           setState(() {
@@ -687,7 +704,7 @@ class AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
           Color statusColor;
           String statusTexto;
 
-          if (status.startsWith('finaliz')) {
+          if (status.startsWith('finaliz') || status.startsWith('avalia')) {
             statusColor = const Color(0xFF5E35B1);
             statusTexto = 'Finalizado';
           } else if (status.contains('andamento')) {
@@ -768,23 +785,24 @@ class AgendaPrestadorScreenState extends State<AgendaPrestadorScreen> {
 
                       // 🔹 Botão WhatsApp só se não for finalizado
                       // 🔹 Exibe número do WhatsApp apenas se NÃO estiver finalizado
-                      if (!status.startsWith('finaliz') && whatsapp != '—')
+                      // 🔹 Exibe o WhatsApp apenas se NÃO estiver finalizado nem avaliado
+                      if (!status.startsWith('finaliz') &&
+                          !status.startsWith('avalia') &&
+                          whatsapp != '—')
                         InkWell(
                           onTap: () => _openWhatsApp(whatsapp),
                           child: Row(
                             children: [
                               const Icon(
                                 FontAwesomeIcons.whatsapp,
-                                color: Color(
-                                  0xFF25D366,
-                                ), // cor oficial do WhatsApp
+                                color: Color(0xFF25D366),
                                 size: 18,
                               ),
                               const SizedBox(width: 6),
                               Text(
                                 whatsapp,
                                 style: const TextStyle(
-                                  color: Color.fromARGB(255, 0, 0, 0),
+                                  color: Colors.black,
                                   fontSize: 13.5,
                                 ),
                               ),

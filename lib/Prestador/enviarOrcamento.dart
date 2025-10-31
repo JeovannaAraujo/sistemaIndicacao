@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:table_calendar/table_calendar.dart';
 
 class EnviarOrcamentoScreen extends StatefulWidget {
   final String solicitacaoId;
@@ -21,24 +22,26 @@ class EnviarOrcamentoScreen extends StatefulWidget {
 
 class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
   static const colSolicitacoes = 'solicitacoesOrcamento';
-
   final _formKey = GlobalKey<FormState>();
 
   // Controles de formulário
   final _valorPropostoCtl = TextEditingController();
-  final _tempoValorCtl = TextEditingController(); // número
+  final _tempoValorCtl = TextEditingController();
   final _observacoesCtl = TextEditingController();
 
   late final FirebaseFirestore db;
   late final FirebaseAuth auth;
 
-  String _tempoUnidade = 'dia'; // 'dia' | 'hora'
-  DateTime? _dataInicio; // data sugerida p/ iniciar
-  TimeOfDay? _horaInicio; // hora sugerida p/ iniciar
+  String _tempoUnidade = 'dia';
+  DateTime? _dataInicio;
+  TimeOfDay? _horaInicio;
 
   final _moeda = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
   DocumentSnapshot<Map<String, dynamic>>? _docSolic;
   bool _enviando = false;
+
+  // 🔥 NOVO: Para buscar dados do prestador
+  String? _prestadorId;
 
   @override
   void initState() {
@@ -57,15 +60,97 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
   }
 
   Future<void> _loadSolicitacao() async {
-    final fs = FirebaseFirestore.instance;
-    final doc = await fs
+    final doc = await db
         .collection(colSolicitacoes)
         .doc(widget.solicitacaoId)
         .get();
-    if (mounted) setState(() => _docSolic = doc);
+
+    if (mounted) {
+      setState(() {
+        _docSolic = doc;
+        _prestadorId = doc.data()?['prestadorId']?.toString();
+      });
+    }
   }
 
-  // ---------- helpers ----------
+  // ---------- CALENDÁRIO COM VALIDAÇÃO ----------
+
+  Future<void> _selecionarDataDisponivel() async {
+    if (_prestadorId == null) return;
+
+    final dataSelecionada = await showDialog<DateTime>(
+      context: context,
+      builder: (context) => _CalendarioSelecaoData(
+        prestadorId: _prestadorId!,
+        prestadorNome: _docSolic?.data()?['prestadorNome'] ?? '',
+      ),
+    );
+
+    if (dataSelecionada != null && mounted) {
+      setState(() {
+        _dataInicio = dataSelecionada;
+        // Se selecionou hoje, reseta a hora para evitar conflito
+        final hoje = DateTime.now();
+        if (_dataInicio!.day == hoje.day &&
+            _dataInicio!.month == hoje.month &&
+            _dataInicio!.year == hoje.year) {
+          _horaInicio = null;
+        }
+      });
+    }
+  }
+
+  Future<void> _pickTime() async {
+    final now = DateTime.now();
+    final initialTime =
+        _dataInicio != null &&
+            _dataInicio!.day == now.day &&
+            _dataInicio!.month == now.month &&
+            _dataInicio!.year == now.year
+        ? TimeOfDay.fromDateTime(now) // Se for hoje, começa da hora atual
+        : const TimeOfDay(hour: 8, minute: 0);
+
+    final TimeOfDay? picked = await showTimePicker(
+      context: context,
+      initialTime: initialTime,
+    );
+
+    if (picked != null && mounted) {
+      // 🔥 VALIDAÇÃO: Se for hoje, não permite hora passada
+      if (_dataInicio != null) {
+        final hoje = DateTime.now();
+        final isHoje =
+            _dataInicio!.day == hoje.day &&
+            _dataInicio!.month == hoje.month &&
+            _dataInicio!.year == hoje.year;
+
+        if (isHoje) {
+          final horaAtual = TimeOfDay.fromDateTime(hoje);
+          if (picked.hour < horaAtual.hour ||
+              (picked.hour == horaAtual.hour &&
+                  picked.minute < horaAtual.minute)) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Não é possível selecionar um horário que já passou para hoje.',
+                  ),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+            return;
+          }
+        }
+      }
+
+      setState(() {
+        _horaInicio = picked;
+      });
+    }
+  }
+
+  // ---------- HELPERS ----------
   double? _parseMoeda(String v) {
     final s = v
         .replaceAll('R\$', '')
@@ -106,33 +191,7 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
     );
   }
 
-  Future<void> _pickDate() async {
-    final now = DateTime.now();
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _dataInicio ?? now,
-      firstDate: DateTime(now.year - 1),
-      lastDate: DateTime(now.year + 2),
-      locale: const Locale('pt', 'BR'),
-      helpText: 'Data para iniciar execução',
-    );
-    if (picked != null) setState(() => _dataInicio = picked);
-  }
-
-  Future<void> _pickTime() async {
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: _horaInicio ?? const TimeOfDay(hour: 8, minute: 0),
-      builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
-        child: child ?? const SizedBox.shrink(),
-      ),
-      helpText: 'Horário para iniciar execução',
-    );
-    if (picked != null) setState(() => _horaInicio = picked);
-  }
-
-  // ---------- ações ----------
+  // ---------- AÇÕES ----------
   Future<void> _enviarOrcamento() async {
     if (_docSolic == null) return;
     if (!_formKey.currentState!.validate()) return;
@@ -214,9 +273,7 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
         context,
       ).showSnackBar(const SnackBar(content: Text('Orçamento enviado!')));
 
-      // Quando criar a rota da tela do cliente, use:
-      // Navigator.of(context).pushNamed('/cliente/solicitacoesRespondidas');
-      Navigator.of(context).pop(); // por enquanto, volta
+      Navigator.of(context).pop();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -245,6 +302,27 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
     );
   }
 
+  // 🔥 MÉTODO PARA BUSCAR A UNIDADE CORRETA
+  Stream<DocumentSnapshot<Map<String, dynamic>>> _getUnidadeStream(
+    Map<String, dynamic> d,
+  ) {
+    // Busca a unidade correta: Primeiro tenta usar a unidadeSelecionadaId, se não tiver, usa a servicoUnidadeId
+    final unidadeSelecionadaId = (d['unidadeSelecionadaId'] ?? '').toString();
+    final servicoUnidadeId = (d['servicoUnidadeId'] ?? '').toString();
+
+    // Primeiro tenta a unidade selecionada, depois a do serviço
+    final unidadeId = unidadeSelecionadaId.isNotEmpty
+        ? unidadeSelecionadaId
+        : servicoUnidadeId;
+
+    if (unidadeId.isEmpty) {
+      // Retorna um stream vazio se não tiver ID
+      return const Stream.empty();
+    }
+
+    return db.collection('unidades').doc(unidadeId).snapshots();
+  }
+
   Widget _buildForm() {
     final d = _docSolic!.data()!;
     final titulo = (d['servicoTitulo'] ?? '').toString();
@@ -252,8 +330,7 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
         ? (d['quantidade'] as num).toStringAsFixed(0)
         : (d['quantidade']?.toString() ?? '');
 
-    final unidadeAbrev =
-        (d['unidadeSelecionadaAbrev'] ?? d['servicoUnidadeAbrev'] ?? '')
+    (d['unidadeSelecionadaAbrev'] ?? d['servicoUnidadeAbrev'] ?? '')
             .toString();
     final estimativaValor = (d['estimativaValor'] is num)
         ? _moeda.format((d['estimativaValor'] as num).toDouble())
@@ -266,10 +343,35 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
         child: Column(
           children: [
             const SizedBox(height: 12),
-            // Bloco: Estimativa (somente leitura)
-            _EstimativaCard(
-              valor: estimativaValor,
-              unidade: unidadeAbrev.isEmpty ? 'unidade' : unidadeAbrev,
+            // 🔥 BLOCO: ESTIMATIVA COM BUSCA DA UNIDADE CORRETA
+            StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+              stream: _getUnidadeStream(d),
+              builder: (context, unidadeSnap) {
+                String unidadeAbrev = 'unidade';
+
+                if (unidadeSnap.hasData && unidadeSnap.data!.exists) {
+                  final unidadeData = unidadeSnap.data!.data()!;
+                  unidadeAbrev = (unidadeData['abreviacao'] ?? 'unidade')
+                      .toString();
+                } else {
+                  // 🔥 FALLBACK: usa abreviações salvas diretamente
+                  final unidadeSelecionadaAbrev =
+                      (d['unidadeSelecionadaAbrev'] ?? '').toString();
+                  final servicoUnidadeAbrev = (d['servicoUnidadeAbrev'] ?? '')
+                      .toString();
+
+                  if (unidadeSelecionadaAbrev.isNotEmpty) {
+                    unidadeAbrev = unidadeSelecionadaAbrev;
+                  } else if (servicoUnidadeAbrev.isNotEmpty) {
+                    unidadeAbrev = servicoUnidadeAbrev;
+                  }
+                }
+
+                return _EstimativaCard(
+                  valor: estimativaValor,
+                  unidade: unidadeAbrev,
+                );
+              },
             ),
 
             const SizedBox(height: 16),
@@ -290,18 +392,45 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
               label: 'Horário desejado para execução',
               value: _fmtHora(d['dataDesejada']),
             ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: _ReadOnlyField(
-                    label: 'Quantidade ou dimensão',
-                    value: quantidade,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                _UnitChip(text: unidadeAbrev.isEmpty ? 'm²' : unidadeAbrev),
-              ],
+            const SizedBox(height: 15),
+
+            // 🔥 STREAM BUILDER PARA BUSCAR A UNIDADE CORRETA
+            StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+              stream: _getUnidadeStream(d),
+              builder: (context, unidadeSnap) {
+                String unidadeAbrev = 'un.';
+
+                if (unidadeSnap.hasData && unidadeSnap.data!.exists) {
+                  final unidadeData = unidadeSnap.data!.data()!;
+                  unidadeAbrev = (unidadeData['abreviacao'] ?? 'un.')
+                      .toString();
+                } else {
+                  // 🔥 FALLBACK: usa abreviações salvas diretamente
+                  final unidadeSelecionadaAbrev =
+                      (d['unidadeSelecionadaAbrev'] ?? '').toString();
+                  final servicoUnidadeAbrev = (d['servicoUnidadeAbrev'] ?? '')
+                      .toString();
+
+                  if (unidadeSelecionadaAbrev.isNotEmpty) {
+                    unidadeAbrev = unidadeSelecionadaAbrev;
+                  } else if (servicoUnidadeAbrev.isNotEmpty) {
+                    unidadeAbrev = servicoUnidadeAbrev;
+                  }
+                }
+
+                return Row(
+                  children: [
+                    Expanded(
+                      child: _ReadOnlyField(
+                        label: 'Quantidade ou dimensão',
+                        value: quantidade,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    _UnitChip(text: unidadeAbrev),
+                  ],
+                );
+              },
             ),
 
             const SizedBox(height: 16),
@@ -387,14 +516,14 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
             const SizedBox(height: 6),
             TextFormField(
               readOnly: true,
-              onTap: _pickDate,
+              onTap: _selecionarDataDisponivel, // 🔥 AGORA USA O CALENDÁRIO
               controller: TextEditingController(
                 text: _dataInicio == null
                     ? ''
                     : DateFormat('dd/MM/yyyy').format(_dataInicio!),
               ),
               decoration: _inputDecoration(
-                hint: 'dd/mm/aaaa',
+                hint: 'Clique para ver agenda disponível',
                 suffixIcon: const Icon(Icons.calendar_today_outlined),
               ),
             ),
@@ -427,16 +556,11 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
               child: const Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
-                    Icons.access_time_outlined,
-                    size: 18,
-                    color: Colors.deepPurple,
-                  ),
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Caso indisponível na data ou horário desejado pelo cliente, '
-                      'favor colocar uma data ou horário alternativos ao enviar sua proposta.',
+                      'Clique em "Selecionar Data" para ver sua agenda e escolher uma data disponível. '
+                      'Horários do passado não podem ser selecionados.',
                       style: TextStyle(
                         fontSize: 12.5,
                         color: Colors.deepPurple,
@@ -476,6 +600,499 @@ class _EnviarOrcamentoScreenState extends State<EnviarOrcamentoScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ================== CALENDÁRIO DE SELEÇÃO DE DATA ==================
+
+class _CalendarioSelecaoData extends StatefulWidget {
+  final String prestadorId;
+  final String prestadorNome;
+  const _CalendarioSelecaoData({
+    required this.prestadorId,
+    required this.prestadorNome,
+  });
+
+  @override
+  State<_CalendarioSelecaoData> createState() => _CalendarioSelecaoDataState();
+}
+
+class _CalendarioSelecaoDataState extends State<_CalendarioSelecaoData> {
+  DateTime get _today {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day);
+  }
+
+  late DateTime _selectedDay = _today;
+  late DateTime _focusedDay = _today;
+  CalendarFormat _format = CalendarFormat.month;
+
+  // 🔹 Jornada real do prestador
+  final Set<int> _workWeekdays = {};
+  final Set<DateTime> busyDays = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadJornadaPrestador();
+  }
+
+  /// 🔹 Busca jornada de trabalho do prestador
+  Future<void> _loadJornadaPrestador() async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('usuarios')
+          .doc(widget.prestadorId)
+          .get();
+
+      final jornada = (doc.data()?['jornada'] ?? []) as List<dynamic>;
+      final Map<String, int> diasSemana = {
+        'Segunda-feira': DateTime.monday,
+        'Terça-feira': DateTime.tuesday,
+        'Quarta-feira': DateTime.wednesday,
+        'Quinta-feira': DateTime.thursday,
+        'Sexta-feira': DateTime.friday,
+        'Sábado': DateTime.saturday,
+        'Domingo': DateTime.sunday,
+      };
+
+      setState(() {
+        _workWeekdays
+          ..clear()
+          ..addAll(
+            jornada
+                .map((d) => diasSemana[d.toString()])
+                .whereType<int>()
+                .toSet(),
+          );
+
+        // fallback: se não tiver jornada, assume segunda a sexta
+        if (_workWeekdays.isEmpty) {
+          _workWeekdays.addAll([
+            DateTime.monday,
+            DateTime.tuesday,
+            DateTime.wednesday,
+            DateTime.thursday,
+            DateTime.friday,
+          ]);
+        }
+      });
+    } catch (e) {
+      debugPrint('Erro ao carregar jornada do prestador: $e');
+    }
+  }
+
+  String fmtData(DateTime d) =>
+      DateFormat("d 'de' MMMM 'de' y", 'pt_BR').format(d);
+  DateTime _ymd(DateTime d) => DateTime(d.year, d.month, d.day);
+  DateTime toYMD(dynamic ts) {
+    final dt = (ts as Timestamp).toDate();
+    return DateTime(dt.year, dt.month, dt.day);
+  }
+
+  bool isWorkday(DateTime d) => _workWeekdays.contains(d.weekday);
+
+  Iterable<DateTime> nextBusinessDays(DateTime start, int count) sync* {
+    var d = _ymd(start);
+    int added = 0;
+    while (added < count) {
+      if (isWorkday(d)) {
+        yield d;
+        added++;
+      }
+      d = d.add(const Duration(days: 1));
+    }
+  }
+
+  // marca como indisponíveis os dias previstos
+  void markBusyFromDoc(Map<String, dynamic> data) {
+    final tsInicio = data['dataInicioSugerida'];
+    if (tsInicio is! Timestamp) return;
+    final start = toYMD(tsInicio);
+
+    final tsFinal = data['dataFinalPrevista'];
+    if (tsFinal is Timestamp) {
+      final end = toYMD(tsFinal);
+      var d = start;
+      while (!d.isAfter(end)) {
+        if (isWorkday(d)) busyDays.add(d);
+        d = d.add(const Duration(days: 1));
+      }
+      return;
+    }
+
+    final unidade = (data['tempoEstimadoUnidade'] ?? '')
+        .toString()
+        .toLowerCase();
+    final valor = (data['tempoEstimadoValor'] as num?)?.ceil() ?? 0;
+
+    if (valor <= 0) {
+      if (isWorkday(start)) busyDays.add(start);
+      return;
+    }
+
+    if (unidade.startsWith('dia')) {
+      for (final d in nextBusinessDays(start, valor)) {
+        busyDays.add(d);
+      }
+    } else if (unidade.startsWith('hora')) {
+      if (isWorkday(start)) busyDays.add(start);
+    } else {
+      if (isWorkday(start)) busyDays.add(start);
+    }
+  }
+
+  bool _isBusy(DateTime day) => busyDays.contains(_ymd(day));
+
+  // 🔥 VERIFICA SE O DIA SELECIONADO É VÁLIDO
+  bool _isValidDay(DateTime day) {
+    final ymd = _ymd(day);
+
+    // 🔹 Não pode ser antes de hoje
+    if (ymd.isBefore(_today)) return false;
+
+    // 🔹 Não pode ser fora da jornada do prestador
+    if (!isWorkday(day)) return false;
+
+    // 🔹 Não pode ser dia ocupado
+    if (_isBusy(day)) return false;
+
+    return true;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // 🔥 Busca TODOS os status relevantes (incluindo finalizados/avaliados)
+    final stream = FirebaseFirestore.instance
+        .collection('solicitacoesOrcamento')
+        .where('prestadorId', isEqualTo: widget.prestadorId)
+        .where(
+          'status',
+          whereIn: [
+            'aceita',
+            'em andamento',
+            'em_andamento',
+            'finalizada',
+            'finalizado',
+            'avaliada',
+            'avaliado',
+          ],
+        )
+        .orderBy('dataInicioSugerida', descending: false)
+        .snapshots();
+
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ===== Título com nome do prestador =====
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+              child: Text(
+                'Sua Agenda - ${widget.prestadorNome}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF3E1F93),
+                ),
+                softWrap: true,
+                overflow: TextOverflow.visible,
+              ),
+            ),
+
+            // ===== Header custom com mês, setas e fechar =====
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 12, 8, 0),
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: () {
+                      setState(() {
+                        _focusedDay = DateTime(
+                          _focusedDay.year,
+                          _focusedDay.month - 1,
+                          1,
+                        );
+                      });
+                    },
+                    icon: const Icon(Icons.arrow_left),
+                  ),
+                  Expanded(
+                    child: Text(
+                      DateFormat('LLLL yyyy', 'pt_BR').format(_focusedDay),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () {
+                      setState(() {
+                        _focusedDay = DateTime(
+                          _focusedDay.year,
+                          _focusedDay.month + 1,
+                          1,
+                        );
+                      });
+                    },
+                    icon: const Icon(Icons.arrow_right),
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).maybePop(),
+                    icon: const Icon(Icons.close),
+                    tooltip: 'Fechar',
+                  ),
+                ],
+              ),
+            ),
+
+            // ===== Calendário =====
+            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: stream,
+              builder: (context, snap) {
+                busyDays.clear();
+
+                if (snap.hasData) {
+                  // 🔥 Processa TODOS os documentos como indisponíveis
+                  for (final doc in snap.data!.docs) {
+                    final data = doc.data();
+                    final tsInicio = data['dataInicioSugerida'];
+                    if (tsInicio is! Timestamp) continue;
+                    final start = toYMD(tsInicio);
+
+                    // 🔹 Para serviços finalizados/avaliados, usa período real se existir
+                    final status = (data['status'] ?? '')
+                        .toString()
+                        .toLowerCase();
+                    final isFinalizado =
+                        status.startsWith('finaliz') ||
+                        status.startsWith('avalia');
+
+                    DateTime? endDate;
+
+                    if (isFinalizado) {
+                      // 🔹 Tenta pegar data final real para finalizados
+                      for (final k in [
+                        'dataFinalizacaoReal',
+                        'dataFinalizada',
+                        'dataConclusao',
+                        'dataFinalReal',
+                        'dataFinalizacao',
+                      ]) {
+                        final v = data[k];
+                        if (v is Timestamp) {
+                          endDate = toYMD(v);
+                          break;
+                        }
+                      }
+                    }
+
+                    // 🔹 Se não encontrou data final real, usa a prevista
+                    if (endDate == null &&
+                        data['dataFinalPrevista'] is Timestamp) {
+                      endDate = toYMD(data['dataFinalPrevista']);
+                    }
+
+                    // 🔹 Se ainda não tem data final, marca apenas o dia inicial
+                    if (endDate == null) {
+                      if (isWorkday(start)) busyDays.add(start);
+                    } else {
+                      // 🔹 Marca todo o período como indisponível
+                      var d = start;
+                      while (!d.isAfter(endDate)) {
+                        if (isWorkday(d)) busyDays.add(d);
+                        d = d.add(const Duration(days: 1));
+                      }
+                    }
+                  }
+                }
+
+                return _calendarCard();
+              },
+            ),
+
+            // ===== Legenda SIMPLIFICADA =====
+            _legenda(),
+
+            // ===== Botões =====
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Colors.deepPurple),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: const Text('Cancelar'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _isValidDay(_selectedDay)
+                          ? () {
+                              Navigator.pop(context, _selectedDay);
+                            }
+                          : null,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _isValidDay(_selectedDay)
+                            ? Colors.deepPurple
+                            : Colors.grey,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: const Text(
+                        'Confirmar',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _calendarCard() {
+    const clrSelBorder = Color(0xFF673AB7);
+    const clrBusy = Color.fromARGB(255, 199, 190, 190); // indisponível
+    const clrAvail = Color.fromARGB(255, 109, 221, 140); // disponível
+
+    Color bgFor(DateTime day) {
+      final today = _today;
+      final ymd = _ymd(day);
+
+      // 1️⃣ Fora da jornada: cinza claro
+      if (!isWorkday(day)) {
+        return clrBusy;
+      }
+
+      // 2️⃣ Dias anteriores a hoje: cinza claro
+      if (ymd.isBefore(today)) {
+        return clrBusy;
+      }
+
+      // 3️⃣ Ocupados (aceitos, em andamento, finalizados, avaliados): cinza
+      if (_isBusy(day)) {
+        return clrBusy;
+      }
+
+      // 4️⃣ Disponíveis (futuro dentro da jornada): verde
+      return clrAvail;
+    }
+
+    Widget cell(DateTime day, Color bg, {Border? border, Color? text}) {
+      return Container(
+        margin: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(8),
+          border: border,
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          '${day.day}',
+          style: TextStyle(
+            color: text ?? Colors.black87,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: TableCalendar(
+        locale: 'pt_BR',
+        firstDay: DateTime.utc(2020, 1, 1),
+        lastDay: DateTime.utc(2100, 12, 31),
+        focusedDay: _focusedDay,
+        calendarFormat: _format,
+        onFormatChanged: (f) => setState(() => _format = f),
+        headerVisible: false,
+        calendarStyle: const CalendarStyle(
+          todayDecoration: BoxDecoration(),
+          selectedDecoration: BoxDecoration(),
+        ),
+        selectedDayPredicate: (day) => isSameDay(day, _selectedDay),
+        onDaySelected: (selected, focused) {
+          setState(() {
+            _selectedDay = _ymd(selected);
+            _focusedDay = (selected.month != _focusedDay.month)
+                ? selected
+                : focused;
+          });
+        },
+        calendarBuilders: CalendarBuilders(
+          defaultBuilder: (context, day, _) => cell(day, bgFor(day)),
+          outsideBuilder: (context, day, _) =>
+              Opacity(opacity: 0.5, child: cell(day, bgFor(day))),
+          disabledBuilder: (context, day, _) =>
+              Opacity(opacity: 0.5, child: cell(day, bgFor(day))),
+          selectedBuilder: (context, day, _) => cell(
+            day,
+            bgFor(day),
+            border: const Border.fromBorderSide(
+              BorderSide(color: clrSelBorder, width: 2),
+            ),
+          ),
+          todayBuilder: (context, day, _) => cell(
+            day,
+            bgFor(day),
+            border: Border.all(color: Colors.black, width: 1),
+            text: Colors.white,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _legenda() {
+    Widget chip(Color c, String t) => Row(
+      children: [
+        Container(
+          width: 14,
+          height: 14,
+          decoration: BoxDecoration(
+            color: c,
+            borderRadius: BorderRadius.circular(4),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(t, style: const TextStyle(fontSize: 12)),
+      ],
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          chip(const Color.fromARGB(255, 199, 190, 190), 'Indisponível'),
+          const SizedBox(width: 14),
+          chip(const Color.fromARGB(255, 109, 221, 140), 'Disponível'),
+        ],
       ),
     );
   }
@@ -775,7 +1392,6 @@ class _ReadOnlyField extends StatelessWidget {
     );
   }
 }
-
 
 class _UnitChip extends StatelessWidget {
   final String text;

@@ -506,12 +506,6 @@ class ServicoItem extends StatelessWidget {
     final categoriaServicoId =
         (data['categoriaServicoId'] ?? data['categoriaId'] ?? '').toString();
 
-    final nota = (data['nota'] is num)
-        ? (data['nota'] as num).toDouble()
-        : null;
-    final avaliacoes = (data['avaliacoes'] is num)
-        ? (data['avaliacoes'] as num).toInt()
-        : null;
 
     // === FUNÇÕES INTERNAS DE IMAGEM ===
     Widget thumb(String? url) {

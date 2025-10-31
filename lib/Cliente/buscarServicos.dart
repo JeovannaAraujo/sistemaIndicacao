@@ -459,13 +459,11 @@ class BuscarServicosScreenState extends State<BuscarServicosScreen> {
         return;
       }
 
-      if (pos != null) {
-        setState(() {
-          _centroBusca = LatLng(pos!.latitude, pos.longitude);
-          atualizarCirculo();
-        });
-      }
-    } catch (e) {
+      setState(() {
+        _centroBusca = LatLng(pos!.latitude, pos.longitude);
+        atualizarCirculo();
+      });
+        } catch (e) {
       debugPrint('Erro ao verificar localização: $e');
     }
   }
@@ -711,7 +709,6 @@ class BuscarServicosScreenState extends State<BuscarServicosScreen> {
     });
 
     try {
-      final fs = db;
       final termo = buscaController.text.trim().toLowerCase();
 
       // Se tem raio, verifica permissão de localização

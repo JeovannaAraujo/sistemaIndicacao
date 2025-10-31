@@ -127,7 +127,7 @@ class _CategProfState extends State<CategProf> {
                       'ativo': true,
                     };
                     if (isEdicao) {
-                      await categoriasRef.doc(categoria!.id).update(data);
+                      await categoriasRef.doc(categoria.id).update(data);
                     } else {
                       await categoriasRef.add(data);
                     }

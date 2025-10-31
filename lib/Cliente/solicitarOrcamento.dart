@@ -9,15 +9,16 @@ import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:myapp/Cliente/editarEnderecoContato.dart';
+import 'package:table_calendar/table_calendar.dart';
 
 class SolicitarOrcamentoScreen extends StatefulWidget {
   final String prestadorId;
   final String servicoId;
 
-  // ✅ parâmetros opcionais para mocks em testes
   final FirebaseFirestore? firestore;
   final FirebaseAuth? auth;
-  final FirebaseStorage? storage; // ✅ este é o novo campo
+  final FirebaseStorage? storage;
 
   const SolicitarOrcamentoScreen({
     super.key,
@@ -25,7 +26,7 @@ class SolicitarOrcamentoScreen extends StatefulWidget {
     required this.servicoId,
     this.firestore,
     this.auth,
-    this.storage, // ✅ adicionado aqui também
+    this.storage,
   });
 
   @override
@@ -34,11 +35,10 @@ class SolicitarOrcamentoScreen extends StatefulWidget {
 }
 
 class SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
-  // coleções (ajuste os nomes se necessário)
   static const colUsuarios = 'usuarios';
   static const colServicos = 'servicos';
   static const colUnidades = 'unidades';
-  static const colSolicitacoes = 'solicitacoesOrcamento'; // ou 'solicitacoes'
+  static const colSolicitacoes = 'solicitacoesOrcamento';
   static const colCategoriasServ = 'categoriasServicos';
 
   final _formKey = GlobalKey<FormState>();
@@ -50,27 +50,26 @@ class SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
   DateTime? _dataDesejada;
   TimeOfDay? _horaDesejada;
 
-  // dados carregados
   DocumentSnapshot<Map<String, dynamic>>? docServico;
   DocumentSnapshot<Map<String, dynamic>>? docPrestador;
   DocumentSnapshot<Map<String, dynamic>>? docCliente;
 
-  // unidade/valor
   String? selectedUnidadeId;
   String? _selectedUnidadeAbrev;
   double? valorMedio;
 
   final _moeda = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
 
-  // imagens (galeria + upload)
   final ImagePicker _picker = ImagePicker();
   final List<XFile> imagens = [];
-  final Map<String, double> _uploadProgress = {}; // path => 0..1
+  final Map<String, double> _uploadProgress = {};
+
+  bool _enviando = false;
 
   @override
   void initState() {
     super.initState();
-    db = widget.firestore ?? FirebaseFirestore.instance; // ✅ corrigido
+    db = widget.firestore ?? FirebaseFirestore.instance;
     auth = widget.auth ?? FirebaseAuth.instance;
     _loadAll();
   }
@@ -133,46 +132,37 @@ class SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
     final s = docServico?.data() ?? {};
     final unidadeServicoId = (s['unidadeId'] ?? s['unidade'] ?? '').toString();
     if (unidadeServicoId.isNotEmpty && selectedUnidadeId != unidadeServicoId) {
-      return null; // sem conversão automática entre unidades diferentes
+      return null;
     }
     return q * valorMedio!;
   }
 
-  Future<void> _pickDate() async {
-    final today = DateTime.now();
-    final picked = await showDatePicker(
+  Future<void> _selecionarDataDisponivel() async {
+    final dataSelecionada = await showDialog<DateTime>(
       context: context,
-      initialDate: _dataDesejada ?? today,
-      firstDate: DateTime(today.year - 1),
-      lastDate: DateTime(today.year + 2),
-      helpText: 'Data desejada para início',
-      locale: const Locale('pt', 'BR'),
-    );
-    if (picked != null) setState(() => _dataDesejada = picked);
-  }
-
-  Future<void> _pickTime() async {
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: _horaDesejada ?? const TimeOfDay(hour: 8, minute: 0),
-      helpText: 'Horário desejado',
-      builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
-        child: child ?? const SizedBox.shrink(),
+      builder: (context) => _CalendarioSelecaoData(
+        prestadorId: widget.prestadorId,
+        prestadorNome: docPrestador?.data()?['nome'] ?? '',
       ),
     );
-    if (picked != null) setState(() => _horaDesejada = picked);
-  }
 
-  Future<void> _pickImages() async {
-    final imgs = await _picker.pickMultiImage(imageQuality: 80);
-    if (imgs.isNotEmpty) {
-      setState(() => imagens.addAll(imgs));
+    if (dataSelecionada != null && mounted) {
+      setState(() {
+        _dataDesejada = dataSelecionada;
+
+        // 🔥 Se selecionou hoje, reseta a hora para evitar conflito
+        final hoje = DateTime.now();
+        if (_dataDesejada!.day == hoje.day &&
+            _dataDesejada!.month == hoje.month &&
+            _dataDesejada!.year == hoje.year) {
+          _horaDesejada =
+              null; // Reseta a hora para o usuário escolher novamente
+        }
+      });
     }
   }
 
   void removeImage(XFile x) {
-    // ✅ Garante que não vai travar se o widget não estiver montado
     if (!mounted) {
       imagens.remove(x);
       _uploadProgress.remove(x.path);
@@ -196,14 +186,12 @@ class SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
         final fname = '${DateTime.now().millisecondsSinceEpoch}_${x.name}';
         final ref = storage.ref().child('solicitacoes/$docId/$fname');
 
-        // 🔹 Detecta se é mock: ignora upload real
         if (storage is MockFirebaseStorage) {
           final fakeUrl = 'https://fake.storage/$fname';
           urls.add(fakeUrl);
           continue;
         }
 
-        // 🔹 Upload real (somente se não for mock)
         final snap = await ref.putFile(file);
         final url = await snap.ref.getDownloadURL();
         urls.add(url);
@@ -219,91 +207,199 @@ class SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
   }
 
   Future<void> enviar() async {
+    if (_enviando) return;
+
     if (docServico == null || docPrestador == null || docCliente == null) {
       return;
     }
     if (!_formKey.currentState!.validate()) return;
 
-    final fs = db;
-    final serv = docServico!.data()!;
-    final prest = docPrestador!.data()!;
-    final cli = docCliente!.data() ?? {};
-
-    DateTime? dataHora;
+    // 🔥 VALIDAÇÃO MELHORADA: Data/hora não pode ser no passado
     if (_dataDesejada != null) {
-      final h = _horaDesejada?.hour ?? 0;
-      final m = _horaDesejada?.minute ?? 0;
-      dataHora = DateTime(
+      final now = DateTime.now();
+      final dataHoraSelecionada = DateTime(
         _dataDesejada!.year,
         _dataDesejada!.month,
         _dataDesejada!.day,
-        h,
-        m,
+        _horaDesejada?.hour ?? 0,
+        _horaDesejada?.minute ?? 0,
       );
+
+      // 🔹 Verifica se a data/hora selecionada já passou
+      if (dataHoraSelecionada.isBefore(now)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Não é possível selecionar uma data/hora que já passou.',
+              ),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
     }
 
-    final endereco = (cli['endereco'] is Map)
-        ? (cli['endereco'] as Map).cast<String, dynamic>()
-        : <String, dynamic>{};
-    final whatsappCli = (endereco['whatsapp'] ?? cli['whatsapp'] ?? '')
-        .toString();
+    setState(() => _enviando = true);
 
-    // cria o docId antes para organizar o upload
-    final docRef = fs.collection(colSolicitacoes).doc();
+    try {
+      final fs = db;
+      final serv = docServico!.data()!;
+      final prest = docPrestador!.data()!;
+      final cli = docCliente!.data() ?? {};
 
-    // faz upload das imagens (se houver)
-    final imagensUrls = await uploadImagens(docRef.id);
+      DateTime? dataHora;
+      if (_dataDesejada != null) {
+        final h = _horaDesejada?.hour ?? 0;
+        final m = _horaDesejada?.minute ?? 0;
+        dataHora = DateTime(
+          _dataDesejada!.year,
+          _dataDesejada!.month,
+          _dataDesejada!.day,
+          h,
+          m,
+        );
+      }
 
-    // --- Garantir coerência entre unidades originais e selecionadas ---
-    final servUnidadeId = (serv['unidadeId'] ?? serv['unidade'] ?? '')
-        .toString();
+      final endereco = (cli['endereco'] is Map)
+          ? (cli['endereco'] as Map).cast<String, dynamic>()
+          : <String, dynamic>{};
+      final whatsappCli = (endereco['whatsapp'] ?? cli['whatsapp'] ?? '')
+          .toString();
 
-    final bool unidadeDiferente =
-        (selectedUnidadeId != null &&
-        selectedUnidadeId!.isNotEmpty &&
-        selectedUnidadeId != servUnidadeId);
+      final docRef = fs.collection(colSolicitacoes).doc();
 
-    final unidadeSelecionadaIdFinal = unidadeDiferente
-        ? selectedUnidadeId
-        : null;
+      final imagensUrls = await uploadImagens(docRef.id);
 
-    final doc = <String, dynamic>{
-      'clienteId': auth.currentUser!.uid,
-      'clienteNome': (cli['nome'] ?? '').toString(),
-      'clienteWhatsapp': whatsappCli,
-      'clienteEndereco': {
-        'rua': endereco['rua'] ?? '',
-        'numero': endereco['numero'] ?? '',
-        'complemento': endereco['complemento'] ?? '',
-        'bairro': endereco['bairro'] ?? '',
-        'cep': endereco['cep'] ?? '',
-        'cidade': endereco['cidade'] ?? '',
-      },
-      'prestadorId': widget.prestadorId,
-      'prestadorNome': (prest['nome'] ?? '').toString(),
-      'servicoId': widget.servicoId,
-      'servicoTitulo': (serv['titulo'] ?? serv['nome'] ?? '').toString(),
-      'servicoDescricao': (serv['descricao'] ?? '').toString(),
-      'servicoValorMedio': valorMedio,
-      'servicoUnidadeId': servUnidadeId, // 🔹 mantém só o ID original
-      if (unidadeSelecionadaIdFinal != null)
-        'unidadeSelecionadaId': unidadeSelecionadaIdFinal, // 🔹 se diferente
-      'quantidade': double.tryParse(quantCtl.text.replaceAll(',', '.')) ?? 0,
-      'descricaoDetalhada': descricaoCtl.text.trim(),
-      'dataDesejada': dataHora != null ? Timestamp.fromDate(dataHora) : null,
-      'estimativaValor': estimativaValor,
-      'status': 'pendente',
-      'imagens': imagensUrls,
-      'criadoEm': FieldValue.serverTimestamp(),
-    };
+      final servUnidadeId = (serv['unidadeId'] ?? serv['unidade'] ?? '')
+          .toString();
 
-    await docRef.set(doc);
+      final bool unidadeDiferente =
+          (selectedUnidadeId != null &&
+          selectedUnidadeId!.isNotEmpty &&
+          selectedUnidadeId != servUnidadeId);
 
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Solicitação enviada com sucesso!')),
+      final unidadeSelecionadaIdFinal = unidadeDiferente
+          ? selectedUnidadeId
+          : null;
+
+      final doc = <String, dynamic>{
+        'clienteId': auth.currentUser!.uid,
+        'clienteNome': (cli['nome'] ?? '').toString(),
+        'clienteWhatsapp': whatsappCli,
+        'clienteEndereco': {
+          'rua': endereco['rua'] ?? '',
+          'numero': endereco['numero'] ?? '',
+          'complemento': endereco['complemento'] ?? '',
+          'bairro': endereco['bairro'] ?? '',
+          'cep': endereco['cep'] ?? '',
+          'cidade': endereco['cidade'] ?? '',
+        },
+        'prestadorId': widget.prestadorId,
+        'prestadorNome': (prest['nome'] ?? '').toString(),
+        'servicoId': widget.servicoId,
+        'servicoTitulo': (serv['titulo'] ?? serv['nome'] ?? '').toString(),
+        'servicoDescricao': (serv['descricao'] ?? '').toString(),
+        'servicoValorMedio': valorMedio,
+        'servicoUnidadeId': servUnidadeId,
+        if (unidadeSelecionadaIdFinal != null)
+          'unidadeSelecionadaId': unidadeSelecionadaIdFinal,
+        'quantidade': double.tryParse(quantCtl.text.replaceAll(',', '.')) ?? 0,
+        'descricaoDetalhada': descricaoCtl.text.trim(),
+        'dataDesejada': dataHora != null ? Timestamp.fromDate(dataHora) : null,
+        'estimativaValor': estimativaValor,
+        'status': 'pendente',
+        'imagens': imagensUrls,
+        'criadoEm': FieldValue.serverTimestamp(),
+      };
+
+      await docRef.set(doc);
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Solicitação enviada com sucesso!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+
+      Navigator.pop(context);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao enviar solicitação: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _enviando = false);
+      }
+    }
+  }
+
+  Future<void> _pickTime() async {
+    final now = DateTime.now();
+    final initialTime =
+        _dataDesejada != null &&
+            _dataDesejada!.day == now.day &&
+            _dataDesejada!.month == now.month &&
+            _dataDesejada!.year == now.year
+        ? TimeOfDay.fromDateTime(now) // Se for hoje, começa da hora atual
+        : TimeOfDay.now();
+
+    final TimeOfDay? picked = await showTimePicker(
+      context: context,
+      initialTime: initialTime,
     );
-    Navigator.pop(context);
+
+    if (picked != null && mounted) {
+      // 🔥 VALIDAÇÃO: Se for hoje, não permite hora passada
+      if (_dataDesejada != null) {
+        final hoje = DateTime.now();
+        final isHoje =
+            _dataDesejada!.day == hoje.day &&
+            _dataDesejada!.month == hoje.month &&
+            _dataDesejada!.year == hoje.year;
+
+        if (isHoje) {
+          final horaAtual = TimeOfDay.fromDateTime(hoje);
+          if (picked.hour < horaAtual.hour ||
+              (picked.hour == horaAtual.hour &&
+                  picked.minute < horaAtual.minute)) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Não é possível selecionar um horário que já passou para hoje.',
+                  ),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+            return;
+          }
+        }
+      }
+
+      setState(() {
+        _horaDesejada = picked;
+      });
+    }
+  }
+
+  Future<void> _pickImages() async {
+    final List<XFile> novas = await _picker.pickMultiImage();
+
+    if (novas.isNotEmpty && mounted) {
+      setState(() {
+        imagens.addAll(novas);
+      });
+    }
   }
 
   @override
@@ -347,268 +443,353 @@ class SolicitarOrcamentoScreenState extends State<SolicitarOrcamentoScreen> {
       return (end['cidade'] ?? prest['cidade'] ?? '').toString();
     })();
 
-    return Form(
-      key: _formKey,
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _ServicoResumoCard(
-              titulo: tituloServico,
-              descricao: descricaoServico,
-              categoriaServicoId:
-                  (serv['categoriaServicoId'] ?? serv['categoriaId'] ?? '')
-                      .toString(),
-              prestadorNome: (prest['nome'] ?? '').toString(),
-              cidade: cidadePrest,
-              unidadeAbrev: unidadeServicoAbrev,
-              valorMinimo: parseValor(
-                serv['valorMinimo'] ?? serv['precoMinimo'],
-              ),
-              valorMedio: valorMedio,
-              valorMaximo: parseValor(
-                serv['valorMaximo'] ?? serv['precoMaximo'],
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            const _SectionTitle('Descrição detalhada da Solicitação'),
-            const SizedBox(height: 6),
-            TextFormField(
-              controller: descricaoCtl,
-              minLines: 3,
-              maxLines: 5,
-              decoration: _inputDecoration(
-                hint: 'Descreva todos os detalhes sobre o serviço',
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            const _SectionTitle('Quantidade ou dimensão'),
-            const SizedBox(height: 6),
-            Row(
+    return Stack(
+      children: [
+        Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: TextFormField(
-                    controller: quantCtl,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    decoration: _inputDecoration(hint: '0'),
-                    onChanged: (_) => setState(() {}),
-                    validator: (v) {
-                      final q = double.tryParse((v ?? '').replaceAll(',', '.'));
-                      if (q == null || q <= 0) return 'Informe a quantidade';
-                      return null;
-                    },
+                _ServicoResumoCard(
+                  titulo: tituloServico,
+                  descricao: descricaoServico,
+                  categoriaServicoId:
+                      (serv['categoriaServicoId'] ?? serv['categoriaId'] ?? '')
+                          .toString(),
+                  prestadorNome: (prest['nome'] ?? '').toString(),
+                  cidade: cidadePrest,
+                  unidadeAbrev: unidadeServicoAbrev,
+                  valorMinimo: parseValor(
+                    serv['valorMinimo'] ?? serv['precoMinimo'],
+                  ),
+                  valorMedio: valorMedio,
+                  valorMaximo: parseValor(
+                    serv['valorMaximo'] ?? serv['precoMaximo'],
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _UnidadesDropdown(
-                    selectedId: selectedUnidadeId, // ✅ variável correta
-                    onChanged: (id) => setState(() => selectedUnidadeId = id),
-                    firestore: db, // ✅ injeta o fakeDb nos testes
+
+                const SizedBox(height: 16),
+
+                const _SectionTitle('Descrição detalhada da Solicitação'),
+                const SizedBox(height: 6),
+                TextFormField(
+                  controller: descricaoCtl,
+                  minLines: 3,
+                  maxLines: 5,
+                  decoration: _inputDecoration(
+                    hint: 'Descreva todos os detalhes sobre o serviço',
                   ),
                 ),
-              ],
-            ),
 
-            const SizedBox(height: 16),
+                const SizedBox(height: 16),
 
-            const _SectionTitle('Data desejada para início'),
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    readOnly: true,
-                    onTap: _pickDate,
-                    controller: TextEditingController(
-                      text: _dataDesejada == null
-                          ? ''
-                          : DateFormat('dd/MM/yyyy').format(_dataDesejada!),
+                const _SectionTitle('Quantidade ou dimensão'),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: quantCtl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: _inputDecoration(hint: '0'),
+                        onChanged: (_) => setState(() {}),
+                        validator: (v) {
+                          final q = double.tryParse(
+                            (v ?? '').replaceAll(',', '.'),
+                          );
+                          if (q == null || q <= 0)
+                            return 'Informe a quantidade';
+                          return null;
+                        },
+                      ),
                     ),
-                    decoration: _inputDecoration(
-                      hint: 'dd/mm/aaaa',
-                      suffixIcon: const Icon(Icons.calendar_today_outlined),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _UnidadesDropdown(
+                        selectedId: selectedUnidadeId,
+                        onChanged: (id) =>
+                            setState(() => selectedUnidadeId = id),
+                        firestore: db,
+                      ),
                     ),
-                  ),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextFormField(
-                    readOnly: true,
-                    onTap: _pickTime,
-                    controller: TextEditingController(
-                      text: _horaDesejada == null
-                          ? ''
-                          : '${_horaDesejada!.hour.toString().padLeft(2, '0')}:${_horaDesejada!.minute.toString().padLeft(2, '0')}',
-                    ),
-                    decoration: _inputDecoration(
-                      hint: '00:00',
-                      suffixIcon: const Icon(Icons.access_time_outlined),
-                    ),
-                  ),
-                ),
-              ],
-            ),
 
-            const SizedBox(height: 16),
+                const SizedBox(height: 16),
 
-            const _SectionTitle('Estimativa de Valor'),
-            const SizedBox(height: 6),
-            TextFormField(
-              readOnly: true,
-              controller: TextEditingController(
-                text: estimativaValor == null
-                    ? 'R\$0,00'
-                    : _moeda.format(estimativaValor),
-              ),
-              decoration: _inputDecoration(),
-            ),
-            const SizedBox(height: 6),
-            _HintBox(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Este valor é calculado automaticamente com base na quantidade informada e na média de preço do serviço.',
-                    style: TextStyle(fontSize: 12),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Fórmula: Quantidade × Valor Médio por ${_selectedUnidadeAbrev ?? 'unidade'}.',
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Este campo é apenas informativo e não pode ser editado manualmente.',
-                    style: TextStyle(fontSize: 12, color: Colors.black54),
-                  ),
-                  if (selectedUnidadeId != null)
-                    Builder(
-                      builder: (context) {
-                        final s = docServico?.data() ?? {};
-                        final unidadeServicoId =
-                            (s['unidadeId'] ?? s['unidade'] ?? '').toString();
-                        final diferente =
-                            unidadeServicoId.isNotEmpty &&
-                            selectedUnidadeId != unidadeServicoId;
-
-                        if (diferente) {
-                          return Container(
-                            margin: const EdgeInsets.only(top: 8),
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFEDE7F6),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: Colors.deepPurple.shade200,
-                              ),
+                const _SectionTitle('Data e hora desejada para início'),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: _selecionarDataDisponivel,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.deepPurple,
+                          side: const BorderSide(color: Colors.deepPurple),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.calendar_today_outlined, size: 18),
+                            const SizedBox(width: 8),
+                            Text(
+                              _dataDesejada == null
+                                  ? 'Selecionar Data'
+                                  : DateFormat(
+                                      'dd/MM/yyyy',
+                                    ).format(_dataDesejada!),
                             ),
-                            child: const Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Icon(
-                                  Icons.info_outline,
-                                  size: 18,
-                                  color: Colors.deepPurple,
-                                ),
-                                SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    'Observação: a estimativa foi desativada porque a unidade selecionada é diferente da unidade do serviço.',
-                                    style: TextStyle(
-                                      fontSize: 12.5,
-                                      color: Colors.deepPurple,
-                                      fontWeight: FontWeight.w600,
-                                      height: 1.4,
-                                    ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextFormField(
+                        readOnly: true,
+                        onTap: _pickTime,
+                        controller: TextEditingController(
+                          text: _horaDesejada == null
+                              ? ''
+                              : '${_horaDesejada!.hour.toString().padLeft(2, '0')}:${_horaDesejada!.minute.toString().padLeft(2, '0')}',
+                        ),
+                        decoration: _inputDecoration(
+                          hint: '00:00',
+                          suffixIcon: const Icon(Icons.access_time_outlined),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                _HintBox(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Clique em "Selecionar Data" para ver a agenda do prestador e escolher uma data disponível. Horários do passado não podem ser selecionados.',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _dataDesejada == null
+                            ? 'Nenhuma data selecionada'
+                            : 'Data selecionada: ${DateFormat('dd/MM/yyyy').format(_dataDesejada!)}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: _dataDesejada == null
+                              ? Colors.orange
+                              : Colors.green,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                const _SectionTitle('Estimativa de Valor'),
+                const SizedBox(height: 6),
+                TextFormField(
+                  readOnly: true,
+                  controller: TextEditingController(
+                    text: estimativaValor == null
+                        ? 'R\$0,00'
+                        : _moeda.format(estimativaValor),
+                  ),
+                  decoration: _inputDecoration(),
+                ),
+                const SizedBox(height: 6),
+                _HintBox(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Este valor é calculado automaticamente com base na quantidade informada e na média de preço do serviço.',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Fórmula: Quantidade × Valor Médio por ${_selectedUnidadeAbrev ?? 'unidade'}.',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Este campo é apenas informativo e não pode ser editado manualmente.',
+                        style: TextStyle(fontSize: 12, color: Colors.black54),
+                      ),
+                      if (selectedUnidadeId != null)
+                        Builder(
+                          builder: (context) {
+                            final s = docServico?.data() ?? {};
+                            final unidadeServicoId =
+                                (s['unidadeId'] ?? s['unidade'] ?? '')
+                                    .toString();
+                            final diferente =
+                                unidadeServicoId.isNotEmpty &&
+                                selectedUnidadeId != unidadeServicoId;
+
+                            if (diferente) {
+                              return Container(
+                                margin: const EdgeInsets.only(top: 8),
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFEDE7F6),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: Colors.deepPurple.shade200,
                                   ),
                                 ),
-                              ],
-                            ),
-                          );
-                        } else {
-                          return const SizedBox.shrink();
-                        }
-                      },
-                    ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            const _SectionTitle('Endereço e contato'),
-            const SizedBox(height: 6),
-            _EnderecoContatoCard(
-              enderecoLinha: enderecoLinha.isEmpty
-                  ? 'Endereço não informado'
-                  : enderecoLinha,
-              whatsapp: whatsappCli,
-              onEditar: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Editar endereço (implementar)'),
-                  ),
-                );
-              },
-            ),
-
-            const SizedBox(height: 16),
-
-            const _SectionTitle('Imagens (opcional)'),
-            const SizedBox(height: 6),
-            _ImagePickerGrid(
-              imagens: imagens,
-              progresso: _uploadProgress,
-              onAdd: _pickImages,
-              onRemove: removeImage,
-            ),
-
-            const SizedBox(height: 20),
-
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: enviar,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.deepPurple,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    child: const Text(
-                      'Enviar',
-                      style: TextStyle(color: Colors.white),
-                    ),
+                                child: const Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Icon(
+                                      Icons.info_outline,
+                                      size: 18,
+                                      color: Colors.deepPurple,
+                                    ),
+                                    SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        'Observação: a estimativa foi desativada porque a unidade selecionada é diferente da unidade do serviço.',
+                                        style: TextStyle(
+                                          fontSize: 12.5,
+                                          color: Colors.deepPurple,
+                                          fontWeight: FontWeight.w600,
+                                          height: 1.4,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            } else {
+                              return const SizedBox.shrink();
+                            }
+                          },
+                        ),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(context),
-                    style: OutlinedButton.styleFrom(
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+
+                const SizedBox(height: 16),
+
+                const _SectionTitle('Endereço e contato'),
+                const SizedBox(height: 6),
+                _EnderecoContatoCard(
+                  enderecoLinha: enderecoLinha.isEmpty
+                      ? 'Endereço não informado'
+                      : enderecoLinha,
+                  whatsapp: whatsappCli,
+                  onEditar: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => EditarEnderecoContatoScreen(
+                          userId: auth.currentUser!.uid,
+                          firestore: db,
+                          auth: auth,
+                        ),
                       ),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ).then((_) {
+                      // Recarregar os dados do endereço após editar
+                      if (mounted) {
+                        _loadAll(); // Isso vai recarregar todos os dados incluindo o endereço
+                      }
+                    });
+                  },
+                ),
+
+                const SizedBox(height: 16),
+
+                const _SectionTitle('Imagens (opcional)'),
+                const SizedBox(height: 6),
+                _ImagePickerGrid(
+                  imagens: imagens,
+                  progresso: _uploadProgress,
+                  onAdd: _pickImages,
+                  onRemove: removeImage,
+                ),
+
+                const SizedBox(height: 20),
+
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: _enviando ? null : enviar,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.deepPurple,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        child: _enviando
+                            ? const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'Enviando...',
+                                    style: TextStyle(color: Colors.white),
+                                  ),
+                                ],
+                              )
+                            : const Text(
+                                'Enviar',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                      ),
                     ),
-                    child: const Text('Cancelar'),
-                  ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: _enviando
+                            ? null
+                            : () => Navigator.pop(context),
+                        style: OutlinedButton.styleFrom(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        child: const Text('Cancelar'),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
-          ],
+          ),
         ),
-      ),
+
+        if (_enviando)
+          Container(
+            color: Colors.black.withOpacity(0.5),
+            child: const Center(child: CircularProgressIndicator()),
+          ),
+      ],
     );
   }
 
@@ -835,12 +1016,9 @@ class _ServicoResumoCard extends StatelessWidget {
   }
 }
 
-// ================== 🔽 Widget corrigido 🔽 ==================
 class _UnidadesDropdown extends StatelessWidget {
   final String? selectedId;
   final Function(String?) onChanged;
-
-  // ✅ Novo parâmetro opcional para usar FakeFirebaseFirestore nos testes
   final FirebaseFirestore firestore;
 
   _UnidadesDropdown({
@@ -853,7 +1031,6 @@ class _UnidadesDropdown extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 🔹 Consulta unidades no banco injetado (real ou fake)
     final q = firestore
         .collection(SolicitarOrcamentoScreenState.colUnidades)
         .orderBy('abreviacao');
@@ -890,11 +1067,8 @@ class _UnidadesDropdown extends StatelessWidget {
           ),
           items: docs.map((d) {
             final data = (d.data() as Map?)?.cast<String, dynamic>() ?? {};
-                       final abrev = data['abreviacao'] ?? '';
-            return DropdownMenuItem<String>(
-              value: d.id,
-              child: Text('$abrev'),
-            );
+            final abrev = data['abreviacao'] ?? '';
+            return DropdownMenuItem<String>(value: d.id, child: Text('$abrev'));
           }).toList(),
           onChanged: onChanged,
         );
@@ -902,9 +1076,6 @@ class _UnidadesDropdown extends StatelessWidget {
     );
   }
 }
-
-// ================== 🔼 Widget corrigido 🔼 ==================
-
 class _EnderecoContatoCard extends StatelessWidget {
   final String enderecoLinha;
   final String whatsapp;
@@ -916,8 +1087,25 @@ class _EnderecoContatoCard extends StatelessWidget {
     required this.onEditar,
   });
 
+  // 🔥 ADICIONE ESTA FUNÇÃO DE MÁSCARA
+  String _aplicarMascaraWhatsApp(String value) {
+    value = value.replaceAll(RegExp(r'[^0-9]'), '');
+    if (value.length <= 2) {
+      return value;
+    } else if (value.length <= 7) {
+      return '(${value.substring(0, 2)}) ${value.substring(2)}';
+    } else {
+      return '(${value.substring(0, 2)}) ${value.substring(2, 7)}-${value.substring(7)}';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    // 🔥 APLIQUE A MÁSCARA AO EXIBIR
+    final whatsappFormatado = whatsapp.isEmpty 
+        ? 'Sem WhatsApp' 
+        : _aplicarMascaraWhatsApp(whatsapp);
+
     return Card(
       elevation: 0.5,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -943,7 +1131,7 @@ class _EnderecoContatoCard extends StatelessWidget {
                         color: Color(0xFF25D366),
                       ),
                       const SizedBox(width: 6),
-                      Text(whatsapp.isEmpty ? 'Sem WhatsApp' : whatsapp),
+                      Text(whatsappFormatado), // 🔥 AGORA COM MÁSCARA
                     ],
                   ),
                 ],
@@ -970,7 +1158,7 @@ class _EnderecoContatoCard extends StatelessWidget {
 
 class _ImagePickerGrid extends StatelessWidget {
   final List<XFile> imagens;
-  final Map<String, double> progresso; // path => 0..1
+  final Map<String, double> progresso;
   final VoidCallback onAdd;
   final void Function(XFile img) onRemove;
 
@@ -1051,6 +1239,515 @@ class _ImagePickerGrid extends StatelessWidget {
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       children: itens,
+    );
+  }
+}
+
+// ================== CALENDÁRIO DE SELEÇÃO DE DATA CORRIGIDO ==================
+
+// ================== CALENDÁRIO DE SELEÇÃO DE DATA CORRIGIDO ==================
+
+class _CalendarioSelecaoData extends StatefulWidget {
+  final String prestadorId;
+  final String prestadorNome;
+  const _CalendarioSelecaoData({
+    required this.prestadorId,
+    required this.prestadorNome,
+  });
+
+  @override
+  State<_CalendarioSelecaoData> createState() => _CalendarioSelecaoDataState();
+}
+
+class _CalendarioSelecaoDataState extends State<_CalendarioSelecaoData> {
+  DateTime get _today {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day);
+  }
+
+  late DateTime _selectedDay = _today;
+  late DateTime _focusedDay = _today;
+  CalendarFormat _format = CalendarFormat.month;
+
+  // 🔹 Jornada real do prestador
+  final Set<int> _workWeekdays = {};
+  final Set<DateTime> busyDays = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadJornadaPrestador();
+  }
+
+  /// 🔹 Busca jornada de trabalho do prestador
+  Future<void> _loadJornadaPrestador() async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('usuarios')
+          .doc(widget.prestadorId)
+          .get();
+
+      final jornada = (doc.data()?['jornada'] ?? []) as List<dynamic>;
+      final Map<String, int> diasSemana = {
+        'Segunda-feira': DateTime.monday,
+        'Terça-feira': DateTime.tuesday,
+        'Quarta-feira': DateTime.wednesday,
+        'Quinta-feira': DateTime.thursday,
+        'Sexta-feira': DateTime.friday,
+        'Sábado': DateTime.saturday,
+        'Domingo': DateTime.sunday,
+      };
+
+      setState(() {
+        _workWeekdays
+          ..clear()
+          ..addAll(
+            jornada
+                .map((d) => diasSemana[d.toString()])
+                .whereType<int>()
+                .toSet(),
+          );
+
+        // fallback: se não tiver jornada, assume segunda a sexta
+        if (_workWeekdays.isEmpty) {
+          _workWeekdays.addAll([
+            DateTime.monday,
+            DateTime.tuesday,
+            DateTime.wednesday,
+            DateTime.thursday,
+            DateTime.friday,
+          ]);
+        }
+      });
+    } catch (e) {
+      debugPrint('Erro ao carregar jornada do prestador: $e');
+    }
+  }
+
+  String fmtData(DateTime d) =>
+      DateFormat("d 'de' MMMM 'de' y", 'pt_BR').format(d);
+  DateTime _ymd(DateTime d) => DateTime(d.year, d.month, d.day);
+  DateTime toYMD(dynamic ts) {
+    final dt = (ts as Timestamp).toDate();
+    return DateTime(dt.year, dt.month, dt.day);
+  }
+
+  bool isWorkday(DateTime d) => _workWeekdays.contains(d.weekday);
+
+  Iterable<DateTime> nextBusinessDays(DateTime start, int count) sync* {
+    var d = _ymd(start);
+    int added = 0;
+    while (added < count) {
+      if (isWorkday(d)) {
+        yield d;
+        added++;
+      }
+      d = d.add(const Duration(days: 1));
+    }
+  }
+
+  // 🔥 CORREÇÃO: Busca data real de finalização
+  DateTime? getFinalizacaoReal(Map<String, dynamic> d) {
+    for (final k in [
+      'dataFinalizacaoReal',
+      'dataFinalizada',
+      'dataConclusao',
+      'dataFinalReal',
+      'dataFinalizacao',
+    ]) {
+      final v = d[k];
+      if (v is Timestamp) return toYMD(v);
+    }
+    return null;
+  }
+
+  bool isFinalStatus(String? s) {
+    final txt = (s ?? '').toLowerCase().trim();
+    return txt.startsWith('finaliz') || txt.startsWith('avalia');
+  }
+
+  // 🔥 CORREÇÃO: Marca dias ocupados considerando todos os status
+  void markBusyFromDoc(Map<String, dynamic> data) {
+    final tsInicio = data['dataInicioSugerida'];
+    if (tsInicio is! Timestamp) return;
+    final start = toYMD(tsInicio);
+
+    final status = (data['status'] ?? '').toString().toLowerCase();
+    final realEnd = getFinalizacaoReal(data);
+
+    // 🔹 Para serviços finalizados/avaliados, usa período real se existir
+    if (isFinalStatus(status) && realEnd != null) {
+      var d = start;
+      while (!d.isAfter(realEnd)) {
+        if (isWorkday(d)) busyDays.add(d);
+        d = d.add(const Duration(days: 1));
+      }
+      return;
+    }
+
+    // 🔹 Para outros status, usa a previsão
+    final tsFinal = data['dataFinalPrevista'];
+    if (tsFinal is Timestamp) {
+      final end = toYMD(tsFinal);
+      var d = start;
+      while (!d.isAfter(end)) {
+        if (isWorkday(d)) busyDays.add(d);
+        d = d.add(const Duration(days: 1));
+      }
+      return;
+    }
+
+    final unidade = (data['tempoEstimadoUnidade'] ?? '')
+        .toString()
+        .toLowerCase();
+    final valor = (data['tempoEstimadoValor'] as num?)?.ceil() ?? 0;
+
+    if (valor <= 0) {
+      if (isWorkday(start)) busyDays.add(start);
+      return;
+    }
+
+    if (unidade.startsWith('dia')) {
+      for (final d in nextBusinessDays(start, valor)) {
+        busyDays.add(d);
+      }
+    } else if (unidade.startsWith('hora')) {
+      if (isWorkday(start)) busyDays.add(start);
+    } else {
+      if (isWorkday(start)) busyDays.add(start);
+    }
+  }
+
+  bool _isBusy(DateTime day) => busyDays.contains(_ymd(day));
+
+  // 🔥 VERIFICA SE O DIA SELECIONADO É VÁLIDO
+  bool _isValidDay(DateTime day) {
+    final ymd = _ymd(day);
+
+    // 🔹 Não pode ser antes de hoje
+    if (ymd.isBefore(_today)) return false;
+
+    // 🔹 Não pode ser fora da jornada do prestador
+    if (!isWorkday(day)) return false;
+
+    // 🔹 Não pode ser dia ocupado
+    if (_isBusy(day)) return false;
+
+    return true;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // 🔥 CORREÇÃO: Busca TODOS os status relevantes
+    final stream = FirebaseFirestore.instance
+        .collection('solicitacoesOrcamento')
+        .where('prestadorId', isEqualTo: widget.prestadorId)
+        .where(
+          'status',
+          whereIn: [
+            'aceita',
+            'em andamento',
+            'em_andamento',
+            'finalizada',
+            'finalizado',
+            'avaliada',
+            'avaliado',
+          ],
+        )
+        .orderBy('dataInicioSugerida', descending: false)
+        .snapshots();
+
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ===== Título com nome do prestador =====
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+              child: Text(
+                'Agenda do prestador ${widget.prestadorNome}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF3E1F93),
+                ),
+                softWrap: true,
+                overflow: TextOverflow.visible,
+              ),
+            ),
+
+            // ===== Header custom com mês, setas e fechar =====
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 12, 8, 0),
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: () {
+                      setState(() {
+                        _focusedDay = DateTime(
+                          _focusedDay.year,
+                          _focusedDay.month - 1,
+                          1,
+                        );
+                      });
+                    },
+                    icon: const Icon(Icons.arrow_left),
+                  ),
+                  Expanded(
+                    child: Text(
+                      DateFormat('LLLL yyyy', 'pt_BR').format(_focusedDay),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () {
+                      setState(() {
+                        _focusedDay = DateTime(
+                          _focusedDay.year,
+                          _focusedDay.month + 1,
+                          1,
+                        );
+                      });
+                    },
+                    icon: const Icon(Icons.arrow_right),
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).maybePop(),
+                    icon: const Icon(Icons.close),
+                    tooltip: 'Fechar',
+                  ),
+                ],
+              ),
+            ),
+
+            // ===== Calendário =====
+            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: stream,
+              builder: (context, snap) {
+                busyDays.clear();
+
+                if (snap.hasData) {
+                  // 🔥 CORREÇÃO: Processa todos os documentos
+                  for (final doc in snap.data!.docs) {
+                    markBusyFromDoc(doc.data());
+                  }
+                }
+
+                return _calendarCard();
+              },
+            ),
+
+            // ===== Legenda =====
+            _legenda(),
+
+            // ===== Botões =====
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Colors.deepPurple),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: const Text('Cancelar'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _isValidDay(_selectedDay)
+                          ? () {
+                              Navigator.pop(context, _selectedDay);
+                            }
+                          : null,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _isValidDay(_selectedDay)
+                            ? Colors.deepPurple
+                            : Colors.grey,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: const Text(
+                        'Confirmar',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _calendarCard() {
+    const clrSelBorder = Color(0xFF673AB7);
+    const clrBusy = Color.fromARGB(255, 199, 190, 190); // indisponível
+    const clrAvail = Color.fromARGB(255, 109, 221, 140); // disponível
+
+    Color bgFor(DateTime day) {
+      final today = _today;
+      final ymd = _ymd(day);
+
+      // 1️⃣ Fora da jornada: cinza claro
+      if (!isWorkday(day)) {
+        return clrBusy;
+      }
+
+      // 2️⃣ Dias anteriores a hoje: cinza claro
+      if (ymd.isBefore(today)) {
+        return clrBusy;
+      }
+
+      // 3️⃣ Ocupados (aceitos, em andamento, finalizados, avaliados): cinza
+      if (_isBusy(day)) {
+        return clrBusy;
+      }
+
+      // 4️⃣ Disponíveis (futuro dentro da jornada): verde
+      return clrAvail;
+    }
+
+    Widget cell(DateTime day, Color bg, {Border? border, Color? text}) {
+      return Container(
+        margin: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(8),
+          border: border,
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          '${day.day}',
+          style: TextStyle(
+            color: text ?? Colors.black87,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: TableCalendar(
+        locale: 'pt_BR',
+        firstDay: DateTime.utc(2020, 1, 1),
+        lastDay: DateTime.utc(2100, 12, 31),
+        focusedDay: _focusedDay,
+        calendarFormat: _format,
+        onFormatChanged: (f) => setState(() => _format = f),
+        headerVisible: false,
+        calendarStyle: const CalendarStyle(
+          todayDecoration: BoxDecoration(),
+          selectedDecoration: BoxDecoration(),
+        ),
+        selectedDayPredicate: (day) => isSameDay(day, _selectedDay),
+        onDaySelected: (selected, focused) {
+          setState(() {
+            _selectedDay = _ymd(selected);
+            _focusedDay = (selected.month != _focusedDay.month)
+                ? selected
+                : focused;
+          });
+        },
+        calendarBuilders: CalendarBuilders(
+          defaultBuilder: (context, day, _) => cell(day, bgFor(day)),
+          outsideBuilder: (context, day, _) =>
+              Opacity(opacity: 0.5, child: cell(day, bgFor(day))),
+          disabledBuilder: (context, day, _) =>
+              Opacity(opacity: 0.5, child: cell(day, bgFor(day))),
+          selectedBuilder: (context, day, _) => cell(
+            day,
+            bgFor(day),
+            border: const Border.fromBorderSide(
+              BorderSide(color: clrSelBorder, width: 2),
+            ),
+          ),
+          todayBuilder: (context, day, _) => cell(
+            day,
+            bgFor(day),
+            border: Border.all(color: Colors.black, width: 1),
+            text: Colors.white,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _legenda() {
+    Widget chip(Color c, String t) => Row(
+      children: [
+        Container(
+          width: 14,
+          height: 14,
+          decoration: BoxDecoration(
+            color: c,
+            borderRadius: BorderRadius.circular(4),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(t, style: const TextStyle(fontSize: 12)),
+      ],
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          chip(const Color.fromARGB(255, 199, 190, 190), 'Indisponível'),
+          const SizedBox(width: 14),
+          chip(const Color.fromARGB(255, 109, 221, 140), 'Disponível'),
+        ],
+      ),
+    );
+  }
+}
+
+// ignore: unused_element
+class _LegendaCor extends StatelessWidget {
+  final Color cor;
+  final String texto;
+  const _LegendaCor({required this.cor, required this.texto});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 14,
+          height: 14,
+          decoration: BoxDecoration(
+            color: cor,
+            borderRadius: BorderRadius.circular(4),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          texto,
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+        ),
+      ],
     );
   }
 }

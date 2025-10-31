@@ -6,13 +6,11 @@ import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_core_platform_interface/firebase_core_platform_interface.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:intl/intl.dart';
 import 'package:myapp/Cliente/buscarServicos.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 /// 🔧 Mock seguro do Firebase compatível com o SDK atual.
 class _FakeFirebase extends FirebasePlatform {
-  @override
   FirebaseAppPlatform createFirebaseApp({
     required String name,
     required FirebaseOptions options,

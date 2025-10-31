@@ -24,13 +24,11 @@ class ServicosAgendadosScreen extends StatefulWidget {
       ServicosAgendadosScreenState();
 }
 
-
 class ServicosAgendadosScreenState extends State<ServicosAgendadosScreen> {
   late FirebaseFirestore db;
   late FirebaseAuth auth;
 
   static const _colSolicitacoes = 'solicitacoesOrcamento';
-
 
   @override
   void initState() {
@@ -38,7 +36,6 @@ class ServicosAgendadosScreenState extends State<ServicosAgendadosScreen> {
     db = widget.firestore ?? FirebaseFirestore.instance;
     auth = widget.auth ?? FirebaseAuth.instance;
   }
-
 
   String fmtData(DateTime d) => DateFormat('dd/MM/yyyy', 'pt_BR').format(d);
   DateTime _toDate(dynamic ts) {
@@ -131,14 +128,11 @@ class ServicosAgendadosScreenState extends State<ServicosAgendadosScreen> {
     if (!shouldAutoStart(d)) return;
     if (d['iniciadaEm'] != null) return;
 
-    await db
-        .collection(_colSolicitacoes)
-        .doc(docId)
-        .update({
-          'status': 'em andamento',
-          'iniciadaEm': FieldValue.serverTimestamp(),
-          'atualizadoEm': FieldValue.serverTimestamp(),
-        });
+    await db.collection(_colSolicitacoes).doc(docId).update({
+      'status': 'em andamento',
+      'iniciadaEm': FieldValue.serverTimestamp(),
+      'atualizadoEm': FieldValue.serverTimestamp(),
+    });
 
     // 🔹 Força rebuild local pra cor atualizar logo
     if (mounted) setState(() {});
@@ -238,14 +232,11 @@ class ServicosAgendadosScreenState extends State<ServicosAgendadosScreen> {
   }
 
   Future<void> finalizarServico(String docId) async {
-    await db
-        .collection(_colSolicitacoes)
-        .doc(docId)
-        .update({
-          'status': 'finalizada',
-          'dataFinalizacaoReal': FieldValue.serverTimestamp(),
-          'atualizadoEm': FieldValue.serverTimestamp(),
-        });
+    await db.collection(_colSolicitacoes).doc(docId).update({
+      'status': 'finalizada',
+      'dataFinalizacaoReal': FieldValue.serverTimestamp(),
+      'atualizadoEm': FieldValue.serverTimestamp(),
+    });
 
     // ================== HISTÓRICO (ADIÇÃO) ==================
     final uid = auth.currentUser?.uid;
@@ -287,34 +278,58 @@ class ServicosAgendadosScreenState extends State<ServicosAgendadosScreen> {
     );
   }
 
- Future<void> cancelarServico(String docId, {String? motivo}) async {
-  try {
-    await db
-        .collection(_colSolicitacoes)
-        .doc(docId)
-        .update({
-          'status': 'cancelada',
-          'canceladaEm': FieldValue.serverTimestamp(),
-          'motivoCancelamento': (motivo ?? '').trim(),
-          'atualizadoEm': FieldValue.serverTimestamp(),
-        });
+  Future<void> cancelarServico(String docId, {String? motivo}) async {
+    try {
+      await db.collection(_colSolicitacoes).doc(docId).update({
+        'status': 'cancelada',
+        'canceladaEm': FieldValue.serverTimestamp(),
+        'motivoCancelamento': (motivo ?? '').trim(),
+        'atualizadoEm': FieldValue.serverTimestamp(),
+      });
 
-    // ================== HISTÓRICO (ADIÇÃO) ==================
-    final uid = auth.currentUser?.uid;
-    await addHistorico(docId, {
-      'tipo': 'cancelamento_prestador',
-      'mensagem': 'Prestador cancelou o serviço.',
-      'porUid': uid,
-      'porRole': 'Prestador',
-      'statusPara': 'cancelada',
-      'motivo': (motivo ?? '').trim(),
-    });
-  } catch (e) {
-    // 🔹 Ignora erro de doc inexistente (usado em testes e tolerância real)
-    if (e.toString().contains('not-found')) return;
-    rethrow;
+      // ================== HISTÓRICO (ADIÇÃO) ==================
+      final uid = auth.currentUser?.uid;
+      await addHistorico(docId, {
+        'tipo': 'cancelamento_prestador',
+        'mensagem': 'Prestador cancelou o serviço.',
+        'porUid': uid,
+        'porRole': 'Prestador',
+        'statusPara': 'cancelada',
+        'motivo': (motivo ?? '').trim(),
+      });
+    } catch (e) {
+      // 🔹 Ignora erro de doc inexistente (usado em testes e tolerância real)
+      if (e.toString().contains('not-found')) return;
+      rethrow;
+    }
   }
-}
+
+  // 🔥 MÉTODO PARA BUSCAR MOTIVO DO CANCELAMENTO
+  String _getMotivoCancelamento(Map<String, dynamic> d) {
+    final motivo = (d['motivoCancelamento'] ?? '').toString().trim();
+    final recusaMotivo = (d['recusaMotivo'] ?? '').toString().trim();
+
+    if (motivo.isNotEmpty) return motivo;
+    if (recusaMotivo.isNotEmpty) return recusaMotivo;
+
+    return 'Motivo não informado';
+  }
+
+  // Método auxiliar para obter a data de cancelamento (com fallback)
+  DateTime? _getDataCancelamento(Map<String, dynamic> d) {
+    final canceladaEm = d['canceladaEm'] as Timestamp?;
+    final atualizadoEm = d['atualizadoEm'] as Timestamp?;
+
+    if (canceladaEm != null) return canceladaEm.toDate();
+    if (atualizadoEm != null) return atualizadoEm.toDate();
+    return null;
+  }
+
+  // Método auxiliar para obter a string da data de cancelamento
+  String? _getDataCancelamentoString(Map<String, dynamic> d) {
+    final data = _getDataCancelamento(d);
+    return data != null ? fmtData(data) : null;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -339,7 +354,10 @@ class ServicosAgendadosScreenState extends State<ServicosAgendadosScreen> {
       return const Center(child: Text('Usuário não logado.'));
     }
 
-    final stream = db
+    print('🔍 INICIANDO BUSCA - Usuário: $uid');
+
+    // Stream para serviços ativos
+    final streamAtivos = db
         .collection(_colSolicitacoes)
         .where('prestadorId', isEqualTo: uid)
         .where(
@@ -348,7 +366,6 @@ class ServicosAgendadosScreenState extends State<ServicosAgendadosScreen> {
             'aceita',
             'em andamento',
             'em_andamento',
-            'cancelada',
             'não iniciado',
             'nao iniciado',
           ],
@@ -356,131 +373,246 @@ class ServicosAgendadosScreenState extends State<ServicosAgendadosScreen> {
         .orderBy('dataInicioSugerida', descending: false)
         .snapshots();
 
+    // Stream para TODOS os documentos do usuário (vamos filtrar cancelamentos localmente)
+    final streamTodos = db
+        .collection(_colSolicitacoes)
+        .where('prestadorId', isEqualTo: uid)
+        .snapshots();
+
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: stream,
-      builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
+      stream: streamTodos,
+      builder: (context, snapTodos) {
+        if (snapTodos.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-        if (snap.hasError) {
-          return Center(child: Text('Erro: ${snap.error}'));
-        }
-        final docs = snap.data?.docs ?? [];
-        if (docs.isEmpty) {
-          return const Center(child: Text('Nenhum serviço encontrado.'));
+
+        // DEBUG: Mostra todos os documentos
+        if (snapTodos.hasData) {
+          final todosDocsDebug = snapTodos.data!.docs;
+          print('🔍 TODOS OS DOCUMENTOS DO USUÁRIO ($uid):');
+          for (final doc in todosDocsDebug) {
+            final data = doc.data();
+            print('   - ID: ${doc.id}');
+            print('     Status: "${data['status']}"');
+            print('     canceladaEm: ${data['canceladaEm']}');
+            print('     atualizadoEm: ${data['atualizadoEm']}');
+            print('     ---');
+          }
         }
 
-        return ListView.separated(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-          itemCount: docs.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
-          itemBuilder: (_, i) {
-            final d = docs[i].data();
-            final id = docs[i].id;
+        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: streamAtivos,
+          builder: (context, snapAtivos) {
+            if (snapAtivos.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
 
-            // Auto-start se já passou da hora
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              autoStartIfNeeded(id, d);
+            final docsAtivos = snapAtivos.data?.docs ?? [];
+            final docsTodos = snapTodos.data?.docs ?? [];
+
+            // Filtra cancelamentos manualmente
+            final docsCancelados = docsTodos.where((doc) {
+              final status = (doc.data()['status'] ?? '')
+                  .toString()
+                  .toLowerCase();
+              return status.contains('cancel');
+            }).toList();
+
+            print('📊 DOCUMENTOS ENCONTRADOS:');
+            print('   - Ativos: ${docsAtivos.length}');
+            print('   - Cancelados (raw): ${docsCancelados.length}');
+
+            // Filtra cancelados pelos últimos 5 dias
+            final docsCanceladosFiltrados = docsCancelados.where((doc) {
+              final d = doc.data();
+              final canceladaEm = d['canceladaEm'] as Timestamp?;
+              final atualizadoEm = d['atualizadoEm'] as Timestamp?;
+
+              print('\n🔍 ANALISANDO DOCUMENTO CANCELADO: ${doc.id}');
+              print('   - Status: "${d['status']}"');
+              print('   - canceladaEm: $canceladaEm');
+              print('   - atualizadoEm: $atualizadoEm');
+
+              // Se não tem canceladaEm, usa atualizadoEm como fallback
+              DateTime? dataCancelamento;
+              if (canceladaEm != null) {
+                dataCancelamento = canceladaEm.toDate();
+              } else if (atualizadoEm != null) {
+                dataCancelamento = atualizadoEm.toDate();
+              }
+
+              print('   - dataCancelamento: $dataCancelamento');
+
+              // Se não tem nenhuma data, não mostra
+              if (dataCancelamento == null) {
+                print('   ❌ SEM DATA DE CANCELAMENTO - FILTRADO FORA');
+                return false;
+              }
+
+              final hoje = DateTime.now();
+              final diferencaDias = hoje.difference(dataCancelamento).inDays;
+              final deveMostrar = diferencaDias <= 5;
+
+              print('   - Hoje: $hoje');
+              print('   - Diferença em dias: $diferencaDias');
+              print('   - Deve mostrar: $deveMostrar');
+
+              return deveMostrar;
+            }).toList();
+
+            print('📋 DOCUMENTOS FILTRADOS:');
+            print(
+              '   - Cancelados filtrados: ${docsCanceladosFiltrados.length}',
+            );
+
+            final todosDocs = [...docsAtivos, ...docsCanceladosFiltrados];
+
+            if (todosDocs.isEmpty) {
+              print('❌ NENHUM DOCUMENTO PARA MOSTRAR');
+              return const Center(child: Text('Nenhum serviço encontrado.'));
+            }
+
+            print('✅ TOTAL DE DOCUMENTOS: ${todosDocs.length}');
+
+            // Ordena combinando: ativos por data de início, cancelados por data de cancelamento
+            todosDocs.sort((a, b) {
+              final aData = a['dataInicioSugerida'] as Timestamp?;
+              final bData = b['dataInicioSugerida'] as Timestamp?;
+              final aCancelado = _getDataCancelamento(a.data());
+              final bCancelado = _getDataCancelamento(b.data());
+
+              // Se ambos são cancelados, ordena por data de cancelamento (mais recente primeiro)
+              if (aCancelado != null && bCancelado != null) {
+                return bCancelado.compareTo(aCancelado);
+              }
+              // Se apenas um é cancelado, coloca os ativos primeiro
+              if (aCancelado == null && bCancelado != null) return -1;
+              if (aCancelado != null && bCancelado == null) return 1;
+              // Ambos ativos, ordena por data de início
+              return (aData ?? Timestamp.now()).compareTo(
+                bData ?? Timestamp.now(),
+              );
             });
 
-            final rawStatus = (d['status'] ?? '').toString().toLowerCase();
+            return ListView.separated(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+              itemCount: todosDocs.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              itemBuilder: (_, i) {
+                final d = todosDocs[i].data();
+                final id = todosDocs[i].id;
 
-            final inicioTs = d['dataInicioSugerida'];
-            final inicioFull = _toFullDateTime(inicioTs);
-            final passouDaHora =
-                inicioFull != null &&
-                (_nowFloorToMinute().isAfter(inicioFull) ||
-                    _nowFloorToMinute().isAtSameMomentAs(inicioFull));
+                // Auto-start apenas para serviços não cancelados
+                if (!d['status'].toString().toLowerCase().startsWith(
+                  'cancel',
+                )) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    autoStartIfNeeded(id, d);
+                  });
+                }
 
-            // Status "efetivo" para a UI
-            final effectiveStatus =
-                (rawStatus == 'em andamento' ||
-                    rawStatus == 'em_andamento' ||
-                    rawStatus == 'aceita' && passouDaHora)
-                ? 'em andamento'
-                : (rawStatus == 'aceita' ||
-                      rawStatus == 'não iniciado' ||
-                      rawStatus == 'nao iniciado')
-                ? 'aguardando_inicio'
-                : rawStatus;
+                final rawStatus = (d['status'] ?? '').toString().toLowerCase();
 
-            final titulo = (d['servicoTitulo'] ?? 'Serviço') as String;
-            final cliente = (d['clienteNome'] ?? '—') as String;
+                final inicioTs = d['dataInicioSugerida'];
+                final inicioFull = _toFullDateTime(inicioTs);
+                final passouDaHora =
+                    inicioFull != null &&
+                    (_nowFloorToMinute().isAfter(inicioFull) ||
+                        _nowFloorToMinute().isAtSameMomentAs(inicioFull));
 
-            final dataInicio = (inicioTs is Timestamp)
-                ? fmtData(_toDate(inicioTs))
-                : '—';
+                // Status "efetivo" para a UI
+                final effectiveStatus =
+                    (rawStatus == 'em andamento' ||
+                        rawStatus == 'em_andamento' ||
+                        rawStatus == 'aceita' && passouDaHora)
+                    ? 'em andamento'
+                    : (rawStatus == 'aceita' ||
+                          rawStatus == 'não iniciado' ||
+                          rawStatus == 'nao iniciado')
+                    ? 'aguardando_inicio'
+                    : rawStatus;
 
+                final titulo = (d['servicoTitulo'] ?? 'Serviço') as String;
+                final cliente = (d['clienteNome'] ?? '—') as String;
 
-            final valor = (d['tempoEstimadoValor'] as num?)?.ceil() ?? 0;
+                final dataInicio = (inicioTs is Timestamp)
+                    ? fmtData(_toDate(inicioTs))
+                    : '—';
 
+                // Mostra também a data de cancelamento se existir
+                final dataCancelamento = _getDataCancelamentoString(d);
 
-            final endereco = fmtEndereco(
-              (d['clienteEndereco'] ?? d['endereco']) as Map<String, dynamic>?,
-            );
-            final whatsapp = pickWhatsApp(d);
+                final valor = (d['tempoEstimadoValor'] as num?)?.ceil() ?? 0;
 
-            return Card(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              elevation: 0.5,
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Título + Chip de status
-                    Row(
+                final endereco = fmtEndereco(
+                  (d['clienteEndereco'] ?? d['endereco'])
+                      as Map<String, dynamic>?,
+                );
+                final whatsapp = pickWhatsApp(d);
+
+                return Card(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 0.5,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(
-                          child: Text(
-                            titulo,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 16,
-                              color: Colors.black87,
+                        // Título + Chip de status
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                titulo,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 16,
+                                  color: Colors.black87,
+                                ),
+                              ),
                             ),
-                          ),
+                            _statusChip(effectiveStatus),
+                          ],
                         ),
-                        _statusChip(effectiveStatus),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
 
-                    Text('Cliente: $cliente'),
-                    Text('Data de início: $dataInicio'),
-                    Row(
-                      children: [
-                        const Text(
-                          'Duração estimada: ',
-                          style: TextStyle(
-                            fontSize: 13.5,
-                            color: Colors.black87,
-                          ),
+                        const SizedBox(height: 8),
+
+                        Text('Cliente: $cliente'),
+                        Text('Data de início: $dataInicio'),
+                        // Mostra data de cancelamento APENAS se estiver cancelado
+                        if (dataCancelamento != null &&
+                            effectiveStatus.startsWith('cancel'))
+                          Text('Cancelado em: $dataCancelamento'),
+                        Row(
+                          children: [
+                            const Text(
+                              'Duração estimada: ',
+                              style: TextStyle(
+                                fontSize: 13.5,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            Text(
+                              valor > 0
+                                  ? '$valor ${valor == 1 ? "dia" : "dias"}'
+                                  : '—',
+                              style: const TextStyle(
+                                fontSize: 13.5,
+                                color: Colors.black87,
+                              ),
+                            ),
+                          ],
                         ),
-                        Text(
-                          valor > 0
-                              ? '$valor ${valor == 1 ? "dia" : "dias"}'
-                              : '—',
-                          style: const TextStyle(
-                            fontSize: 13.5,
-                            color: Colors.black87,
-                          ),
-                        ),
-                      ],
-                    ),
 
-                    Text('Endereço: $endereco'),
-                    const SizedBox(height: 8),
+                        Text('Endereço: $endereco'),
+                        const SizedBox(height: 8),
 
-                    // Ações rápidas (WhatsApp)
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        if (whatsapp != '—')
+                        // Ações rápidas (WhatsApp) - SOMENTE se NÃO estiver cancelado
+                        if (whatsapp != '—' &&
+                            !effectiveStatus.startsWith('cancel'))
                           InkWell(
                             onTap: () => _openWhatsApp(whatsapp),
                             child: Row(
@@ -501,35 +633,86 @@ class ServicosAgendadosScreenState extends State<ServicosAgendadosScreen> {
                               ],
                             ),
                           ),
+                        const SizedBox(height: 10),
+
+                        // Botões (sem "Iniciar")
+                        _acoesFluxo(
+                          status: effectiveStatus,
+                          onFinalizar: () {
+                            _confirmAndRun(
+                              context: context,
+                              title: 'Finalizar serviço',
+                              message: 'Confirmar a finalização deste serviço?',
+                              action: () => finalizarServico(id),
+                            );
+                          },
+                          onCancelar: () async {
+                            final motivo = await _askMotivoCancelamento(
+                              context,
+                            );
+                            await _confirmAndRun(
+                              context: context,
+                              title: 'Cancelar serviço',
+                              message:
+                                  'Tem certeza que deseja cancelar este serviço?',
+                              action: () => cancelarServico(id, motivo: motivo),
+                            );
+                          },
+                        ),
+
+                        // 🔥 MOTIVO DO CANCELAMENTO - NO FINAL DO CARD
+                        if (effectiveStatus.startsWith('cancel'))
+                          Column(
+                            children: [
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFF3E0),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: Colors.orange.shade300,
+                                  ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Row(
+                                      children: [
+                                        Icon(
+                                          Icons.info_outline,
+                                          size: 16,
+                                          color: Color.fromARGB(255, 255, 0, 0),
+                                        ),
+                                        SizedBox(width: 6),
+                                        Text(
+                                          'Motivo do cancelamento:',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                            color: Color.fromARGB(255, 0, 0, 0),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      _getMotivoCancelamento(d),
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
                       ],
                     ),
-                    const SizedBox(height: 10),
-
-                    // Botões (sem "Iniciar")
-                    _acoesFluxo(
-                      status: effectiveStatus,
-                      onFinalizar: () {
-                        _confirmAndRun(
-                          context: context,
-                          title: 'Finalizar serviço',
-                          message: 'Confirmar a finalização deste serviço?',
-                          action: () => finalizarServico(id),
-                        );
-                      },
-                      onCancelar: () async {
-                        final motivo = await _askMotivoCancelamento(context);
-                        await _confirmAndRun(
-                          context: context,
-                          title: 'Cancelar serviço',
-                          message:
-                              'Tem certeza que deseja cancelar este serviço?',
-                          action: () => cancelarServico(id, motivo: motivo),
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              ),
+                  ),
+                );
+              },
             );
           },
         );

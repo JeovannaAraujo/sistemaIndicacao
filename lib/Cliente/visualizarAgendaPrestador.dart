@@ -3,13 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 
-/// Abra como modal sobre a tela do perfil
-Future<void> showAgendaPrestadorModal(
+/// 🔹 Mostra o modal completo da agenda do prestador (com sombra e animação)
+Future<DateTime?> showAgendaPrestadorModal(
   BuildContext context, {
   required String prestadorId,
   String? prestadorNome,
 }) {
-  return showGeneralDialog(
+  return showGeneralDialog<DateTime>(
     context: context,
     barrierDismissible: true,
     barrierLabel: 'Fechar',
@@ -32,6 +32,7 @@ Future<void> showAgendaPrestadorModal(
     },
   );
 }
+
 
 class VisualizarAgendaPrestador extends StatefulWidget {
   final String prestadorId;
@@ -251,8 +252,10 @@ class VisualizarAgendaPrestadorState extends State<VisualizarAgendaPrestador> {
                               ),
                               Expanded(
                                 child: Text(
-                                  DateFormat('LLLL yyyy', 'pt_BR')
-                                      .format(_focusedDay),
+                                  DateFormat(
+                                    'LLLL yyyy',
+                                    'pt_BR',
+                                  ).format(_focusedDay),
                                   textAlign: TextAlign.center,
                                   style: const TextStyle(
                                     fontSize: 18,
@@ -320,7 +323,6 @@ class VisualizarAgendaPrestadorState extends State<VisualizarAgendaPrestador> {
     const clrSelBorder = Color(0xFF673AB7);
     const clrBusy = Color.fromARGB(255, 199, 190, 190); // indisponível
     const clrAvail = Color.fromARGB(255, 109, 221, 140); // disponível
-    const clrToday = Color(0xFF673AB7);
 
     Color bgFor(DateTime day) {
       final today = _today;
@@ -407,19 +409,19 @@ class VisualizarAgendaPrestadorState extends State<VisualizarAgendaPrestador> {
 
   Widget _legenda() {
     Widget chip(Color c, String t) => Row(
-          children: [
-            Container(
-              width: 14,
-              height: 14,
-              decoration: BoxDecoration(
-                color: c,
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
-            const SizedBox(width: 6),
-            Text(t, style: const TextStyle(fontSize: 12)),
-          ],
-        );
+      children: [
+        Container(
+          width: 14,
+          height: 14,
+          decoration: BoxDecoration(
+            color: c,
+            borderRadius: BorderRadius.circular(4),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(t, style: const TextStyle(fontSize: 12)),
+      ],
+    );
 
     return Padding(
       padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
