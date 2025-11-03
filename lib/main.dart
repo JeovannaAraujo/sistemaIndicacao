@@ -8,9 +8,9 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 
 // Telas do seu app
 import 'Login/login.dart';
-import 'Cliente/homeCliente.dart';
-import 'Administrador/perfilAdmin.dart';
-import 'Prestador/homePrestador.dart';
+import 'Cliente/home_cliente.dart';
+import 'Administrador/perfil_admin.dart';
+import 'Prestador/home_prestador.dart';
 import 'firebase_options.dart'; // importa o arquivo novo
 
 Future<void> main() async {

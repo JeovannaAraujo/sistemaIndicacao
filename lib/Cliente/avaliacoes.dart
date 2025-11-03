@@ -7,11 +7,7 @@ class MinhasAvaliacoesTab extends StatelessWidget {
   final FirebaseFirestore? firestore;
   final FirebaseAuth? auth;
 
-  const MinhasAvaliacoesTab({
-    super.key,
-    this.firestore,
-    this.auth,
-  });
+  const MinhasAvaliacoesTab({super.key, this.firestore, this.auth});
 
   String fmtData(dynamic ts) {
     if (ts is! Timestamp) return '—';
@@ -79,9 +75,11 @@ class MinhasAvaliacoesTab extends StatelessWidget {
                 String cidade = '';
 
                 if (fsnap.hasData) {
-                  final u = fsnap.data![0] as DocumentSnapshot<Map<String, dynamic>>?;
+                  final u =
+                      fsnap.data![0] as DocumentSnapshot<Map<String, dynamic>>?;
                   final s = fsnap.data!.length > 1
-                      ? fsnap.data![1] as DocumentSnapshot<Map<String, dynamic>>?
+                      ? fsnap.data![1]
+                            as DocumentSnapshot<Map<String, dynamic>>?
                       : null;
 
                   final udata = u?.data() ?? const <String, dynamic>{};
@@ -89,7 +87,8 @@ class MinhasAvaliacoesTab extends StatelessWidget {
 
                   prestadorNome = (udata['nome'] ?? 'Prestador').toString();
                   servicoTitulo = (sdata['servicoTitulo'] ?? '').toString();
-                  cidade = (sdata['clienteEndereco']?['cidade'] ?? '').toString();
+                  cidade = (sdata['clienteEndereco']?['cidade'] ?? '')
+                      .toString();
                 }
 
                 return Container(
@@ -123,9 +122,16 @@ class MinhasAvaliacoesTab extends StatelessWidget {
                           padding: const EdgeInsets.only(top: 4),
                           child: Row(
                             children: [
-                              const Icon(Icons.location_on_outlined, size: 14, color: Colors.deepPurple),
+                              const Icon(
+                                Icons.location_on_outlined,
+                                size: 14,
+                                color: Colors.deepPurple,
+                              ),
                               const SizedBox(width: 4),
-                              Text(cidade, style: const TextStyle(fontSize: 12.5)),
+                              Text(
+                                cidade,
+                                style: const TextStyle(fontSize: 12.5),
+                              ),
                             ],
                           ),
                         ),
@@ -171,7 +177,7 @@ class MinhasAvaliacoesTab extends StatelessWidget {
 
 class StarsReadOnly extends StatelessWidget {
   final double rating;
-  const StarsReadOnly({required this.rating});
+  const StarsReadOnly({super.key, required this.rating});
 
   @override
   Widget build(BuildContext context) {

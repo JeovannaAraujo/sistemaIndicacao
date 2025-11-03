@@ -17,7 +17,7 @@ void main() {
   });
 
   // Helper function to build the widget
-  Future<void> _pumpMinhasAvaliacoesTab(WidgetTester tester) async {
+  Future<void> pumpMinhasAvaliacoesTab(WidgetTester tester) async {
     await tester.pumpWidget(MaterialApp(
       home: MinhasAvaliacoesTab(
         firestore: fakeFirestore,
@@ -27,7 +27,7 @@ void main() {
   }
 
   // Helper function to create test data
-  Future<void> _setupTestData({
+  Future<void> setupTestData({
     required String avaliacaoId,
     String prestadorId = 'prestador123',
     String solicitacaoId = 'solicitacao123',
@@ -68,13 +68,13 @@ void main() {
 
   group('🧩 Função fmtData', () {
     test('1️⃣ Formata Timestamp corretamente', () {
-      final tab = MinhasAvaliacoesTab();
+      const tab = MinhasAvaliacoesTab();
       final ts = Timestamp.fromDate(DateTime(2025, 1, 15, 14, 30));
       expect(tab.fmtData(ts), '15/01/2025 – 14:30');
     });
 
     test('2️⃣ Retorna — para tipos inválidos', () {
-      final tab = MinhasAvaliacoesTab();
+      const tab = MinhasAvaliacoesTab();
       expect(tab.fmtData(null), '—');
       expect(tab.fmtData('texto'), '—');
       expect(tab.fmtData(123), '—');
@@ -108,24 +108,24 @@ void main() {
 
   group('📱 MinhasAvaliacoesTab - Cenários principais', () {
     testWidgets('6️⃣ Mostra loading inicial', (tester) async {
-      await _pumpMinhasAvaliacoesTab(tester);
+      await pumpMinhasAvaliacoesTab(tester);
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
     });
 
     testWidgets('7️⃣ Mostra mensagem quando não há avaliações', (tester) async {
-      await _pumpMinhasAvaliacoesTab(tester);
+      await pumpMinhasAvaliacoesTab(tester);
       await tester.pumpAndSettle();
       expect(find.text('Você ainda não avaliou nenhum serviço.'), findsOneWidget);
     });
 
     testWidgets('8️⃣ Lista avaliações do usuário logado', (tester) async {
-      await _setupTestData(
+      await setupTestData(
         avaliacaoId: 'aval001',
         nota: 4.5,
         comentario: 'Serviço excelente!',
       );
 
-      await _pumpMinhasAvaliacoesTab(tester);
+      await pumpMinhasAvaliacoesTab(tester);
       await tester.pumpAndSettle();
 
       expect(find.text('Pintura de Casa'), findsOneWidget);
@@ -135,19 +135,19 @@ void main() {
     });
 
     testWidgets('9️⃣ Mostra "Sem comentário" quando comentário vazio', (tester) async {
-      await _setupTestData(
+      await setupTestData(
         avaliacaoId: 'aval002',
         comentario: '',
       );
 
-      await _pumpMinhasAvaliacoesTab(tester);
+      await pumpMinhasAvaliacoesTab(tester);
       await tester.pumpAndSettle();
 
       expect(find.text('Sem comentário'), findsOneWidget);
     });
 
     testWidgets('🔟 Campo imagemUrl existe no documento quando tem imagem', (tester) async {
-      await _setupTestData(
+      await setupTestData(
         avaliacaoId: 'aval003',
         hasImagem: true,
       );
@@ -173,7 +173,7 @@ void main() {
         'data': Timestamp.now(),
       });
 
-      await _pumpMinhasAvaliacoesTab(tester);
+      await pumpMinhasAvaliacoesTab(tester);
       await tester.pumpAndSettle();
 
       expect(find.text('Prestador: João Silva'), findsOneWidget);
@@ -188,7 +188,7 @@ void main() {
         'data': Timestamp.now(),
       });
 
-      await _pumpMinhasAvaliacoesTab(tester);
+      await pumpMinhasAvaliacoesTab(tester);
       await tester.pumpAndSettle();
 
       expect(find.text('Prestador: Prestador'), findsOneWidget);
@@ -208,7 +208,7 @@ void main() {
         'data': Timestamp.now(),
       });
 
-      await _pumpMinhasAvaliacoesTab(tester);
+      await pumpMinhasAvaliacoesTab(tester);
       await tester.pumpAndSettle();
 
       expect(find.text('Reparo Hidráulico'), findsOneWidget);
@@ -226,7 +226,7 @@ void main() {
         // Sem prestadorId, sem solicitacaoId
       });
 
-      await _pumpMinhasAvaliacoesTab(tester);
+      await pumpMinhasAvaliacoesTab(tester);
       await tester.pumpAndSettle();
 
       expect(find.text('Avaliação mínima'), findsOneWidget);
@@ -241,7 +241,7 @@ void main() {
         // nota não definida
       });
 
-      await _pumpMinhasAvaliacoesTab(tester);
+      await pumpMinhasAvaliacoesTab(tester);
       await tester.pumpAndSettle();
 
       expect(find.text('Sem nota'), findsOneWidget);
@@ -256,7 +256,7 @@ void main() {
         // data não definida
       });
 
-      await _pumpMinhasAvaliacoesTab(tester);
+      await pumpMinhasAvaliacoesTab(tester);
       await tester.pumpAndSettle();
 
       expect(find.text('Sem data'), findsOneWidget);
@@ -276,7 +276,7 @@ void main() {
         });
       }
 
-      await _pumpMinhasAvaliacoesTab(tester);
+      await pumpMinhasAvaliacoesTab(tester);
       await tester.pumpAndSettle();
 
       expect(find.textContaining('Avaliação'), findsNWidgets(3));
@@ -301,7 +301,7 @@ void main() {
         'data': Timestamp.now(),
       });
 
-      await _pumpMinhasAvaliacoesTab(tester);
+      await pumpMinhasAvaliacoesTab(tester);
       await tester.pumpAndSettle();
 
       expect(find.text('Avaliação de outro usuário'), findsNothing);
@@ -320,19 +320,19 @@ void main() {
         'data': dataEspecifica,
       });
 
-      await _pumpMinhasAvaliacoesTab(tester);
+      await pumpMinhasAvaliacoesTab(tester);
       await tester.pumpAndSettle();
 
       expect(find.text('Enviado em 10/03/2025 – 09:45'), findsOneWidget);
     });
 
     testWidgets('2️⃣0️⃣ Mostra ícone de localização quando há cidade', (tester) async {
-      await _setupTestData(
+      await setupTestData(
         avaliacaoId: 'aval_local',
         comentario: 'Com localização',
       );
 
-      await _pumpMinhasAvaliacoesTab(tester);
+      await pumpMinhasAvaliacoesTab(tester);
       await tester.pumpAndSettle();
 
       expect(find.byIcon(Icons.location_on_outlined), findsOneWidget);
@@ -353,7 +353,7 @@ void main() {
         'data': Timestamp.now(),
       });
 
-      await _pumpMinhasAvaliacoesTab(tester);
+      await pumpMinhasAvaliacoesTab(tester);
       await tester.pumpAndSettle();
 
       // Não deve quebrar, apenas não mostrar o título
@@ -363,18 +363,18 @@ void main() {
 
   group('🔧 MinhasAvaliacoesTab - Estrutura do Widget', () {
     testWidgets('2️⃣2️⃣ Usa ListView para a lista', (tester) async {
-      await _setupTestData(avaliacaoId: 'test_structure');
+      await setupTestData(avaliacaoId: 'test_structure');
       
-      await _pumpMinhasAvaliacoesTab(tester);
+      await pumpMinhasAvaliacoesTab(tester);
       await tester.pumpAndSettle();
 
       expect(find.byType(ListView), findsOneWidget);
     });
 
     testWidgets('2️⃣3️⃣ Container tem estilo visual correto', (tester) async {
-      await _setupTestData(avaliacaoId: 'test_style');
+      await setupTestData(avaliacaoId: 'test_style');
       
-      await _pumpMinhasAvaliacoesTab(tester);
+      await pumpMinhasAvaliacoesTab(tester);
       await tester.pumpAndSettle();
 
       final containers = tester.widgetList<Container>(find.byType(Container));
@@ -385,13 +385,13 @@ void main() {
     });
 
     testWidgets('2️⃣4️⃣ Dados básicos são carregados corretamente', (tester) async {
-      await _setupTestData(
+      await setupTestData(
         avaliacaoId: 'test_basic',
         nota: 4.0,
         comentario: 'Teste básico',
       );
       
-      await _pumpMinhasAvaliacoesTab(tester);
+      await pumpMinhasAvaliacoesTab(tester);
       await tester.pumpAndSettle();
 
       // Verifica que os dados básicos são carregados
@@ -400,9 +400,9 @@ void main() {
     });
 
     testWidgets('2️⃣5️⃣ Nenhum erro inesperado durante execução', (tester) async {
-      await _setupTestData(avaliacaoId: 'test_final');
+      await setupTestData(avaliacaoId: 'test_final');
       
-      await _pumpMinhasAvaliacoesTab(tester);
+      await pumpMinhasAvaliacoesTab(tester);
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
