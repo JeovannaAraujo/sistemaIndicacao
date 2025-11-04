@@ -15,7 +15,6 @@ import 'package:myapp/Prestador/visualizar_avaliacoes.dart';
 import 'visualizar_perfil_prestador.dart';
 import 'solicitar_orcamento.dart';
 
-
 class BuscarServicosScreen extends StatefulWidget {
   final FirebaseFirestore? firestore;
   final FirebaseAuth? auth;
@@ -468,46 +467,90 @@ class BuscarServicosScreenState extends State<BuscarServicosScreen> {
     }
   }
 
-  /// 🔹 Busca prestadores de forma inteligente
-  Future<void> _buscarPrestadoresInteligente(String termo) async {
-    final fs = db;
+/// 🔹 Busca prestadores de forma inteligente (case-insensitive)
+Future<void> _buscarPrestadoresInteligente(String termo) async {
+  final fs = db;
 
-    Query<Map<String, dynamic>> qs = fs
-        .collection(_colUsuarios)
-        .where('tipoPerfil', whereIn: ['Prestador', 'Ambos'])
-        .where('ativo', isEqualTo: true);
+  Query<Map<String, dynamic>> qs = fs
+      .collection(_colUsuarios)
+      .where('tipoPerfil', whereIn: ['Prestador', 'Ambos'])
+      .where('ativo', isEqualTo: true);
 
-    // Aplica filtro de categoria profissional se selecionado
-    if (_profissionalSelecionadoId?.isNotEmpty ?? false) {
-      qs = qs.where(
-        'categoriaProfissionalId',
-        isEqualTo: _profissionalSelecionadoId,
-      );
+  // Aplica filtro de categoria profissional se selecionado
+  if (_profissionalSelecionadoId?.isNotEmpty ?? false) {
+    qs = qs.where(
+      'categoriaProfissionalId',
+      isEqualTo: _profissionalSelecionadoId,
+    );
+  }
+
+  final snapUsers = await qs.limit(250).get();
+  List<Map<String, dynamic>> profissionais = snapUsers.docs.map((d) {
+    final m = d.data();
+    m['id'] = d.id;
+    return m;
+  }).toList();
+
+  // 🔥 CORREÇÃO: Filtro case-insensitive por termo
+  if (termo.isNotEmpty) {
+    profissionais = _filtrarPrestadoresPorTermo(profissionais, termo);
+  }
+
+  // Aplica filtro de raio se necessário
+  if (_raioDistancia > 0 && _centroBusca != null) {
+    profissionais = await _filtrarProfissionaisPorRaio(profissionais);
+  }
+
+  if (mounted) {
+    setState(() {
+      _resultados = profissionais;
+      exibirProfissionais = true;
+    });
+  }
+}
+
+/// 🔹 Filtra prestadores por termo de busca (case-insensitive)
+List<Map<String, dynamic>> _filtrarPrestadoresPorTermo(
+  List<Map<String, dynamic>> prestadores,
+  String termo,
+) {
+  final termoNormalizado = _normalizarTexto(termo);
+  
+  return prestadores.where((p) {
+    final nome = (p['nome'] ?? '').toString();
+    final nomeNormalizado = _normalizarTexto(nome);
+    
+    final especialidades = (p['especialidades'] ?? '').toString();
+    final especialidadesNormalizado = _normalizarTexto(especialidades);
+    
+    final descricao = (p['descricao'] ?? '').toString();
+    final descricaoNormalizado = _normalizarTexto(descricao);
+
+    // 🔥 BUSCA FLEXÍVEL: Verifica em nome, especialidades e descrição
+    return nomeNormalizado.contains(termoNormalizado) ||
+           especialidadesNormalizado.contains(termoNormalizado) ||
+           descricaoNormalizado.contains(termoNormalizado) ||
+           // Busca por partes do nome (para nomes compostos)
+           nomeNormalizado.split(' ').any((parte) => parte.contains(termoNormalizado));
+  }).toList();
+}
+
+  /// 🔹 Método de debug para verificar a busca
+  void _debugBusca(
+    String termo,
+    bool existePrestador,
+    bool deveBuscarServicos,
+  ) {
+    debugPrint('=== DEBUG BUSCA ===');
+    debugPrint('Termo: "$termo"');
+    debugPrint('Existe prestador com nome: $existePrestador');
+    debugPrint('Deve buscar serviços: $deveBuscarServicos');
+    debugPrint('Exibindo profissionais: $exibirProfissionais');
+    debugPrint('Resultados: ${_resultados.length}');
+    if (_resultados.isNotEmpty) {
+      debugPrint('Primeiro resultado: ${_resultados.first}');
     }
-
-    final snapUsers = await qs.limit(250).get();
-    List<Map<String, dynamic>> profissionais = snapUsers.docs.map((d) {
-      final m = d.data();
-      m['id'] = d.id;
-      return m;
-    }).toList();
-
-    // Filtra por termo de busca se houver
-    if (termo.isNotEmpty) {
-      profissionais = _filtrarPrestadoresPorTermo(profissionais, termo);
-    }
-
-    // Aplica filtro de raio se necessário
-    if (_raioDistancia > 0 && _centroBusca != null) {
-      profissionais = await _filtrarProfissionaisPorRaio(profissionais);
-    }
-
-    if (mounted) {
-      setState(() {
-        _resultados = profissionais;
-        exibirProfissionais = true;
-      });
-    }
+    debugPrint('===================');
   }
 
   /// 🔹 Filtra resultados pelos meios de pagamento aceitos pelo prestador
@@ -587,53 +630,73 @@ class BuscarServicosScreenState extends State<BuscarServicosScreen> {
     }
   }
 
-  /// 🔹 Filtra serviços por termo de busca
-  Future<List<Map<String, dynamic>>> _filtrarServicosPorTermo(
-    List<Map<String, dynamic>> servicos,
-    String termo,
-  ) async {
-    // Adiciona o nome do prestador a cada serviço para busca
-    servicos = await Future.wait(
-      servicos.map((e) async {
-        final m = Map<String, dynamic>.from(e);
-        final pid = (m['prestadorId'] ?? '').toString();
-        if (pid.isNotEmpty) {
-          m['prestadorNome'] = await nomePrest(pid);
-        }
-        return m;
-      }),
-    );
+/// 🔹 Filtra serviços por termo de busca (case-insensitive)
+Future<List<Map<String, dynamic>>> _filtrarServicosPorTermo(
+  List<Map<String, dynamic>> servicos,
+  String termo,
+) async {
+  final termoNormalizado = _normalizarTexto(termo);
+  
+  // Adiciona o nome do prestador a cada serviço para busca
+  servicos = await Future.wait(
+    servicos.map((e) async {
+      final m = Map<String, dynamic>.from(e);
+      final pid = (m['prestadorId'] ?? '').toString();
+      if (pid.isNotEmpty) {
+        m['prestadorNome'] = await nomePrest(pid);
+      }
+      return m;
+    }),
+  );
 
-    return servicos.where((e) {
-      final nomeServ = (e['titulo'] ?? e['nome'] ?? '')
-          .toString()
-          .toLowerCase();
-      final nomePrest = (e['prestadorNome'] ?? '').toString().toLowerCase();
-      final descricao = (e['descricao'] ?? '').toString().toLowerCase();
+  return servicos.where((e) {
+    final nomeServ = (e['titulo'] ?? e['nome'] ?? '').toString();
+    final nomeServNormalizado = _normalizarTexto(nomeServ);
+    
+    final nomePrest = (e['prestadorNome'] ?? '').toString();
+    final nomePrestNormalizado = _normalizarTexto(nomePrest);
+    
+    final descricao = (e['descricao'] ?? '').toString();
+    final descricaoNormalizado = _normalizarTexto(descricao);
 
-      return nomeServ.contains(termo) ||
-          nomePrest.contains(termo) ||
-          descricao.contains(termo);
-    }).toList();
-  }
+    return nomeServNormalizado.contains(termoNormalizado) ||
+           nomePrestNormalizado.contains(termoNormalizado) ||
+           descricaoNormalizado.contains(termoNormalizado);
+  }).toList();
+}
 
-  /// 🔹 Filtra prestadores por termo de busca
-  /// 🔹 Filtra prestadores por termo de busca
-  List<Map<String, dynamic>> _filtrarPrestadoresPorTermo(
-    List<Map<String, dynamic>> prestadores,
-    String termo,
-  ) {
-    return prestadores.where((p) {
-      final nome = (p['nome'] ?? '').toString().toLowerCase();
-      final especialidades = (p['especialidades'] ?? '')
-          .toString()
-          .toLowerCase();
-      final descricao = (p['descricao'] ?? '').toString().toLowerCase();
+  /// 🔹 Decide se deve buscar serviços ou prestadores baseado nos filtros
+  Future<bool> _deveBuscarServicos(String termo) async {
+    // ✅ CONDIÇÕES PARA BUSCAR SERVIÇOS:
 
-      return nome.contains(termo) ||
-          especialidades.contains(termo) ||
-          descricao.contains(termo);
-    }).toList();
+    // 1. Tem categoria de serviço selecionada
+    if (categoriaSelecionadaId?.isNotEmpty ?? false) {
+      return true;
+    }
+
+    // 2. Tem unidade de medida selecionada
+    if (_unidadeSelecionada?.isNotEmpty ?? false) {
+      return true;
+    }
+
+    // 3. Tem filtro de valor mínimo/máximo
+    if (minValueController.text.isNotEmpty ||
+        maxValueController.text.isNotEmpty) {
+      return true;
+    }
+
+    // 🔥 LÓGICA PRINCIPAL: Se existe prestador com o nome, busca profissionais
+    if (termo.isNotEmpty) {
+      final existePrestadorComNome = await _verificarSeExistePrestadorComNome(
+        termo,
+      );
+      // Se encontrou prestador com o nome, busca profissionais (retorna false)
+      // Se não encontrou, busca serviços (retorna true)
+      return !existePrestadorComNome;
+    }
+
+    // Se não há termo e nenhum filtro específico, busca serviços por padrão
+    return true;
   }
 
   Future<void> _buscar() async {
@@ -653,14 +716,20 @@ class BuscarServicosScreenState extends State<BuscarServicosScreen> {
       }
 
       // ===== LÓGICA INTELIGENTE - DECIDIR O QUE BUSCAR =====
-      final bool deveBuscarServicos = _deveBuscarServicos(termo);
+      final bool deveBuscarServicos = await _deveBuscarServicos(termo);
 
-      if (deveBuscarServicos) {
+      // 🔥 DEBUG
+      final existePrestador = await _verificarSeExistePrestadorComNome(termo);
+      _debugBusca(termo, existePrestador, deveBuscarServicos);
+
+      // 🔥 CORREÇÃO: Se tem categoria profissional selecionada, força busca por profissionais
+      if (_profissionalSelecionadoId?.isNotEmpty ?? false) {
+        await _buscarPrestadoresInteligente(termo);
+      } else if (deveBuscarServicos) {
         await _buscarServicosInteligente(termo);
       } else {
         await _buscarPrestadoresInteligente(termo);
       }
-
       // ===== APLICA FILTROS ADICIONAIS =====
       if (_resultados.isNotEmpty) {
         // 🔥 CORREÇÃO: Filtro de valor APENAS para serviços (não para profissionais)
@@ -991,102 +1060,6 @@ class BuscarServicosScreenState extends State<BuscarServicosScreen> {
     if (mounted) {
       setState(() {});
     }
-  }
-
-  /// 🔹 Decide se deve buscar serviços ou prestadores baseado nos filtros
-  bool _deveBuscarServicos(String termo) {
-    // ✅ CONDIÇÕES PARA BUSCAR SERVIÇOS:
-
-    // 1. Tem categoria de serviço selecionada
-    if (categoriaSelecionadaId?.isNotEmpty ?? false) {
-      return true;
-    }
-
-    // 2. Tem unidade de medida selecionada
-    if (_unidadeSelecionada?.isNotEmpty ?? false) {
-      return true;
-    }
-
-    // 3. Termo de busca parece ser um serviço (contém palavras-chave)
-    if (_termoPareceServico(termo)) {
-      return true;
-    }
-
-    // 4. Tem filtro de valor mínimo/máximo
-    if (minValueController.text.isNotEmpty ||
-        maxValueController.text.isNotEmpty) {
-      return true;
-    }
-
-    return false;
-  }
-
-  /// 🔹 Verifica se o termo de busca parece ser um serviço
-  bool _termoPareceServico(String termo) {
-    if (termo.isEmpty) return false;
-
-    final palavrasServico = [
-      'serviço',
-      'servico',
-      'reparo',
-      'conserto',
-      'manutenção',
-      'manutencao',
-      'instalação',
-      'instalacao',
-      'montagem',
-      'reforma',
-      'construção',
-      'construcao',
-      'pintura',
-      'elétrica',
-      'eletrica',
-      'encanamento',
-      'hidráulica',
-      'hidraulica',
-      'jardim',
-      'paisagismo',
-      'limpeza',
-      'dedetização',
-      'dedetizacao',
-    ];
-
-    final palavrasPrestador = [
-      'marcos',
-      'joão',
-      'josé',
-      'maria',
-      'ana',
-      'pedro',
-      'carlos',
-      'antônio',
-      'antonio',
-      'empresa',
-      'construtor',
-      'eletricista',
-      'encanador',
-      'pintor',
-      'pedreiro',
-      'marceneiro',
-    ];
-
-    // Se contém palavra de serviço, busca serviços
-    for (var palavra in palavrasServico) {
-      if (termo.contains(palavra)) {
-        return true;
-      }
-    }
-
-    // Se contém principalmente palavras de prestador, busca prestadores
-    int countPrestador = 0;
-    for (var palavra in palavrasPrestador) {
-      if (termo.contains(palavra)) {
-        countPrestador++;
-      }
-    }
-
-    return countPrestador ==
-        0; // Se não tem palavras de prestador, busca serviços
   }
 
   Future<BitmapDescriptor> _getCustomMarkerIcon(bool isProfissional) async {
@@ -1943,6 +1916,57 @@ class BuscarServicosScreenState extends State<BuscarServicosScreen> {
     );
   }
 
+/// 🔹 Verifica se existe algum prestador com o nome buscado (case-insensitive)
+Future<bool> _verificarSeExistePrestadorComNome(String termo) async {
+  if (termo.isEmpty) return false;
+  
+  try {
+    // 🔥 BUSCA CASE-INSENSITIVE: Remove acentos e converte para minúsculas
+    final termoNormalizado = _normalizarTexto(termo);
+    
+    final querySnapshot = await db
+        .collection(_colUsuarios)
+        .where('tipoPerfil', whereIn: ['Prestador', 'Ambos'])
+        .where('ativo', isEqualTo: true)
+        .get();
+
+    // 🔥 FILTRO LOCAL: Verifica se algum prestador tem o nome normalizado
+    for (final doc in querySnapshot.docs) {
+      final nomePrestador = (doc.data()['nome'] ?? '').toString();
+      final nomeNormalizado = _normalizarTexto(nomePrestador);
+      
+      if (nomeNormalizado.contains(termoNormalizado)) {
+        return true;
+      }
+    }
+
+    return false;
+  } catch (e) {
+    debugPrint('Erro ao verificar prestador com nome: $e');
+    return false;
+  }
+}
+
+/// 🔹 Normaliza texto para busca case-insensitive e sem acentos
+String _normalizarTexto(String texto) {
+  if (texto.isEmpty) return '';
+  
+  // Converte para minúsculas
+  texto = texto.toLowerCase();
+  
+  // Remove acentos
+  texto = texto
+      .replaceAll(RegExp(r'[áàâãä]'), 'a')
+      .replaceAll(RegExp(r'[éèêë]'), 'e')
+      .replaceAll(RegExp(r'[íìîï]'), 'i')
+      .replaceAll(RegExp(r'[óòôõö]'), 'o')
+      .replaceAll(RegExp(r'[úùûü]'), 'u')
+      .replaceAll(RegExp(r'[ç]'), 'c')
+      .replaceAll(RegExp(r'[ñ]'), 'n');
+  
+  return texto.trim();
+}
+
   Widget buildPrestadorCard(Map<String, dynamic> u) {
     final id = (u['id'] ?? '').toString();
     final nome = (u['nome'] ?? id).toString();
@@ -2526,36 +2550,10 @@ class BuscarServicosScreenState extends State<BuscarServicosScreen> {
           label,
           style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),
-        subtitle: FutureBuilder<int>(
-          future: _contarPrestadoresComPagamento(label),
-          builder: (context, snapshot) {
-            final count = snapshot.data ?? 0;
-            return Text(
-              '$count prestador(es) aceitam',
-              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-            );
-          },
-        ),
         controlAffinity: ListTileControlAffinity.leading,
         contentPadding: const EdgeInsets.symmetric(horizontal: 12),
       ),
     );
-  }
-
-  /// 🔹 Conta quantos prestadores aceitam um determinado meio de pagamento
-  Future<int> _contarPrestadoresComPagamento(String pagamento) async {
-    try {
-      final snap = await db
-          .collection(_colUsuarios)
-          .where('tipoPerfil', whereIn: ['Prestador', 'Ambos'])
-          .where('ativo', isEqualTo: true)
-          .where('meiosPagamentoAceitos', arrayContains: pagamento)
-          .get();
-
-      return snap.docs.length;
-    } catch (e) {
-      return 0;
-    }
   }
 
   void _selecionarData() async {

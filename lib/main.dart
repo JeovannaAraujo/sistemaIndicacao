@@ -25,7 +25,6 @@ Future<void> main() async {
 
   runApp(const MyApp());
 }
-
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
@@ -77,14 +76,18 @@ class MyApp extends StatelessWidget {
                 }
 
                 final data = userSnap.data!.data() as Map<String, dynamic>;
-                final tipoPerfil = (data['tipoPerfil'] ?? 'Cliente').toString();
+                final tipoPerfil = (data['tipoPerfil'] ?? 'Cliente').toString().toLowerCase();
 
-                if (tipoPerfil == 'Administrador') {
-                  return const PerfilAdminScreen();
-                } else if (tipoPerfil == 'Prestador') {
-                  return const HomePrestadorScreen();
-                } else {
-                  return const HomeScreen();
+                // 🔥 CORREÇÃO: Verificação completa de todos os tipos
+                switch (tipoPerfil) {
+                  case 'administrador':
+                    return const PerfilAdminScreen();
+                  case 'prestador':
+                    return const HomePrestadorScreen();
+                  case 'ambos':
+                    return const HomePrestadorScreen(); // ou PerfilAdminScreen()
+                  default: // cliente
+                    return const HomeScreen();
                 }
               },
             );

@@ -85,6 +85,8 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
   GoogleMapController? mapCtrl;
   LatLng? pickedLatLng; // pino atual (auto pelo CEP/endereço ou manual)
   bool _mapBusy = false;
+  bool _mapaValidado = false;
+  bool _tentouEnviar = false;
 
   // fallback de câmera (fixo Rio Verde)
   static const LatLng _fallbackCenter = LatLng(
@@ -97,14 +99,24 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
   static const double _sectionFontSize = 18; // tamanho fixo solicitado
   static const FontWeight _sectionFontWeight = FontWeight.w700;
 
-  Widget _section(String text) => Padding(
+  // Atualize os _section() para incluir asterisco nos obrigatórios
+  Widget _section(String text, {bool obrigatorio = false}) => Padding(
     padding: const EdgeInsets.only(top: 16, bottom: 8),
-    child: Text(
-      text,
-      style: const TextStyle(
-        fontSize: _sectionFontSize,
-        fontWeight: _sectionFontWeight,
-        color: Colors.deepPurple,
+    child: RichText(
+      text: TextSpan(
+        text: text,
+        style: const TextStyle(
+          fontSize: _sectionFontSize,
+          fontWeight: _sectionFontWeight,
+          color: Colors.deepPurple,
+        ),
+        children: [
+          if (obrigatorio)
+            const TextSpan(
+              text: ' *',
+              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+            ),
+        ],
       ),
     ),
   );
@@ -536,7 +548,6 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
   }
 
   // =============== AÇÕES DE MAPA (CEP / Endereço) ===============
-  // =============== AÇÕES DE MAPA (CEP / Endereço) ===============
   Future<void> _localizarPeloCEP() async {
     if (!isPrestador) return;
     final cep = cepController.text.replaceAll(RegExp(r'[^0-9]'), '');
@@ -549,11 +560,13 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
 
     setState(() => _mapBusy = true);
     try {
-      // 🔹 USA O MÉTODO coordsPorCep QUE JÁ FUNCIONA
       final latLng = await coordsPorCep(cepController.text);
 
       if (latLng != null) {
-        setState(() => pickedLatLng = latLng);
+        setState(() {
+          pickedLatLng = latLng;
+          _mapaValidado = true; // ✅ Marca como validado
+        });
 
         if (mapCtrl != null) {
           await mapCtrl!.animateCamera(
@@ -562,14 +575,17 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
             ),
           );
         }
-        // ignore: use_build_context_synchronously
+
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Pino posicionado pelo CEP.')),
+          const SnackBar(content: Text('Localização confirmada pelo CEP')),
         );
       } else {
-        // ignore: use_build_context_synchronously
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Não foi possível localizar esse CEP.')),
+          const SnackBar(
+            content: Text(
+              'Não foi possível localizar esse CEP. Toque no mapa.',
+            ),
+          ),
         );
       }
     } catch (e) {
@@ -587,7 +603,16 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
   // =============== CADASTRAR ===============
   // 🔹 Versão compatível com testes (sem alterar funcionamento)
   Future<void> cadastrar() async {
-    if (!formKey.currentState!.validate()) return;
+    setState(() => _tentouEnviar = true);
+
+    if (!formKey.currentState!.validate()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Por favor, corrija os campos destacados.'),
+        ),
+      );
+      return;
+    }
 
     if (senhaController.text != confirmarSenhaController.text) {
       ScaffoldMessenger.of(
@@ -596,21 +621,72 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
       return;
     }
 
+    // 🔥 VALIDAÇÃO DO MAPA PARA PRESTADORES
+    if (isPrestador && pickedLatLng == null && !_mapaValidado) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Por favor, confirme sua localização no mapa.'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+
+      // Rola até o mapa
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Scrollable.ensureVisible(
+          context,
+          duration: const Duration(milliseconds: 500),
+          curve: Curves.easeInOut,
+        );
+      });
+      return;
+    }
+
+    // 🔥 VALIDAÇÃO DE CAMPOS OBRIGATÓRIOS PARA PRESTADORES
     if (isPrestador) {
-      if (categoriaProfissionalId == null ||
-          tempoExperiencia.isEmpty ||
-          areasAtendimento.isEmpty) {
+      if (categoriaProfissionalId == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text(
-              'Preencha categoria, experiência e ao menos uma área de atendimento.',
-            ),
+            content: Text('Selecione uma categoria profissional.'),
           ),
         );
         return;
       }
 
-      // 🔸 usa _firestore injetável (FakeFirebaseFirestore nos testes)
+      if (tempoExperiencia.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Informe o tempo de experiência.')),
+        );
+        return;
+      }
+
+      if (areasAtendimento.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Adicione pelo menos uma área de atendimento.'),
+          ),
+        );
+        return;
+      }
+
+      if (meiosPagamento.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Selecione pelo menos um meio de pagamento.'),
+          ),
+        );
+        return;
+      }
+
+      if (jornada.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Selecione pelo menos um dia de trabalho.'),
+          ),
+        );
+        return;
+      }
+
+      // 🔹 Valida categoria ativa
       final catDoc = await _firestore
           .collection('categoriasProfissionais')
           .doc(categoriaProfissionalId)
@@ -806,7 +882,7 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // ====== Título: Informações Pessoais ======
-              _section('Informações Pessoais'),
+              _section('Informações Pessoais', obrigatorio: true),
 
               // Dados básicos
               TextFormField(
@@ -843,13 +919,16 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
                     .map((e) => DropdownMenuItem(value: e, child: Text(e)))
                     .toList(),
                 onChanged: (v) => setState(() => tipoPerfil = v as String),
-                decoration: _dec('Tipo de perfil'),
+                decoration: _dec('Tipo de perfil *'), // ✅ Adicionei o asterisco
+                validator: (v) => (v == null || v.toString().isEmpty)
+                    ? 'Selecione o tipo de perfil'
+                    : null, // ✅ VALIDADOR ADICIONADO
               ),
 
               const Divider(height: 32),
 
               // ====== Título: Endereço e Contato ======
-              _section('Endereço e Contato'),
+              _section('Endereço e Contato', obrigatorio: true),
 
               // Endereço
               TextFormField(
@@ -945,7 +1024,7 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
               if (isPrest) ...[
                 const SizedBox(height: 18),
                 const Text(
-                  'Confirme sua localização no mapa',
+                  'Confirme sua localização no mapa *',
                   style: TextStyle(
                     fontSize: _sectionFontSize,
                     fontWeight: _sectionFontWeight,
@@ -953,11 +1032,27 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
                   ),
                 ),
                 const SizedBox(height: 8),
+
+                // 🔥 CONTAINER COM BORDA DE VALIDAÇÃO
                 Container(
                   height: 260,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFE6E3F6)),
+                    border: Border.all(
+                      color:
+                          (_tentouEnviar &&
+                              pickedLatLng == null &&
+                              !_mapaValidado)
+                          ? Colors
+                                .red // 🔴 Borda vermelha se não validado
+                          : const Color(0xFFE6E3F6), // ⬜ Borda normal
+                      width:
+                          (_tentouEnviar &&
+                              pickedLatLng == null &&
+                              !_mapaValidado)
+                          ? 2.0
+                          : 1.0,
+                    ),
                   ),
                   clipBehavior: Clip.antiAlias,
                   child: Stack(
@@ -969,7 +1064,6 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
                         zoomGesturesEnabled: true,
                         rotateGesturesEnabled: true,
                         tiltGesturesEnabled: true,
-                        // ✅ permite gestos dentro do SingleChildScrollView
                         gestureRecognizers:
                             <Factory<OneSequenceGestureRecognizer>>{
                               Factory<OneSequenceGestureRecognizer>(
@@ -977,7 +1071,6 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
                               ),
                             },
                         onMapCreated: (c) => mapCtrl = c,
-                        // Fixo: inicia em Rio Verde
                         initialCameraPosition: const CameraPosition(
                           target: _fallbackCenter,
                           zoom: _fallbackZoom,
@@ -988,11 +1081,22 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
                               markerId: const MarkerId('picked'),
                               position: pickedLatLng!,
                               draggable: true,
-                              onDragEnd: (p) =>
-                                  setState(() => pickedLatLng = p),
+                              onDragEnd: (p) {
+                                setState(() {
+                                  pickedLatLng = p;
+                                  _mapaValidado =
+                                      true; // ✅ Marca como validado ao arrastar
+                                });
+                              },
                             ),
                         },
-                        onTap: (p) => setState(() => pickedLatLng = p),
+                        onTap: (p) {
+                          setState(() {
+                            pickedLatLng = p;
+                            _mapaValidado =
+                                true; // ✅ Marca como validado ao tocar
+                          });
+                        },
                       ),
                       if (_mapBusy)
                         Container(
@@ -1004,6 +1108,21 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
                     ],
                   ),
                 ),
+
+                // 🔥 MENSAGEM DE VALIDAÇÃO
+                if (_tentouEnviar && pickedLatLng == null && !_mapaValidado)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      'Confirme sua localização tocando no mapa',
+                      style: TextStyle(
+                        color: Colors.red.shade700,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+
                 const SizedBox(height: 6),
                 Row(
                   children: [
@@ -1017,9 +1136,14 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
                       child: Text(
                         pickedLatLng == null
                             ? 'Toque no mapa para posicionar o pino. Você pode arrastar para ajustar com precisão.'
-                            : 'Pino em: ${pickedLatLng!.latitude.toStringAsFixed(6)}, '
+                            : 'Localização confirmada: ${pickedLatLng!.latitude.toStringAsFixed(6)}, '
                                   '${pickedLatLng!.longitude.toStringAsFixed(6)}',
-                        style: const TextStyle(fontSize: 12),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: pickedLatLng == null
+                              ? Colors.grey
+                              : Colors.green.shade700,
+                        ),
                       ),
                     ),
                   ],
@@ -1030,7 +1154,7 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
 
               if (isPrest) ...[
                 // ====== Título: Informações Profissionais ======
-                _section('Informações Profissionais'),
+                _section('Informações Profissionais', obrigatorio: isPrestador),
 
                 // Categorias ativas
                 StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -1119,7 +1243,10 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
                 const SizedBox(height: 16),
 
                 // ====== Título: Cidade / Área de atendimento ======
-                _section('Cidade / Área de atendimento'),
+                _section(
+                  'Cidade / Área de atendimento',
+                  obrigatorio: isPrestador,
+                ),
 
                 TextField(
                   controller: areaAtendimentoInputController,
@@ -1159,7 +1286,10 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
                 const SizedBox(height: 16),
 
                 // ====== Título: Meios de pagamento aceitos ======
-                _section('Meios de pagamento aceitos'),
+                _section(
+                  'Meios de pagamento aceitos',
+                  obrigatorio: isPrestador,
+                ),
                 const Text(
                   'Os meios de pagamento servem apenas para informativo; o app não processa pagamentos.',
                   style: TextStyle(fontSize: 12, color: Colors.deepPurple),
@@ -1185,7 +1315,7 @@ class _CadastroUsuarioState extends State<CadastroUsuario> {
                 const SizedBox(height: 8),
 
                 // ====== Título: Jornada de Trabalho ======
-                _section('Jornada de Trabalho'),
+                _section('Jornada de Trabalho', obrigatorio: isPrestador),
                 const Text(
                   'Informe os dias em que você está disponível para prestar serviços.',
                   style: TextStyle(fontSize: 12, color: Colors.deepPurple),

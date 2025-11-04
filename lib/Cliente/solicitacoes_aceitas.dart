@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -197,7 +199,7 @@ class CategoriaRepoAceita {
 
 /* ========================= Card Aceita ========================= */
 
-class CardAceita extends StatelessWidget {
+class CardAceita extends StatefulWidget {
   final String id;
   final Map<String, dynamic> dados;
   final FirebaseFirestore? firestore;
@@ -209,17 +211,49 @@ class CardAceita extends StatelessWidget {
     this.firestore,
   });
 
+  @override
+  State<CardAceita> createState() => _CardAceitaState();
+}
+
+class _CardAceitaState extends State<CardAceita> {
   String _fmtMoeda(num? v) => v == null
       ? '—'
       : NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$').format(v);
   String _fmtData(dynamic ts) =>
       ts is Timestamp ? DateFormat('dd/MM/yyyy').format(ts.toDate()) : '—';
 
+  // 🔥 Timer para atualizar a contagem de dias
+  Timer? _timer;
 
-  // 🔥 Calcula dias desde o cancelamento
+  @override
+  void initState() {
+    super.initState();
+    // Inicia o timer para atualizar a cada hora
+    _startTimer();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _startTimer() {
+    // Atualiza a cada hora para refletir mudanças no texto
+    _timer = Timer.periodic(const Duration(hours: 1), (timer) {
+      if (mounted && _isCanceladaPrestador) {
+        setState(() {
+          // Força o rebuild para atualizar a contagem de dias
+        });
+      }
+    });
+  }
+
+  // 🔥 Calcula dias desde o cancelamento - MESMA LÓGICA DO SEU CÓDIGO
+  // 🔥 Calcula dias desde o cancelamento - CORREÇÃO
   int _diasDesdeCancelamento() {
-    final canceladaEm = dados['canceladaEm'] as Timestamp?;
-    final atualizadoEm = dados['atualizadoEm'] as Timestamp?;
+    final canceladaEm = widget.dados['canceladaEm'] as Timestamp?;
+    final atualizadoEm = widget.dados['atualizadoEm'] as Timestamp?;
     DateTime? dataCancelamento;
 
     if (canceladaEm != null) {
@@ -230,24 +264,67 @@ class CardAceita extends StatelessWidget {
 
     if (dataCancelamento == null) return 0;
 
-    return DateTime.now().difference(dataCancelamento).inDays;
+    // 🔥 CORREÇÃO: Calcula a diferença considerando apenas os dias completos
+    final hoje = DateTime.now();
+
+    // Cria datas sem hora/minuto/segundo para comparar apenas os dias
+    final dataCancelDia = DateTime(
+      dataCancelamento.year,
+      dataCancelamento.month,
+      dataCancelamento.day,
+    );
+    final hojeDia = DateTime(hoje.year, hoje.month, hoje.day);
+
+    final diferencaDias = hojeDia.difference(dataCancelDia).inDays;
+
+    print('🔍 DEBUG - Data cancelamento: $dataCancelDia');
+    print('🔍 DEBUG - Hoje: $hojeDia');
+    print('🔍 DEBUG - Dias desde cancelamento: $diferencaDias');
+
+    return diferencaDias;
   }
 
   // 🔥 Dias restantes para remoção
-  int get _diasRestantes => 3 - _diasDesdeCancelamento();
+  // 🔥 Dias restantes para remoção
+  int get _diasRestantes {
+    final diasDesde = _diasDesdeCancelamento();
+    final restantes = 3 - diasDesde;
+    print('🔍 DEBUG - Dias desde: $diasDesde | Dias restantes: $restantes');
+    return restantes;
+  }
 
   // 🔥 Verifica se é cancelada pelo prestador
-  bool get _isCanceladaPrestador => dados['status'] == 'cancelada_prestador';
+  bool get _isCanceladaPrestador =>
+      widget.dados['status'] == 'cancelada_prestador';
+
+  // 🔥 Texto dinâmico baseado nos dias restantes
+// 🔥 Texto dinâmico baseado nos dias restantes
+String get _textoRemocao {
+  final diasRestantes = _diasRestantes;
+  
+  print('🔍 DEBUG - Texto remoção: $diasRestantes dias restantes');
+  
+  if (diasRestantes > 1) {
+    return 'Este aviso será removido em $diasRestantes dias';
+  } else if (diasRestantes == 1) {
+    return 'Este aviso será removido amanhã';
+  } else if (diasRestantes == 0) {
+    return 'Este aviso será removido hoje';
+  } else {
+    // Caso já tenha passado dos 3 dias (não deveria acontecer devido ao filtro)
+    return 'Este aviso será removido em breve';
+  }
+}
 
   @override
   Widget build(BuildContext context) {
-    final fs = firestore ?? FirebaseFirestore.instance;
-    final prestadorId = (dados['prestadorId'] ?? '').toString();
-    final servico = (dados['servicoTitulo'] ?? '').toString();
-    final valor = (dados['valorProposto'] as num?);
-    final dataInicio = dados['dataInicioSugerida'];
-    final dataFinal = dados['dataFinalPrevista'];
-    (dados['status'] ?? '').toString();
+    final fs = widget.firestore ?? FirebaseFirestore.instance;
+    final prestadorId = (widget.dados['prestadorId'] ?? '').toString();
+    final servico = (widget.dados['servicoTitulo'] ?? '').toString();
+    final valor = (widget.dados['valorProposto'] as num?);
+    final dataInicio = widget.dados['dataInicioSugerida'];
+    final dataFinal = widget.dados['dataFinalPrevista'];
+    (widget.dados['status'] ?? '').toString();
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -437,20 +514,16 @@ class CardAceita extends StatelessWidget {
 
                   // Texto do motivo
                   Text(
-                    dados['motivoCancelamento']?.toString().trim() ??
+                    widget.dados['motivoCancelamento']?.toString().trim() ??
                         'Motivo não informado',
                     style: const TextStyle(fontSize: 13, color: Colors.black87),
                   ),
 
                   const SizedBox(height: 8),
 
-                  // Frase dinâmica sobre remoção
+                  // 🔥 FRASE DINÂMICA ATUALIZADA EM TEMPO REAL
                   Text(
-                    _diasRestantes > 1
-                        ? 'Este aviso será removido em $_diasRestantes dias'
-                        : _diasRestantes == 1
-                        ? 'Este aviso será removido amanhã'
-                        : 'Este aviso será removido hoje',
+                    _textoRemocao,
                     style: const TextStyle(
                       fontSize: 12,
                       color: Colors.black54,
@@ -472,7 +545,7 @@ class CardAceita extends StatelessWidget {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => VisualizarRespostaScreen(docId: id),
+                    builder: (_) => VisualizarRespostaScreen(docId: widget.id),
                   ),
                 );
               },
@@ -484,7 +557,8 @@ class CardAceita extends StatelessWidget {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => VisualizarSolicitacaoScreen(docId: id),
+                    builder: (_) =>
+                        VisualizarSolicitacaoScreen(docId: widget.id),
                   ),
                 );
               },
@@ -553,9 +627,9 @@ class CardAceita extends StatelessWidget {
     );
 
     if (confirmar == true && motivoCtl.text.trim().isNotEmpty) {
-      await (firestore ?? FirebaseFirestore.instance)
+      await (widget.firestore ?? FirebaseFirestore.instance)
           .collection('solicitacoesOrcamento')
-          .doc(id)
+          .doc(widget.id)
           .update({
             'status': 'cancelada',
             'motivoCancelamento': motivoCtl.text.trim(),

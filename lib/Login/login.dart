@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:myapp/Administrador/perfil_admin.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'cadastro_usuarios.dart';
@@ -67,7 +68,9 @@ class LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      final tipo = (doc.data()?['tipoPerfil']?.toString().toLowerCase() ?? 'cliente').trim();
+      final tipo =
+          (doc.data()?['tipoPerfil']?.toString().toLowerCase() ?? 'cliente')
+              .trim();
       final perfil = tipo.isEmpty ? 'cliente' : tipo;
 
       final prefs = await SharedPreferences.getInstance();
@@ -75,21 +78,38 @@ class LoginScreenState extends State<LoginScreen> {
 
       if (!mounted) return;
 
-      if (perfil == 'prestador') {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: widget.homePrestadorBuilder ??
-                (_) => const HomePrestadorScreen(key: Key('homePrestador')),
-          ),
-        );
-      } else {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: widget.homeClienteBuilder ?? (_) => const HomeScreen(),
-          ),
-        );
+      // 🔥 CORREÇÃO: Verificar TODOS os tipos de perfil
+      switch (perfil) {
+        case 'administrador':
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const PerfilAdminScreen(), // ✅ Vai para admin
+            ),
+          );
+          break;
+        case 'prestador':
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const HomePrestadorScreen()),
+          );
+          break;
+        case 'ambos':
+          // 🔥 Decide qual painel mostrar para usuários com ambos os perfis
+          // Pode mostrar um diálogo para escolher ou definir um padrão
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) =>
+                  const HomePrestadorScreen(), // ou PerfilAdminScreen()
+            ),
+          );
+          break;
+        default: // cliente
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const HomeScreen()),
+          );
       }
     } on FirebaseAuthException catch (e) {
       String msg;
@@ -176,7 +196,9 @@ class LoginScreenState extends State<LoginScreen> {
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(color: Colors.deepPurple),
+                            borderSide: const BorderSide(
+                              color: Colors.deepPurple,
+                            ),
                           ),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
@@ -205,7 +227,9 @@ class LoginScreenState extends State<LoginScreen> {
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(color: Colors.deepPurple),
+                            borderSide: const BorderSide(
+                              color: Colors.deepPurple,
+                            ),
                           ),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
